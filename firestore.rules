@@ -1,0 +1,217 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default Deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    // Função para verificar se quem está requisitando é administrador
+    function isAdmin() {
+      return isAuthenticated() && (
+        (request.auth.token.email != null && (
+          request.auth.token.email == "amigorefrigerista@gmail.com" ||
+          request.auth.token.email.lower() == "amigorefrigerista@gmail.com" ||
+          request.auth.token.email.matches('(?i)^.*@amigorefrigerista\\.com\\.br$')
+        )) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin')
+      );
+    }
+
+    // Função para verificar se quem está requisitando é equipe de suporte ou admin
+    function isSupportOrAdmin() {
+      return isAuthenticated() && (
+        isAdmin() ||
+        (request.auth.token.email != null && (
+          request.auth.token.email == "amigorefrigerista@gmail.com" ||
+          request.auth.token.email.lower() == "amigorefrigerista@gmail.com" ||
+          request.auth.token.email.matches('(?i)^.*@amigorefrigerista\\.com\\.br$')
+        )) ||
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+         (get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'support' ||
+          get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin'))
+      );
+    }
+
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function validStringLength(field, minLen, maxLen) {
+      return request.resource.data[field] is string &&
+        request.resource.data[field].size() >= minLen &&
+        request.resource.data[field].size() <= maxLen;
+    }
+
+    function isValidOptionalString(field, minLen, maxLen) {
+      return !(field in request.resource.data) ||
+             (request.resource.data[field] is string &&
+              request.resource.data[field].size() >= minLen &&
+              request.resource.data[field].size() <= maxLen);
+    }
+
+    // Domain Validators
+    function isValidClient() {
+      return hasRequiredFields(['name', 'address', 'phone', 'email', 'lat', 'lng', 'history', 'equipment', 'notes']) &&
+             validStringLength('name', 1, 200) &&
+             validStringLength('address', 0, 300) &&
+             validStringLength('phone', 0, 50) &&
+             validStringLength('email', 0, 150) &&
+             request.resource.data.lat is number &&
+             request.resource.data.lng is number &&
+             request.resource.data.history is list &&
+             request.resource.data.equipment is list &&
+             request.resource.data.notes is list;
+    }
+
+    function isValidNotification() {
+      return hasRequiredFields(['title', 'message', 'type', 'date', 'read']) &&
+             validStringLength('title', 1, 200) &&
+             validStringLength('message', 1, 1000) &&
+             request.resource.data.type in ['maintenance', 'pending_call', 'system'] &&
+             validStringLength('date', 1, 100) &&
+             request.resource.data.read is bool &&
+             isValidOptionalString('clientId', 0, 100);
+    }
+
+    function isValidSettings() {
+      return hasRequiredFields(['defaultMaintenanceInterval']) &&
+             request.resource.data.defaultMaintenanceInterval is number &&
+             request.resource.data.defaultMaintenanceInterval > 0;
+    }
+
+    function isValidInventoryItem() {
+      return hasRequiredFields(['name', 'category', 'quantity', 'unit', 'minQuantity', 'costPrice']) &&
+             validStringLength('name', 1, 250) &&
+             request.resource.data.category in ['gas', 'pipe', 'electric', 'hardware', 'other'] &&
+             request.resource.data.quantity is number &&
+             request.resource.data.unit in ['kg', 'm', 'un', 'mats'] &&
+             request.resource.data.minQuantity is number &&
+             request.resource.data.costPrice is number;
+    }
+
+    // Test connection endpoint
+    match /test/connection {
+      allow read: if true;
+    }
+
+    // Cada usuário só pode ler e alterar os seus próprios dados, ou equipe de suporte / admin
+    match /users/{userId} {
+      allow get: if isAuthenticated() && (request.auth.uid == userId || isSupportOrAdmin());
+      allow list: if isSupportOrAdmin();
+      allow write: if isAuthenticated() && (request.auth.uid == userId || isSupportOrAdmin() || isAdmin());
+
+      match /clients/{clientId} {
+        allow read: if isOwner(userId) || isSupportOrAdmin();
+        allow create: if (isOwner(userId) || isAdmin()) && isValidClient();
+        allow update: if (isOwner(userId) || isAdmin()) && isValidClient();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /notifications/{notificationId} {
+        allow read: if isOwner(userId) || isSupportOrAdmin();
+        allow create: if (isOwner(userId) || isSupportOrAdmin() || isAdmin()) && isValidNotification();
+        allow update: if isOwner(userId) || isSupportOrAdmin() || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /settings/{settingId} {
+        allow read: if isOwner(userId) || isSupportOrAdmin();
+        allow create: if (isOwner(userId) || isAdmin()) && isValidSettings();
+        allow update: if (isOwner(userId) || isAdmin()) && isValidSettings();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /inventory/{itemId} {
+        allow read: if isOwner(userId) || isSupportOrAdmin();
+        allow create: if (isOwner(userId) || isAdmin()) && isValidInventoryItem();
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /diagnosisLogs/{logId} {
+        allow read: if isOwner(userId) || isSupportOrAdmin();
+        allow create: if isOwner(userId) && hasRequiredFields(['id', 'userId', 'brand', 'code', 'timestamp', 'success']) &&
+                         validStringLength('id', 1, 100) &&
+                         validStringLength('userId', 1, 100) &&
+                         validStringLength('brand', 1, 150) &&
+                         validStringLength('code', 1, 50) &&
+                         request.resource.data.success is bool;
+        allow update: if false;
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /transactions/{transactionId} {
+        allow read: if isOwner(userId) || isSupportOrAdmin();
+        allow create: if isOwner(userId) && hasRequiredFields(['id', 'userId', 'desc', 'value', 'date', 'type']) &&
+                         validStringLength('id', 1, 100) &&
+                         validStringLength('userId', 1, 100) &&
+                         validStringLength('desc', 1, 200) &&
+                         request.resource.data.value is number &&
+                         validStringLength('date', 1, 50) &&
+                         request.resource.data.type in ['in', 'out'];
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /serviceOrders/{orderId} {
+        allow read: if isOwner(userId) || isSupportOrAdmin();
+        allow create: if isOwner(userId) && hasRequiredFields(['id', 'clientName', 'clientPhone', 'equipment', 'serviceDate', 'maintenanceIntervalMonths', 'autoScheduleReminder', 'userId']) &&
+                          validStringLength('id', 1, 100) &&
+                          validStringLength('clientName', 1, 200) &&
+                          validStringLength('clientPhone', 1, 50) &&
+                          validStringLength('equipment', 1, 300) &&
+                          validStringLength('serviceDate', 1, 50) &&
+                          request.resource.data.maintenanceIntervalMonths is number &&
+                          request.resource.data.autoScheduleReminder is bool &&
+                          validStringLength('userId', 1, 100);
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+
+      match /reminders/{reminderId} {
+        allow read: if isOwner(userId) || isSupportOrAdmin();
+        allow create: if isOwner(userId) && hasRequiredFields(['id', 'clientName', 'clientPhone', 'equipment', 'serviceDate', 'monthsInterval', 'userId']) &&
+                          validStringLength('id', 1, 100) &&
+                          validStringLength('clientName', 1, 200) &&
+                          validStringLength('clientPhone', 1, 50) &&
+                          validStringLength('equipment', 1, 300) &&
+                          validStringLength('serviceDate', 1, 50) &&
+                          request.resource.data.monthsInterval is number &&
+                          validStringLength('userId', 1, 100);
+        allow update: if isOwner(userId) || isAdmin();
+        allow delete: if isOwner(userId) || isAdmin();
+      }
+    }
+
+    // Coleção global de Licenças Gratuitas e Promocionais
+    match /licenses/{licenseId} {
+      allow read: if isAuthenticated();
+      allow create, delete: if isAdmin();
+      allow update: if isAdmin() || (
+        isAuthenticated() && 
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedCount', 'lastRedeemedAt'])
+      );
+
+      match /redemptions/{redemptionId} {
+        allow read: if isSupportOrAdmin();
+        allow create: if isAuthenticated();
+      }
+    }
+
+    // Regra geral para leitura e escrita por admins em coleções globais
+    match /{document=**} {
+      allow read, write: if isAdmin();
+    }
+  }
+}

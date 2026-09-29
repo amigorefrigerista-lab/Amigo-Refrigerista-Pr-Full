@@ -1,0 +1,8 @@
+{
+  "name": "Amigo Refrigerista Pro Full",
+  "description": "Ferramenta de aministração para técnicos de Refrigeração e Climatização.",
+  "permissions": [],
+  "capabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}

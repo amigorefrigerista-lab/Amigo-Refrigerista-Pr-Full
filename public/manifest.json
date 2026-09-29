@@ -1,0 +1,21 @@
+{
+  "name": "Amigo Refrigerista PRO",
+  "short_name": "RefrigeristaPRO",
+  "description": "Aplicativo profissional para técnicos de refrigeração e climatização (HVAC-R)",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070e1c",
+  "theme_color": "#070e1c",
+  "icons": [
+    {
+      "src": "/icon.png",
+      "sizes": "192x192",
+      "type": "image/png"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png"
+    }
+  ]
+}
