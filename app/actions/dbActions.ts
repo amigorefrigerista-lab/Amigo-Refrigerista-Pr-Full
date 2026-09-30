@@ -418,3 +418,30 @@ export async function deleteStockItemAction(id: number, userUid: string) {
     return false;
   }
 }
+
+// -------------------------------------------------------------
+// CONSULTA PÚBLICA DE ORDEM DE SERVIÇO / PMOC (VIA LINK WHATSAPP)
+// -------------------------------------------------------------
+export async function getPublicInstallationAction(orderNumberOrId: string) {
+  try {
+    if (!orderNumberOrId) return null;
+    const cleanId = decodeURIComponent(orderNumberOrId).trim();
+
+    // Tenta buscar por ID numérico
+    const numericId = parseInt(cleanId, 10);
+    if (!isNaN(numericId) && numericId > 0 && String(numericId) === cleanId) {
+      const byId = await db.select().from(installations).where(eq(installations.id, numericId)).limit(1);
+      if (byId && byId.length > 0) return byId[0];
+    }
+
+    // Tenta buscar por qrCode / número da OS (ex: OS-2026-0001)
+    const byQr = await db.select().from(installations).where(eq(installations.qrCode, cleanId)).limit(1);
+    if (byQr && byQr.length > 0) return byQr[0];
+
+    return null;
+  } catch (error) {
+    console.error('Error fetching public installation:', error);
+    return null;
+  }
+}
+

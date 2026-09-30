@@ -108,17 +108,19 @@ export interface SupabaseDiagnostic {
 export const supabaseService = {
   async signInWithGoogle(emailHint?: string, nameHint?: string) {
     const cleanedEmail = emailHint?.trim().toLowerCase();
-    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
-    const targetEmail = (cleanedEmail && cleanedEmail !== 'amigorefrigerista@gmail.com')
-      ? cleanedEmail
-      : `tecnico.${randomSuffix}@amigorefrigerista.pro`;
-    const targetName = nameHint?.trim() || (cleanedEmail ? cleanedEmail.split('@')[0] : `Técnico #${randomSuffix}`);
+    if (!cleanedEmail || !cleanedEmail.includes('@')) {
+      return { error: new Error('Informe um e-mail do Google válido para vincular sua conta real.') };
+    }
+    const targetEmail = cleanedEmail;
+    const formattedName = targetEmail.split('@')[0].replace(/[._-]/g, ' ').split(' ').filter(Boolean).map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+    const targetName = nameHint?.trim() || formattedName || 'Técnico';
+    const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(targetName)}&background=0284c7&color=fff&size=150&bold=true`;
 
     if (!isSupabaseConfigured) {
       const newUser = {
         id: 'usr-' + targetEmail.replace(/[^a-z0-9]/gi, ''),
         email: targetEmail,
-        user_metadata: { full_name: targetName, role: 'user', is_admin: false }
+        user_metadata: { full_name: targetName, avatar_url: avatarUrl, role: 'user', is_admin: false }
       };
       if (typeof window !== 'undefined') {
         localStorage.setItem('amigo_local_user', JSON.stringify(newUser));

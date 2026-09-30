@@ -314,14 +314,24 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         }
       }
 
-      // Provedor Google não está habilitado no Supabase:
-      // Cria a conta do técnico como USUÁRIO NORMAL isolado, NUNCA como administrador!
-      const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+      // Validação: Exige e-mail do Google válido para puxar e sincronizar os dados reais do usuário
       const cleanedEmail = emailHint?.trim().toLowerCase();
-      const targetEmail = (cleanedEmail && cleanedEmail !== ADMIN_EMAIL.toLowerCase())
-        ? cleanedEmail
-        : `tecnico.${randomSuffix}@amigorefrigerista.pro`;
-      const targetName = nameHint?.trim() || (cleanedEmail ? cleanedEmail.split('@')[0] : `Técnico #${randomSuffix}`);
+      if (!cleanedEmail || !cleanedEmail.includes('@')) {
+        return { 
+          error: new Error('NEED_GOOGLE_ACCOUNT') 
+        };
+      }
+
+      const targetEmail = cleanedEmail;
+      const formattedName = targetEmail
+        .split('@')[0]
+        .replace(/[._-]/g, ' ')
+        .split(' ')
+        .filter(Boolean)
+        .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+        .join(' ');
+      const targetName = nameHint?.trim() || formattedName || 'Técnico';
+      const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(targetName)}&background=0284c7&color=fff&size=150&bold=true`;
 
       if (isSupabaseConfigured) {
         try {
@@ -338,7 +348,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
               options: {
                 data: {
                   full_name: targetName,
-                  avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+                  avatar_url: avatarUrl,
                   provider: 'google',
                   role: 'user',
                   is_admin: false,
@@ -363,13 +373,13 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         }
       }
 
-      // Conta local de técnico (Perfil 100% comum/isolado)
+      // Conta local de técnico com dados REAIS do usuário
       const googleUser = {
         id: 'usr-' + targetEmail.replace(/[^a-z0-9]/gi, ''),
         email: targetEmail,
         user_metadata: {
           full_name: targetName,
-          avatar_url: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150',
+          avatar_url: avatarUrl,
           provider: 'google',
           role: 'user',
           is_admin: false,
@@ -384,20 +394,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       await syncProfile(googleUser);
       return { data: { user: googleUser }, error: null };
     } catch (err: any) {
-      console.error('Erro no 1-clique:', err);
-      const fallbackSuffix = Math.floor(100000 + Math.random() * 900000);
-      const fallbackUser = {
-        id: 'usr-fallback-' + fallbackSuffix,
-        email: `tecnico.${fallbackSuffix}@amigorefrigerista.pro`,
-        user_metadata: { full_name: nameHint?.trim() || `Técnico #${fallbackSuffix}`, role: 'user', is_admin: false }
-      };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('amigo_local_user', JSON.stringify(fallbackUser));
-      }
-      setRawUser(fallbackUser as any);
-      setSession({ access_token: 'google-oauth-token', user: fallbackUser } as any);
-      await syncProfile(fallbackUser);
-      return { data: { user: fallbackUser }, error: null };
+      console.error('Erro na autenticação Google:', err);
+      return { error: err };
     }
   }, [syncProfile]);
 
