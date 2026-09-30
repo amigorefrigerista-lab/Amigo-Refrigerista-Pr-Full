@@ -250,9 +250,10 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
           options: {
             redirectTo,
             skipBrowserRedirect: true,
+            scopes: 'email profile',
             queryParams: {
               access_type: 'offline',
-              prompt: 'consent',
+              prompt: 'select_account',
             },
           },
         });
