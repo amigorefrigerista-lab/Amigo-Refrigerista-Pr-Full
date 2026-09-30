@@ -35,6 +35,45 @@ export async function syncUserAction(userData: { uid: string; email: string; nam
   }
 }
 
+export async function getUserProfileAction(userUid: string) {
+  try {
+    if (!userUid) return null;
+    const res = await db.select().from(users).where(eq(users.uid, userUid)).limit(1);
+    return res[0] || null;
+  } catch (error) {
+    console.error('Error getting user profile from database:', error);
+    return null;
+  }
+}
+
+export async function updateUserProfileAction(userData: { uid: string; email: string; name: string; photoURL?: string }) {
+  try {
+    if (!userData.uid || !userData.email || !userData.name) return null;
+
+    const res = await db.insert(users)
+      .values({
+        uid: userData.uid,
+        email: userData.email,
+        name: userData.name,
+        photoURL: userData.photoURL || null,
+      })
+      .onConflictDoUpdate({
+        target: users.uid,
+        set: {
+          email: userData.email,
+          name: userData.name,
+          ...(userData.photoURL ? { photoURL: userData.photoURL } : {}),
+        },
+      })
+      .returning();
+
+    return res[0];
+  } catch (error) {
+    console.error('Error updating user profile in database:', error);
+    return null;
+  }
+}
+
 // -------------------------------------------------------------
 // CLIENTES
 // -------------------------------------------------------------

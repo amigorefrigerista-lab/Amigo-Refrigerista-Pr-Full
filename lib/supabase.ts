@@ -39,6 +39,7 @@ export interface SupabaseProfile {
   id: string;
   email: string;
   nome?: string;
+  name?: string;
   telefone?: string;
   empresa?: string;
   cnpj_cpf?: string;

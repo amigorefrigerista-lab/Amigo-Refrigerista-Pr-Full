@@ -64,7 +64,8 @@ import {
   Copy,
   ExternalLink,
   Globe,
-  SlidersHorizontal
+  SlidersHorizontal,
+  AlertTriangle
 } from 'lucide-react';
 import { 
   MaintenanceReminder, 
@@ -76,6 +77,7 @@ import {
 } from '@/lib/reminderUtils';
 import { WhatsAppTemplateModal } from '@/components/WhatsAppTemplateModal';
 import { GoogleConnectModal } from '@/components/GoogleConnectModal';
+import { ProfileUpdateModal } from '@/components/ProfileUpdateModal';
 import { RecurringRevenueCard } from '@/components/RecurringRevenueCard';
 import { VipWelcomeBanner } from '@/components/VipWelcomeBanner';
 import { UpgradeModal } from '@/components/UpgradeModal';
@@ -86,6 +88,8 @@ import { useRouter } from 'next/navigation';
 import Link from 'next/link';
 import { 
   syncUserAction,
+  getUserProfileAction,
+  updateUserProfileAction,
   getClientsAction,
   saveClientAction,
   deleteClientAction,
@@ -124,7 +128,19 @@ import {
 
 export default function AmigoApp() {
   const router = useRouter();
-  const { user, profile, loading: authLoading, isAdmin, isSupportOrAdmin, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut } = useAuth();
+  const { 
+    user, 
+    profile, 
+    loading: authLoading, 
+    isAdmin, 
+    isSupportOrAdmin, 
+    signInWithGoogle, 
+    signInWithEmail, 
+    signUpWithEmail, 
+    signOut,
+    updateProfileData,
+    refreshProfile
+  } = useAuth();
   
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
@@ -133,6 +149,46 @@ export default function AmigoApp() {
 
   const [activeTab, setActiveTab] = useState('dash');
   const [calcSubTab, setCalcSubTab] = useState<'sh_sub' | 'thermal' | 'pt_table'>('sh_sub');
+  const [showProfileUpdateModal, setShowProfileUpdateModal] = useState(false);
+
+  // Validação: Detecta se campos obrigatórios do perfil (nome, email) estão vazios
+  const isProfileIncomplete = useMemo(() => {
+    if (!user) return false;
+    const name = profile?.name?.trim() || user.displayName?.trim();
+    const email = profile?.email?.trim() || user.email?.trim();
+    return !name || !email || name === 'Técnico' || name === 'Usuário';
+  }, [user, profile?.name, profile?.email]);
+
+  // Alerta automático se o perfil no banco de dados estiver incompleto após login
+  useEffect(() => {
+    let isCancelled = false;
+    const verifyDatabaseProfile = async () => {
+      if (!user?.uid || authLoading) return;
+      try {
+        const dbUser = await getUserProfileAction(user.uid);
+        const nameVal = dbUser?.name?.trim() || profile?.name?.trim() || user.displayName?.trim();
+        const emailVal = dbUser?.email?.trim() || profile?.email?.trim() || user.email?.trim();
+
+        const isNameEmpty = !nameVal || nameVal === 'Técnico' || nameVal === 'Usuário';
+        const isEmailEmpty = !emailVal || !emailVal.includes('@');
+
+        if (isNameEmpty || isEmailEmpty) {
+          if (!isCancelled) {
+            toast.error(
+              'Atenção: Os campos obrigatórios do seu perfil (Nome e E-mail) estão vazios no banco de dados. Por favor, atualize seus dados!',
+              { duration: 8000, id: 'db-profile-incomplete-alert' }
+            );
+            setShowProfileUpdateModal(true);
+          }
+        }
+      } catch (err) {
+        console.warn('Erro ao verificar campos obrigatórios do perfil no banco:', err);
+      }
+    };
+
+    verifyDatabaseProfile();
+    return () => { isCancelled = true; };
+  }, [user, authLoading, profile?.name, profile?.email]);
 
   // HVAC Error Diagnoses State
   const [errorBrand, setErrorBrand] = useState('Daikin');
@@ -760,7 +816,7 @@ export default function AmigoApp() {
               if (emailInput.trim()) {
                 try {
                   setIsGoogleLoading(true);
-                  const { error } = await signInWithGoogle(emailInput.trim(), nameInput.trim());
+                  const { data, error } = await signInWithGoogle(emailInput.trim(), nameInput.trim());
                   if (error) {
                     if (error.message === 'NEED_GOOGLE_ACCOUNT') {
                       setShowGoogleModal(true);
@@ -768,7 +824,21 @@ export default function AmigoApp() {
                       toast.error(error.message || 'Falha na autenticação Google');
                     }
                   } else {
-                    toast.success('Conta Google conectada com sucesso! Seus dados reais foram sincronizados.');
+                    // Verificação pós-login: Checa se os campos obrigatórios (nome, email) foram preenchidos no banco
+                    const loggedUid = data?.user?.id;
+                    const dbUser = loggedUid ? await getUserProfileAction(loggedUid) : null;
+                    const finalName = dbUser?.name?.trim() || data?.user?.user_metadata?.full_name?.trim() || nameInput.trim();
+                    const finalEmail = dbUser?.email?.trim() || data?.user?.email?.trim() || emailInput.trim();
+
+                    if (!finalName || !finalEmail || finalName === 'Técnico' || finalName === 'Usuário') {
+                      toast.error(
+                        'Atenção: Os campos obrigatórios do seu perfil (Nome e E-mail) estão vazios no banco de dados. Por favor, atualize seus dados!',
+                        { duration: 8000, id: 'google-login-empty' }
+                      );
+                      setShowProfileUpdateModal(true);
+                    } else {
+                      toast.success(`Conta Google conectada com sucesso! Bem-vindo(a), ${finalName}!`);
+                    }
                   }
                 } catch (err: any) {
                   toast.error(err.message || 'Falha na autenticação Google');
@@ -991,6 +1061,30 @@ export default function AmigoApp() {
       />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* Alerta de Perfil Incompleto no Banco */}
+        {isProfileIncomplete && (
+          <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/10 animate-pulse">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 shrink-0">
+                <AlertTriangle size={20} />
+              </div>
+              <div>
+                <p className="text-xs font-black text-white">Campos Obrigatórios Incompletos no Banco de Dados</p>
+                <p className="text-[11px] text-amber-200/90 mt-0.5">
+                  Os campos obrigatórios (Nome e E-mail) estão vazios no banco. Atualize para assinar Ordens de Serviço e laudos.
+                </p>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowProfileUpdateModal(true)}
+              className="px-4 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs transition cursor-pointer shrink-0 shadow-md"
+            >
+              Atualizar Perfil Agora
+            </button>
+          </div>
+        )}
+
         {/* Banner de Boas-Vindas */}
         {profile?.role === 'admin' || (profile as any)?.isVip || profile?.subscription?.isLifetimeFree || profile?.subscription?.plan === 'pro_trial' || profile?.subscription?.plan === 'pro_paid' || profile?.subscription?.plan === 'pro' ? (
           <VipWelcomeBanner 
@@ -2585,11 +2679,46 @@ export default function AmigoApp() {
         onConnect={async (email, name) => {
           setEmailInput(email);
           setNameInput(name);
-          const { error } = await signInWithGoogle(email, name);
+          const { data, error } = await signInWithGoogle(email, name);
           if (error) {
             throw error;
           }
-          toast.success(`Conta Google conectada com sucesso! Bem-vindo, ${name}!`);
+
+          // Verificação pós-login com Google: Checa campos obrigatórios (nome, email) no banco
+          const loggedUid = data?.user?.id;
+          const dbUser = loggedUid ? await getUserProfileAction(loggedUid) : null;
+          const finalName = dbUser?.name?.trim() || name.trim();
+          const finalEmail = dbUser?.email?.trim() || email.trim();
+
+          if (!finalName || !finalEmail || finalName === 'Técnico' || finalName === 'Usuário') {
+            toast.error(
+              'Atenção: Os campos obrigatórios do seu perfil (Nome e E-mail) estão vazios no banco de dados. Atualize seus dados!',
+              { duration: 8000, id: 'google-modal-incomplete' }
+            );
+            setShowProfileUpdateModal(true);
+          } else {
+            toast.success(`Conta Google conectada com sucesso! Bem-vindo(a), ${finalName}!`);
+          }
+        }}
+      />
+
+      {/* Modal de Atualização de Campos Obrigatórios de Perfil */}
+      <ProfileUpdateModal
+        isOpen={showProfileUpdateModal}
+        onClose={() => setShowProfileUpdateModal(false)}
+        currentName={profile?.name || user?.displayName || nameInput}
+        currentEmail={profile?.email || user?.email || emailInput}
+        onSave={async (newName, newEmail) => {
+          if (user?.uid) {
+            await updateUserProfileAction({
+              uid: user.uid,
+              email: newEmail,
+              name: newName,
+              photoURL: `https://ui-avatars.com/api/?name=${encodeURIComponent(newName)}&background=0284c7&color=fff&size=150&bold=true`
+            });
+            await updateProfileData({ name: newName, email: newEmail });
+            await refreshProfile();
+          }
         }}
       />
 
