@@ -4,12 +4,13 @@
   "private": true,
   "scripts": {
     "dev": "next dev -p 3000",
-    "build": "rm -rf .next && next build",
+    "build": "next build",
     "start": "node server.ts",
     "lint": "next lint"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
+    "@supabase/supabase-js": "^2.117.2",
     "canvas-confetti": "^1.9.4",
     "clsx": "^2.1.1",
     "firebase": "^11.4.0",

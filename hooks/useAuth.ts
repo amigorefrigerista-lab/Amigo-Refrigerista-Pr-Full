@@ -1,12 +1,11 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
-import { doc, getDoc, setDoc, onSnapshot } from 'firebase/firestore';
+import { onAuthStateChanged, User as FirebaseUser } from 'firebase/auth';
+import { doc, setDoc, onSnapshot } from 'firebase/firestore';
 import { auth, db } from '@/firebase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { recordDeviceLogin } from '@/lib/deviceService';
-
-import { UserSubscription } from '@/lib/licenseService';
 
 export interface UserProfile {
   uid: string;
@@ -31,14 +30,109 @@ export interface UserProfile {
 export const ADMIN_EMAIL = 'amigorefrigerista@gmail.com';
 
 export function useAuth() {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<any | null>(null);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
+  const [authProvider, setAuthProvider] = useState<'supabase' | 'firebase'>('firebase');
 
   useEffect(() => {
+    let isSubscribed = true;
+
+    // Se o Supabase estiver configurado com credenciais válidas, usar Supabase Auth como prioridade
+    if (isSupabaseConfigured) {
+      setAuthProvider('supabase');
+
+      const initSupabaseAuth = async () => {
+        try {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user && isSubscribed) {
+            handleSupabaseUser(session.user);
+          } else if (isSubscribed) {
+            setProfile(null);
+            setUser(null);
+            setLoading(false);
+          }
+        } catch (err) {
+          console.warn('Erro ao obter sessão do Supabase:', err);
+          if (isSubscribed) setLoading(false);
+        }
+      };
+
+      const handleSupabaseUser = async (sbUser: any) => {
+        const normalizedEmail = sbUser.email?.toLowerCase().trim() || '';
+        const isAdminEmail = normalizedEmail === ADMIN_EMAIL || normalizedEmail.endsWith('@amigorefrigerista.com.br');
+        const role: 'admin' | 'support' | 'user' = isAdminEmail ? 'admin' : 'user';
+
+        const userProfile: UserProfile = {
+          uid: sbUser.id,
+          email: sbUser.email || '',
+          name: sbUser.user_metadata?.full_name || sbUser.user_metadata?.name || sbUser.email?.split('@')[0] || 'Técnico',
+          role,
+          subscription: {
+            plan: role === 'admin' ? 'pro' : 'free',
+            status: 'active',
+            updatedAt: new Date().toISOString(),
+          },
+          lastLoginAt: new Date().toISOString(),
+        };
+
+        if (isSubscribed) {
+          setUser({
+            uid: sbUser.id,
+            id: sbUser.id,
+            email: sbUser.email,
+            displayName: userProfile.name,
+            photoURL: sbUser.user_metadata?.avatar_url || null,
+          });
+          setProfile(userProfile);
+          setLoading(false);
+        }
+
+        // Tenta buscar/atualizar dados do perfil no Supabase
+        try {
+          const { data: profileData } = await supabase
+            .from('profiles')
+            .select('*')
+            .eq('id', sbUser.id)
+            .single();
+
+          if (profileData && isSubscribed) {
+            setProfile((prev) => prev ? {
+              ...prev,
+              name: profileData.nome || prev.name,
+              role: profileData.is_admin || isAdminEmail ? 'admin' : (profileData.role as any || prev.role),
+            } : null);
+          }
+        } catch (e) {
+          console.warn('Sync profile Supabase error:', e);
+        }
+      };
+
+      initSupabaseAuth();
+
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, session) => {
+        if (!isSubscribed) return;
+        if (session?.user) {
+          await handleSupabaseUser(session.user);
+        } else {
+          setUser(null);
+          setProfile(null);
+          setLoading(false);
+        }
+      });
+
+      return () => {
+        isSubscribed = false;
+        subscription.unsubscribe();
+      };
+    }
+
+    // Fallback: Firebase Auth caso o Supabase não esteja com as chaves inseridas ainda
+    setAuthProvider('firebase');
     let unsubscribeDoc: (() => void) | null = null;
 
-    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser) => {
+    const unsubscribeAuth = onAuthStateChanged(auth, async (currentUser: FirebaseUser | null) => {
+      if (!isSubscribed) return;
       setUser(currentUser);
 
       if (unsubscribeDoc) {
@@ -47,21 +141,8 @@ export function useAuth() {
       }
 
       if (currentUser) {
-        // Perform server-side token verification with firebase-applet-config credentials
-        try {
-          const idToken = await currentUser.getIdToken();
-          await fetch('/api/auth/verify', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ idToken })
-          });
-        } catch (verifyErr) {
-          console.warn('Server-side token verification warning:', verifyErr);
-        }
-
         const normalizedEmail = currentUser.email?.toLowerCase().trim() || '';
         const isAdminEmail = normalizedEmail === ADMIN_EMAIL || normalizedEmail.endsWith('@amigorefrigerista.com.br');
-
         const initialRole: 'admin' | 'support' | 'user' = isAdminEmail ? 'admin' : 'user';
         
         const initialProfile: UserProfile = {
@@ -81,6 +162,7 @@ export function useAuth() {
         // Real-time Firestore document sync
         const userDocRef = doc(db, 'users', currentUser.uid);
         unsubscribeDoc = onSnapshot(userDocRef, async (snap) => {
+          if (!isSubscribed) return;
           if (snap.exists()) {
             const data = snap.data();
             let role: 'admin' | 'support' | 'user' = initialRole;
@@ -109,7 +191,6 @@ export function useAuth() {
               deviceInfo: data.deviceInfo,
             });
           } else {
-            // Document creation for new user
             await setDoc(userDocRef, {
               uid: currentUser.uid,
               email: currentUser.email,
@@ -127,7 +208,6 @@ export function useAuth() {
           console.warn('Snapshot error on user doc:', err);
         });
 
-        // Record device login
         recordDeviceLogin(currentUser.uid).catch(console.warn);
       } else {
         setProfile(null);
@@ -136,6 +216,7 @@ export function useAuth() {
     });
 
     return () => {
+      isSubscribed = false;
       unsubscribeAuth();
       if (unsubscribeDoc) unsubscribeDoc();
     };
@@ -154,5 +235,7 @@ export function useAuth() {
     role,
     isAdmin,
     isSupportOrAdmin,
+    authProvider,
+    isSupabaseActive: isSupabaseConfigured,
   };
 }

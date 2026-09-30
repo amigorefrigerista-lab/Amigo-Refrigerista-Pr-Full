@@ -54,7 +54,10 @@ import {
   MessageSquare,
   CalendarCheck,
   BellRing,
-  Gift
+  Gift,
+  Copy,
+  ExternalLink,
+  Globe
 } from 'lucide-react';
 import { 
   MaintenanceReminder, 
@@ -179,6 +182,8 @@ export default function AmigoApp() {
   const [showPassword, setShowPassword] = useState(false);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(true);
+  const [domainAuthError, setDomainAuthError] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // Subscription & Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -1008,11 +1013,13 @@ export default function AmigoApp() {
           <button
             onClick={async () => {
               try {
+                setDomainAuthError(false);
                 const provider = new GoogleAuthProvider();
                 await signInWithPopup(auth, provider);
               } catch (err: any) {
                 if (err?.code === 'auth/unauthorized-domain') {
-                  toast.error('Domínio não autorizado no Firebase Auth. Adicione o domínio atual em Firebase Console > Authentication > Settings > Authorized domains.', { duration: 6000 });
+                  setDomainAuthError(true);
+                  toast.error('Domínio não autorizado no Firebase Auth.', { duration: 5000 });
                 } else {
                   toast.error(err.message || 'Falha no login com Google');
                 }
@@ -1024,6 +1031,49 @@ export default function AmigoApp() {
             <Sparkles className="w-4 h-4 text-sky-600" />
             <span>Entrar com Google em 1 Clique</span>
           </button>
+
+          {domainAuthError && (
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2 text-left">
+              <div className="flex items-center gap-2 font-bold text-amber-300">
+                <Globe className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Autorizar Domínio no Firebase</span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Para liberar o login com Google, adicione o domínio atual em <strong>Firebase Console &gt; Authentication &gt; Settings &gt; Authorized domains</strong>:
+              </p>
+              <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 font-mono text-[10px] text-cyan-300 break-all justify-between">
+                <span>{typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const host = typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app';
+                    navigator.clipboard.writeText(host);
+                    setCopiedDomain(true);
+                    toast.success('Domínio copiado!');
+                    setTimeout(() => setCopiedDomain(false), 2000);
+                  }}
+                  className="px-2 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center gap-1 shrink-0 cursor-pointer hover:bg-amber-400"
+                >
+                  <Copy size={12} />
+                  <span>{copiedDomain ? 'Copiado!' : 'Copiar'}</span>
+                </button>
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <a
+                  href="https://console.firebase.google.com/project/celestial-fragment-rpnh2/authentication/settings"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-sky-400 hover:text-sky-300 font-bold underline flex items-center gap-1"
+                >
+                  <span>Abrir Configurações do Firebase</span>
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+              <p className="text-[11px] text-emerald-400 font-medium border-t border-amber-500/20 pt-1.5">
+                💡 Ou faça login por <strong>E-mail e Senha</strong> logo abaixo!
+              </p>
+            </div>
+          )}
 
           <div className="relative flex items-center justify-center">
             <div className="border-t border-slate-800 w-full" />
