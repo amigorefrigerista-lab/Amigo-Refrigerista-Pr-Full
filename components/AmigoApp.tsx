@@ -1076,10 +1076,9 @@ export default function AmigoApp() {
     <div className="min-h-screen bg-[#070e1c] text-white pb-28 pt-16">
       <Toaster position="top-center" richColors theme="dark" />
       
-      {/* Header com os botões de Suporte, Admin e Novo Serviço */}
+      {/* Header com os botões de Suporte e Admin */}
       <Header 
         onOpenSettings={() => setShowSettingsModal(true)} 
-        onNewService={() => setShowOSModal(true)}
       />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -1598,22 +1597,33 @@ export default function AmigoApp() {
         {/* 3. ABA: CÁLCULO DE SUPERAQUECIMENTO, SUB-RESFRIAMENTO & CARGA TÉRMICA */}
         {activeTab === 'calc' && (
           <div className="space-y-6">
-            <div className="flex gap-2 p-1 bg-slate-900 border border-slate-800 rounded-2xl">
+            <div className="flex flex-wrap sm:flex-nowrap gap-1.5 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl">
               <button
+                type="button"
                 onClick={() => setCalcSubTab('sh_sub')}
-                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  calcSubTab === 'sh_sub' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' : 'text-slate-400'
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  calcSubTab === 'sh_sub' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 Superaquecimento & Sub-resfriamento
               </button>
               <button
+                type="button"
                 onClick={() => setCalcSubTab('thermal')}
-                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition cursor-pointer ${
-                  calcSubTab === 'thermal' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30' : 'text-slate-400'
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  calcSubTab === 'thermal' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-400 hover:text-white'
                 }`}
               >
                 Cálculo de BTU/h
+              </button>
+              <button
+                type="button"
+                onClick={() => setCalcSubTab('pt_table')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  calcSubTab === 'pt_table' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Tabela PxT (Pressão x Temp)
               </button>
             </div>
 
@@ -1768,6 +1778,93 @@ export default function AmigoApp() {
                   <p className="text-xs text-slate-400">
                     Sugerido: Modelo Split Inverter de {calculatedBtu >= 18000 ? `${(calculatedBtu/1000).toFixed(0)}k` : calculatedBtu >= 12000 ? '12.000 BTU/h' : '9.000 BTU/h'}
                   </p>
+                </div>
+              </div>
+            )}
+
+            {calcSubTab === 'pt_table' && (
+              <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h3 className="text-base font-bold text-white flex items-center gap-2">
+                      <Gauge className="w-5 h-5 text-sky-400" />
+                      <span>Tabela de Saturação Pressão x Temperatura (PxT)</span>
+                    </h3>
+                    <p className="text-xs text-slate-400 mt-1">
+                      Consulte a temperatura de evaporação e condensação para diagnosticar carga de gás.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-400 font-semibold">Gás:</span>
+                    <select
+                      value={selectedGas}
+                      onChange={(e) => setSelectedGas(e.target.value)}
+                      className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-sky-300 font-bold focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="R410A">R-410A</option>
+                      <option value="R32">R-32</option>
+                      <option value="R22">R-22</option>
+                      <option value="R134a">R-134a</option>
+                    </select>
+                  </div>
+                </div>
+
+                {/* Tabela de Referência Rápida */}
+                <div className="overflow-x-auto rounded-2xl border border-slate-800">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] uppercase border-b border-slate-800">
+                      <tr>
+                        <th className="p-3">Pressão (PSIG)</th>
+                        <th className="p-3">Pressão (Bar)</th>
+                        <th className="p-3">Temp. Saturação (°C)</th>
+                        <th className="p-3">Aplicação Típica</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-800/60 font-mono">
+                      {(() => {
+                        const ptData: Record<string, Array<{ psig: number; bar: number; temp: string; note: string }>> = {
+                          R410A: [
+                            { psig: 102, bar: 7.0, temp: '-1.0 °C', note: 'Evaporação Baixa (Risco de Gelo)' },
+                            { psig: 118, bar: 8.1, temp: '3.3 °C', note: 'Evaporação Ideal Ar Condicionado' },
+                            { psig: 130, bar: 9.0, temp: '6.7 °C', note: 'Evaporação Alta / Carga Térmica Alta' },
+                            { psig: 145, bar: 10.0, temp: '10.5 °C', note: 'Retorno Quente / Sobrecarga' },
+                            { psig: 335, bar: 23.1, temp: '40.0 °C', note: 'Condensação Típica (Ambiente 30°C)' },
+                            { psig: 390, bar: 26.9, temp: '48.0 °C', note: 'Condensação Alta / Condensador Sujo' },
+                          ],
+                          R32: [
+                            { psig: 105, bar: 7.2, temp: '-1.8 °C', note: 'Evaporação Baixa' },
+                            { psig: 125, bar: 8.6, temp: '4.2 °C', note: 'Evaporação Ideal Ar Condicionado' },
+                            { psig: 140, bar: 9.6, temp: '8.0 °C', note: 'Evaporação Alta' },
+                            { psig: 340, bar: 23.4, temp: '41.0 °C', note: 'Condensação Normal (Ambiente 30°C)' },
+                            { psig: 400, bar: 27.6, temp: '49.0 °C', note: 'Condensação Elevada' },
+                          ],
+                          R22: [
+                            { psig: 58, bar: 4.0, temp: '0.8 °C', note: 'Evaporação Baixa (Gelo no Tubo)' },
+                            { psig: 68, bar: 4.7, temp: '4.5 °C', note: 'Evaporação Ideal Ar Condicionado' },
+                            { psig: 75, bar: 5.2, temp: '7.2 °C', note: 'Evaporação Alta' },
+                            { psig: 225, bar: 15.5, temp: '43.0 °C', note: 'Condensação Típica' },
+                            { psig: 260, bar: 17.9, temp: '50.0 °C', note: 'Condensação Alta' },
+                          ],
+                          R134a: [
+                            { psig: 18, bar: 1.2, temp: '-5.0 °C', note: 'Congelador / Baixa' },
+                            { psig: 28, bar: 1.9, temp: '2.0 °C', note: 'Refrigerador Comercial Médio' },
+                            { psig: 35, bar: 2.4, temp: '6.5 °C', note: 'Climatizador Automotivo' },
+                            { psig: 135, bar: 9.3, temp: '41.0 °C', note: 'Condensação Normal' },
+                          ],
+                        };
+
+                        const rows = ptData[selectedGas] || ptData['R410A'];
+                        return rows.map((r, idx) => (
+                          <tr key={idx} className="hover:bg-slate-800/40 transition">
+                            <td className="p-3 text-sky-400 font-bold">{r.psig} psig</td>
+                            <td className="p-3 text-slate-300">{r.bar.toFixed(1)} bar</td>
+                            <td className="p-3 text-white font-bold">{r.temp}</td>
+                            <td className="p-3 text-slate-400 font-sans text-[11px]">{r.note}</td>
+                          </tr>
+                        ));
+                      })()}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             )}
@@ -2684,12 +2781,14 @@ export default function AmigoApp() {
       <button
         type="button"
         onClick={() => setShowOSModal(true)}
-        className="fixed bottom-20 right-4 sm:bottom-24 sm:right-8 z-40 px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs shadow-[0_10px_30px_rgba(16,185,129,0.45)] flex items-center gap-2 transition-transform hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/40"
-        title="Criar Novo Serviço (Nova OS)"
+        className="fixed bottom-20 right-4 sm:bottom-24 sm:right-8 z-40 px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs shadow-[0_10px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/40 group backdrop-blur-sm"
+        title="Criar Nova Ordem de Serviço"
       >
-        <Plus size={18} strokeWidth={3} className="text-slate-950" />
-        <span className="hidden sm:inline font-black tracking-wide">Novo Serviço (OS)</span>
-        <span className="sm:hidden font-black">Novo Serviço</span>
+        <div className="w-6 h-6 rounded-lg bg-slate-950/20 flex items-center justify-center group-hover:rotate-90 transition-transform shrink-0">
+          <Plus size={16} strokeWidth={3} className="text-slate-950" />
+        </div>
+        <span className="font-black tracking-wide hidden sm:inline">Novo Serviço (OS)</span>
+        <span className="font-black tracking-wide sm:hidden">Nova OS</span>
       </button>
 
       {/* Modal de Conexão com Conta Google Real */}
