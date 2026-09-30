@@ -4,6 +4,7 @@ import React, { createContext, useContext, useEffect, useState, useCallback, use
 import { User, Session, AuthError } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured, SupabaseProfile } from '@/lib/supabase';
 import { recordDeviceLogin } from '@/lib/deviceService';
+import { getUserProfileAction, syncUserAction } from '@/app/actions/dbActions';
 
 export interface AppUser {
   uid: string;
@@ -91,10 +92,24 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     const isEmailAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
     const defaultRole: 'admin' | 'support' | 'user' = isEmailAdmin ? 'admin' : 'user';
 
+    let initialName = sbUser.user_metadata?.full_name || sbUser.user_metadata?.name || normalizedEmail.split('@')[0] || 'Técnico';
+
+    // Recupera o nome persistido no PostgreSQL (se existir)
+    try {
+      if (sbUser.id) {
+        const dbUser = await getUserProfileAction(sbUser.id);
+        if (dbUser?.name) {
+          initialName = dbUser.name;
+        }
+      }
+    } catch (e) {
+      console.warn('Aviso ao consultar perfil no PostgreSQL:', e);
+    }
+
     const baseProfile: UserProfileState = {
       uid: sbUser.id,
       email: sbUser.email || '',
-      name: sbUser.user_metadata?.full_name || sbUser.user_metadata?.name || normalizedEmail.split('@')[0] || 'Técnico',
+      name: initialName,
       role: defaultRole,
       empresa: sbUser.user_metadata?.empresa || '',
       telefone: sbUser.user_metadata?.telefone || '',
@@ -386,8 +401,22 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         }
       };
 
+      // Persiste no PostgreSQL imediatamente para permanência dos dados
+      try {
+        await syncUserAction({
+          uid: googleUser.id,
+          email: targetEmail,
+          name: targetName,
+          photoURL: avatarUrl,
+        });
+      } catch (e) {
+        console.warn('Aviso ao sincronizar usuário no PostgreSQL:', e);
+      }
+
       if (typeof window !== 'undefined') {
         localStorage.setItem('amigo_local_user', JSON.stringify(googleUser));
+        localStorage.setItem('amigo_last_google_email', targetEmail);
+        localStorage.setItem('amigo_last_google_name', targetName);
       }
       setRawUser(googleUser as any);
       setSession({ access_token: 'google-oauth-token', user: googleUser } as any);
@@ -512,6 +541,41 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
   const updateProfileData = useCallback(async (updates: Partial<SupabaseProfile>) => {
     if (!rawUser) return;
+    const newName = updates.name || updates.nome;
+    const newEmail = updates.email || rawUser.email;
+
+    if (newName && rawUser.id) {
+      try {
+        await syncUserAction({
+          uid: rawUser.id,
+          email: newEmail || '',
+          name: newName,
+        });
+      } catch (e) {
+        console.warn('Erro ao atualizar PostgreSQL:', e);
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      if (newName) localStorage.setItem('amigo_last_google_name', newName);
+      if (newEmail) localStorage.setItem('amigo_last_google_email', newEmail);
+      
+      const stored = localStorage.getItem('amigo_local_user');
+      if (stored) {
+        try {
+          const parsed = JSON.parse(stored);
+          const updated = {
+            ...parsed,
+            user_metadata: {
+              ...parsed.user_metadata,
+              ...(newName ? { full_name: newName } : {}),
+            }
+          };
+          localStorage.setItem('amigo_local_user', JSON.stringify(updated));
+        } catch {}
+      }
+    }
+
     if (isSupabaseConfigured) {
       try {
         const { error } = await supabase
@@ -528,6 +592,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       setProfile(prev => prev ? { 
         ...prev, 
         ...updates,
+        name: newName || prev.name,
+        email: newEmail || prev.email,
         role: (updates.role as any) || prev.role
       } : null);
     }
