@@ -41,7 +41,7 @@ export default function PrivacyPolicyPage() {
               </div>
               <div className="p-3 rounded-xl bg-slate-900/80 border border-slate-800">
                 <span className="font-bold text-white block mb-1">Criptografia em Trânsito</span>
-                <span className="text-slate-300"><strong>Sim</strong> (Conexão 100% protegida via HTTPS/TLS 1.3 no Google Firebase).</span>
+                <span className="text-slate-300"><strong>Sim</strong> (Conexão 100% protegida via HTTPS/TLS 1.3 em servidores seguros na nuvem).</span>
               </div>
             </div>
           </div>
@@ -89,7 +89,7 @@ export default function PrivacyPolicyPage() {
               <Lock className="w-5 h-5" /> 4. Criptografia em Trânsito e Segurança da Informação
             </h2>
             <p className="text-slate-300 leading-relaxed">
-              Todos os dados trafegam através de canais 100% criptografados via protocolo <strong className="text-white">HTTPS / TLS 1.3</strong>. As informações são armazenadas nos servidores de altíssima segurança do <strong className="text-white">Google Firebase / Firestore</strong> com regras rigorosas de controle de acesso por função (RBAC), garantindo que somente você tenha acesso aos seus registros e clientes.
+              Todos os dados trafegam através de canais 100% criptografados via protocolo <strong className="text-white">HTTPS / TLS 1.3</strong>. As informações são armazenadas em servidores de altíssima segurança em nuvem com <strong className="text-white">Supabase e PostgreSQL</strong> com regras rigorosas de controle de acesso por função (RBAC), garantindo que somente você tenha acesso aos seus registros e clientes.
             </p>
           </section>
 

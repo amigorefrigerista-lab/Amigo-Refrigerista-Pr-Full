@@ -1,6 +1,12 @@
 'use client';
 
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
+
+const DashTab = lazy(() => import('@/components/tabs/DashTab'));
+const ErrorsTab = lazy(() => import('@/components/tabs/ErrorsTab'));
+const CalcTab = lazy(() => import('@/components/tabs/CalcTab'));
+const FinanceTab = lazy(() => import('@/components/tabs/FinanceTab'));
+const ClientsTab = lazy(() => import('@/components/tabs/ClientsTab'));
 import { 
   LayoutDashboard, 
   AlertCircle, 
@@ -74,25 +80,26 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
 import { useRouter } from 'next/navigation';
 import Link from 'next/link';
-import { auth, db } from '@/firebase';
 import { 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut, 
-  User,
-  createUserWithEmailAndPassword,
-  signInWithEmailAndPassword,
-  updateProfile
-} from 'firebase/auth';
-import { 
-  collection, 
-  doc, 
-  setDoc, 
-  onSnapshot, 
-  deleteDoc, 
-  getDocs, 
-  query 
-} from 'firebase/firestore';
+  syncUserAction,
+  getClientsAction,
+  saveClientAction,
+  deleteClientAction,
+  getQuotesAction,
+  saveQuoteAction,
+  updateQuoteStatusAction,
+  deleteQuoteAction,
+  getInstallationsAction,
+  saveInstallationAction,
+  updateInstallationStatusAction,
+  deleteInstallationAction,
+  getDiagnosesAction,
+  saveDiagnosisAction,
+  getStockAction,
+  saveStockItemAction,
+  updateStockQuantityAction,
+  deleteStockItemAction
+} from '@/app/actions/dbActions';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
@@ -113,7 +120,7 @@ import {
 
 export default function AmigoApp() {
   const router = useRouter();
-  const { user, profile, loading: authLoading, isAdmin, isSupportOrAdmin } = useAuth();
+  const { user, profile, loading: authLoading, isAdmin, isSupportOrAdmin, signInWithGoogle, signInWithEmail, signUpWithEmail, signOut } = useAuth();
   
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
@@ -130,29 +137,68 @@ export default function AmigoApp() {
   const [diagnosisResult, setDiagnosisResult] = useState<any>(null);
   const [diagnosisHistory, setDiagnosisHistory] = useState<any[]>([]);
 
-  // Synchronize Error Diagnosis Logs history from Firestore in real-time
+  // Carregar Dados do PostgreSQL via Server Actions
   useEffect(() => {
     if (!user) {
+      setClients([]);
+      setServiceOrders([]);
+      setReminders([]);
       setDiagnosisHistory([]);
       return;
     }
 
-    const logsCollectionRef = collection(db, 'users', user.uid, 'diagnosisLogs');
-    const unsubscribe = onSnapshot(
-      logsCollectionRef,
-      (snapshot) => {
-        const logs = snapshot.docs.map(docSnap => ({
-          id: docSnap.id,
-          ...docSnap.data()
-        })).sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-        setDiagnosisHistory(logs);
-      },
-      (err) => {
-        console.warn('Error reading diagnosis logs:', err);
-      }
-    );
+    // Sincronizar Usuário no PostgreSQL
+    syncUserAction({
+      uid: user.uid,
+      email: user.email || '',
+      name: user.displayName || undefined,
+      photoURL: user.photoURL || undefined,
+    }).catch(console.error);
 
-    return () => unsubscribe();
+    // Buscar Clientes
+    getClientsAction(user.uid)
+      .then((data) => {
+        if (data && data.length > 0) {
+          setClients(data);
+        }
+      })
+      .catch(console.error);
+
+    // Buscar Ordens de Serviço / Instalações
+    getInstallationsAction(user.uid)
+      .then((data) => {
+        if (data && data.length > 0) {
+          setServiceOrders(data.map((d: any) => ({
+            id: String(d.id),
+            clientName: d.clientName,
+            clientPhone: d.clientPhone || '',
+            clientAddress: d.address || '',
+            equipment: d.equipment,
+            brand: d.brand || '',
+            btus: d.btus || '',
+            type: d.type || 'instalacao',
+            status: d.status || 'agendado',
+            serviceDate: d.date,
+            value: d.value || 0,
+            notes: d.notes || '',
+            warrantyMonths: d.warrantyMonths || 12,
+            orderNumber: d.qrCode || `OS-${d.id}`,
+            maintenanceIntervalMonths: 6,
+            autoScheduleReminder: true,
+            reminderDaysBefore: 3,
+          })));
+        }
+      })
+      .catch(console.error);
+
+    // Buscar Histórico de Diagnósticos
+    getDiagnosesAction(user.uid)
+      .then((logs) => {
+        if (logs && logs.length > 0) {
+          setDiagnosisHistory(logs);
+        }
+      })
+      .catch(console.error);
   }, [user]);
 
   // Superheating & Subcooling State
@@ -257,171 +303,7 @@ export default function AmigoApp() {
   const [newTxType, setNewTxType] = useState<'in' | 'out'>('in');
   const [isAddingTx, setIsAddingTx] = useState(false);
 
-  // Sincronização em Tempo Real com o Firestore
-  useEffect(() => {
-    if (!user) {
-      // Se não houver usuário autenticado, mantemos o mock expandido acima
-      return;
-    }
 
-    const txCollectionRef = collection(db, 'users', user.uid, 'transactions');
-    const unsubscribe = onSnapshot(
-      txCollectionRef,
-      (snapshot) => {
-        if (snapshot.empty) {
-          // Auto-popular o banco do novo usuário com a base de dados realista para que ele já veja o gráfico montado!
-          const mockData = [
-            { id: 't1', desc: 'Instalação Tri-Split - Condomínio Alpha', value: 2450, date: '2026-09-28', type: 'in' },
-            { id: 't2', desc: 'Higienização + PMOC Academia Fit', value: 1200, date: '2026-09-24', type: 'in' },
-            { id: 't3', desc: 'Instalação Split Inverter 12k - Dr. Marcos', value: 650, date: '2026-09-21', type: 'in' },
-            { id: 't4', desc: 'Compra de Tubo de Cobre 1/4 e 3/8', value: 420, date: '2026-09-20', type: 'out' },
-            { id: 't5', desc: 'Manutenção Corretiva VRF Shopping', value: 3400, date: '2026-08-15', type: 'in' },
-            { id: 't6', desc: 'Ferramentas de Vácuo Pro', value: 950, date: '2026-08-10', type: 'out' },
-            { id: 't7', desc: 'Recarga de Gás R410A de 13.6kg', value: 680, date: '2026-08-02', type: 'out' },
-            { id: 't8', desc: 'PMOC Anual Escritório Advocacia', value: 2800, date: '2026-07-22', type: 'in' },
-            { id: 't9', desc: 'Troca de compressor 36000 BTU', value: 1450, date: '2026-07-15', type: 'in' },
-            { id: 't10', desc: 'Compra de Peças de Reposição e Filtros', value: 550, date: '2026-07-08', type: 'out' },
-            { id: 't11', desc: 'Instalação K7 48k Cassete - Galpão', value: 3100, date: '2026-06-25', type: 'in' },
-            { id: 't12', desc: 'Pagamento Auxiliar Diária', value: 300, date: '2026-06-24', type: 'out' },
-            { id: 't13', desc: 'Curso de Atualização Inverter Daikin', value: 450, date: '2026-06-05', type: 'out' }
-          ];
-
-          const promises = mockData.map(item => {
-            return setDoc(doc(db, 'users', user.uid, 'transactions', item.id), {
-              ...item,
-              userId: user.uid
-            });
-          });
-
-          Promise.all(promises).catch(err => {
-            console.warn('Erro ao popular base financeira inicial no Firestore:', err);
-          });
-        } else {
-          const items = snapshot.docs.map(docSnap => ({
-            id: docSnap.id,
-            ...docSnap.data()
-          })) as any[];
-          // Ordenar decrescente por data
-          items.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
-          setRevenueItems(items);
-        }
-      },
-      (err) => {
-        console.warn('Erro ao escutar transações financeiras:', err);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // Sincronização em Tempo Real de Lembretes do Firestore
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    const remindersCollectionRef = collection(db, 'users', user.uid, 'reminders');
-    const unsubscribe = onSnapshot(
-      remindersCollectionRef,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const items = snapshot.docs.map(docSnap => ({
-            id: docSnap.id,
-            ...docSnap.data()
-          })) as any[];
-          setReminders(items);
-        } else {
-          // Semeia lembretes padrão se estiver vazio
-          const mockReminders = [
-            {
-              id: 'rem-1',
-              clientName: 'Dr. Marcos Silveira',
-              clientPhone: '5511987654321',
-              equipment: 'Split Daikin Inverter 12.000 BTU/h',
-              serviceDate: '2026-03-28',
-              monthsInterval: 6,
-              status: 'pending',
-              createdAt: '2026-03-28'
-            },
-            {
-              id: 'rem-2',
-              clientName: 'Academia Fit Life',
-              clientPhone: '5511912345678',
-              equipment: 'Cassete Carrier 60.000 BTU/h',
-              serviceDate: '2026-06-28',
-              monthsInterval: 3,
-              status: 'pending',
-              createdAt: '2026-06-28'
-            }
-          ];
-          const promises = mockReminders.map(item => {
-            return setDoc(doc(db, 'users', user.uid, 'reminders', item.id), {
-              ...item,
-              userId: user.uid
-            });
-          });
-          Promise.all(promises).catch(err => console.warn('Erro ao criar lembretes mock inicial:', err));
-        }
-      },
-      (err) => {
-        console.warn('Erro ao escutar lembretes:', err);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // Sincronização em Tempo Real de Ordens de Serviço do Firestore
-  useEffect(() => {
-    if (!user) {
-      setServiceOrders([]);
-      return;
-    }
-
-    const serviceOrdersCollectionRef = collection(db, 'users', user.uid, 'serviceOrders');
-    const unsubscribe = onSnapshot(
-      serviceOrdersCollectionRef,
-      (snapshot) => {
-        const items = snapshot.docs.map(docSnap => ({
-          id: docSnap.id,
-          ...docSnap.data()
-        })) as ServiceOrder[];
-        items.sort((a, b) => new Date(b.serviceDate).getTime() - new Date(a.serviceDate).getTime());
-        setServiceOrders(items);
-      },
-      (err) => {
-        console.warn('Erro ao escutar ordens de serviço:', err);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user]);
-
-  // Sincronização em Tempo Real de Clientes do Firestore
-  useEffect(() => {
-    if (!user) {
-      return;
-    }
-
-    const clientsCollectionRef = collection(db, 'users', user.uid, 'clients');
-    const unsubscribe = onSnapshot(
-      clientsCollectionRef,
-      (snapshot) => {
-        if (!snapshot.empty) {
-          const items = snapshot.docs.map(docSnap => ({
-            id: docSnap.id,
-            ...docSnap.data()
-          })) as any[];
-          setClients(items);
-        }
-      },
-      (err) => {
-        console.warn('Erro ao escutar clientes:', err);
-      }
-    );
-
-    return () => unsubscribe();
-  }, [user]);
 
   // Agrupamento Mensal de Receitas vs Despesas para o Gráfico de Barras
   const monthlyChartData = useMemo(() => {
@@ -483,22 +365,13 @@ export default function AmigoApp() {
     };
 
     try {
-      if (user) {
-        await setDoc(doc(db, 'users', user.uid, 'transactions', newId), {
-          ...newTx,
-          userId: user.uid
-        });
-        toast.success('Transação gravada no Firestore!');
-      } else {
-        setRevenueItems(prev => [newTx, ...prev]);
-        toast.success('Transação adicionada temporariamente!');
-      }
-
+      setRevenueItems(prev => [newTx, ...prev]);
+      toast.success('Transação adicionada com sucesso!');
       setNewTxDesc('');
       setNewTxValue('');
     } catch (err) {
       console.error(err);
-      toast.error('Erro ao registrar transação no Firestore.');
+      toast.error('Erro ao registrar transação.');
     } finally {
       setIsAddingTx(false);
     }
@@ -506,13 +379,8 @@ export default function AmigoApp() {
 
   const handleDeleteTransaction = async (id: string) => {
     try {
-      if (user) {
-        await deleteDoc(doc(db, 'users', user.uid, 'transactions', id));
-        toast.success('Lançamento removido do Firestore!');
-      } else {
-        setRevenueItems(prev => prev.filter(item => item.id !== id));
-        toast.success('Lançamento removido localmente!');
-      }
+      setRevenueItems(prev => prev.filter(item => item.id !== id));
+      toast.success('Lançamento removido com sucesso!');
     } catch (err) {
       console.error(err);
       toast.error('Falha ao deletar lançamento.');
@@ -602,34 +470,32 @@ export default function AmigoApp() {
       setDiagnosisResult(res);
       toast.success('Diagnóstico técnico gerado com IA!');
 
-      // Salva o log de diagnóstico no Firestore para o histórico do usuário
+      // Salva o log de diagnóstico no banco de dados relacional (PostgreSQL)
       if (user) {
-        const logId = `log-${Date.now()}`;
-        const logPayload = {
-          id: logId,
-          userId: user.uid,
+        saveDiagnosisAction({
+          userUid: user.uid,
           brand: errorBrand,
           code: cleanCode.toUpperCase(),
-          timestamp: new Date().toISOString(),
-          success: true,
-          result: {
-            code: res.code || cleanCode.toUpperCase(),
-            brand: res.brand || errorBrand,
-            category: res.category || 'Diagnóstico Geral',
-            severity: res.severity || 'medium',
-            title: res.title || `Erro ${cleanCode.toUpperCase()}`,
-            description: res.description || '',
-            probableCauses: res.probableCauses || [],
-            stepByStepSolution: res.stepByStepSolution || [],
-            requiredTools: res.requiredTools || [],
-            safetyPrecautions: res.safetyPrecautions || [],
-            testProcedures: res.testProcedures || []
-          }
-        };
-
-        setDoc(doc(db, 'users', user.uid, 'diagnosisLogs', logId), logPayload).catch((writeErr) => {
-          console.warn('Erro assíncrono ao salvar histórico de diagnósticos no Firestore:', writeErr);
-        });
+          equipmentType: undefined,
+          result: res,
+        })
+          .then((saved) => {
+            if (saved) {
+              setDiagnosisHistory((prev) => [
+                {
+                  id: saved.id,
+                  brand: errorBrand,
+                  code: cleanCode.toUpperCase(),
+                  result: res,
+                  createdAt: saved.createdAt,
+                },
+                ...prev,
+              ]);
+            }
+          })
+          .catch((writeErr) => {
+            console.warn('Erro ao salvar histórico de diagnósticos no banco:', writeErr);
+          });
       }
     } catch (err: any) {
       toast.error(err.message || 'Falha ao consultar diagnóstico.');
@@ -660,14 +526,14 @@ export default function AmigoApp() {
     }
     setAuthSubmitting(true);
     try {
-      await signInWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
-      toast.success('Login efetuado com sucesso!');
-    } catch (err: any) {
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        toast.error('E-mail ou senha incorretos.');
+      const { error } = await signInWithEmail(emailInput.trim(), passwordInput);
+      if (error) {
+        toast.error(error.message || 'E-mail ou senha incorretos.');
       } else {
-        toast.error(err.message || 'Falha ao realizar login.');
+        toast.success('Login efetuado com sucesso!');
       }
+    } catch (err: any) {
+      toast.error(err.message || 'Falha ao realizar login.');
     } finally {
       setAuthSubmitting(false);
     }
@@ -694,29 +560,14 @@ export default function AmigoApp() {
 
     setAuthSubmitting(true);
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
-      const createdUser = userCred.user;
-      if (nameInput) {
-        await updateProfile(createdUser, { displayName: nameInput.trim() });
-      }
-
-      await setDoc(doc(db, 'users', createdUser.uid), {
-        uid: createdUser.uid,
-        email: createdUser.email,
-        name: nameInput.trim(),
-        phone: phoneInput.trim(),
-        document: documentInput.trim(),
-        role: createdUser.email?.toLowerCase() === 'amigorefrigerista@gmail.com' ? 'admin' : 'user',
-        createdAt: new Date().toISOString()
-      }, { merge: true });
-
-      toast.success('Conta criada com sucesso! Seja bem-vindo ao Amigo Refrigerista Pro.');
-    } catch (err: any) {
-      if (err.code === 'auth/email-already-in-use') {
-        toast.error('Este e-mail já está cadastrado. Faça login na guia "Entrar".');
+      const { error } = await signUpWithEmail(emailInput.trim(), passwordInput, nameInput.trim());
+      if (error) {
+        toast.error(error.message || 'Falha ao criar conta.');
       } else {
-        toast.error(err.message || 'Falha ao realizar cadastro.');
+        toast.success('Conta criada com sucesso! Seja bem-vindo ao Amigo Refrigerista Pro.');
       }
+    } catch (err: any) {
+      toast.error(err.message || 'Falha ao realizar cadastro.');
     } finally {
       setAuthSubmitting(false);
     }
@@ -762,99 +613,6 @@ export default function AmigoApp() {
     const targetDueDate = calculateNextMaintenanceDate(remServiceDate, remMonths);
     const alertDate = calculateReminderAlertDate(targetDueDate, remDaysBefore);
 
-    // 1. Cadastra ou atualiza o cliente automaticamente no banco de dados
-    const cleanPhone = remClientPhone.replace(/\D/g, '');
-    const existingClient = clients.find(c => {
-      const cPhone = (c.phone || '').replace(/\D/g, '');
-      return (cleanPhone && cPhone && (cPhone === cleanPhone || cPhone.endsWith(cleanPhone) || cleanPhone.endsWith(cPhone))) ||
-             (c.name && c.name.toLowerCase().trim() === remClientName.toLowerCase().trim());
-    });
-
-    let clientId = existingClient?.id;
-    if (!existingClient) {
-      clientId = `cli-${Date.now()}`;
-      const newClientData = {
-        id: clientId,
-        name: remClientName.trim(),
-        phone: remClientPhone.trim(),
-        address: remClientAddress.trim() || 'Endereço não informado',
-        email: '',
-        lat: -23.5505,
-        lng: -46.6333,
-        equipment: [
-          {
-            brand: remEquipment.split(' ')[0] || 'Geral',
-            model: remEquipment.trim(),
-            capacity: 'Padrão HVAC',
-            gas: 'R410A / R32',
-            lastMaintenance: remServiceDate
-          }
-        ],
-        history: [
-          {
-            date: remServiceDate,
-            service: `OS #${orderNumber} - ${remEquipment.trim()}`,
-            equipment: remEquipment.trim(),
-            orderNumber: orderNumber,
-            notes: remNotes.trim()
-          }
-        ],
-        notes: remNotes.trim() ? [remNotes.trim()] : []
-      };
-
-      setClients(prev => [newClientData, ...prev]);
-
-      if (user) {
-        setDoc(doc(db, 'users', user.uid, 'clients', clientId), newClientData).catch(err => {
-          console.warn('Erro ao salvar novo cliente no Firestore:', err);
-        });
-      }
-    } else {
-      // Atualiza cliente existente com nova data de manutenção e histórico de OS
-      const updatedEquipments = existingClient.equipment ? [...existingClient.equipment] : [];
-      const eqIdx = updatedEquipments.findIndex((eq: any) => eq.model?.toLowerCase() === remEquipment.toLowerCase().trim());
-      if (eqIdx >= 0) {
-        updatedEquipments[eqIdx] = {
-          ...updatedEquipments[eqIdx],
-          lastMaintenance: remServiceDate
-        };
-      } else {
-        updatedEquipments.push({
-          brand: remEquipment.split(' ')[0] || 'Geral',
-          model: remEquipment.trim(),
-          capacity: 'Padrão HVAC',
-          gas: 'R410A / R32',
-          lastMaintenance: remServiceDate
-        });
-      }
-
-      const updatedHistory = existingClient.history ? [...existingClient.history] : [];
-      updatedHistory.unshift({
-        date: remServiceDate,
-        service: `OS #${orderNumber} - ${remEquipment.trim()}`,
-        equipment: remEquipment.trim(),
-        orderNumber: orderNumber,
-        notes: remNotes.trim()
-      });
-
-      const updatedClientData = {
-        ...existingClient,
-        address: remClientAddress.trim() || existingClient.address || '',
-        phone: remClientPhone.trim() || existingClient.phone || '',
-        equipment: updatedEquipments,
-        history: updatedHistory
-      };
-
-      setClients(prev => prev.map(c => c.id === existingClient.id ? updatedClientData : c));
-
-      if (user) {
-        setDoc(doc(db, 'users', user.uid, 'clients', existingClient.id), updatedClientData).catch(err => {
-          console.warn('Erro ao atualizar cliente no Firestore:', err);
-        });
-      }
-    }
-
-    // 2. Criação da Ordem de Serviço com número automático
     const newOS: ServiceOrder = {
       id: orderId,
       orderNumber: orderNumber,
@@ -870,70 +628,49 @@ export default function AmigoApp() {
       createdAt: new Date().toISOString()
     };
 
-    // 3. Criação do Lembrete Automático com dias de antecedência configurados
-    if (autoScheduleReminder) {
-      const reminderId = `rem-${Date.now()}`;
-      const newRem: MaintenanceReminder = {
-        id: reminderId,
-        orderNumber: orderNumber,
-        clientName: remClientName.trim(),
-        clientPhone: remClientPhone.trim(),
-        clientAddress: remClientAddress.trim(),
-        equipment: remEquipment.trim(),
-        serviceDate: remServiceDate,
-        monthsInterval: remMonths,
-        reminderDaysBefore: remDaysBefore,
-        alertDate: alertDate,
-        nextServiceDate: targetDueDate,
-        technicianName: profile?.name || user?.displayName || 'Técnico Amigo Refrigerista',
-        notes: remNotes.trim(),
-        status: 'pending',
-        createdAt: new Date().toISOString()
-      };
-
+    try {
       if (user) {
-        try {
-          await setDoc(doc(db, 'users', user.uid, 'reminders', reminderId), {
-            ...newRem,
-            userId: user.uid
-          }, { merge: true });
-        } catch (err) {
-          console.warn('Erro ao salvar lembrete no Firestore:', err);
-        }
+        await saveClientAction({
+          userUid: user.uid,
+          name: remClientName.trim(),
+          phone: remClientPhone.trim(),
+          address: remClientAddress.trim(),
+          notes: remNotes.trim(),
+        });
+
+        await saveInstallationAction({
+          userUid: user.uid,
+          clientName: remClientName.trim(),
+          clientPhone: remClientPhone.trim(),
+          equipment: remEquipment.trim(),
+          type: 'instalacao',
+          status: 'agendado',
+          date: remServiceDate,
+          address: remClientAddress.trim(),
+          value: 0,
+          notes: remNotes.trim(),
+          warrantyMonths: 12,
+          qrCode: orderNumber,
+        });
+
+        toast.success(`Ordem de Serviço #${orderNumber} criada com sucesso no PostgreSQL!`);
       } else {
-        setReminders(prev => [newRem, ...prev]);
+        toast.success(`Ordem de Serviço #${orderNumber} criada localmente!`);
       }
-    }
 
-    // 4. Salva a Ordem de Serviço
-    if (user) {
-      try {
-        await setDoc(doc(db, 'users', user.uid, 'serviceOrders', orderId), {
-          ...newOS,
-          userId: user.uid,
-          createdAt: new Date().toISOString()
-        }, { merge: true });
-        toast.success(`Ordem de Serviço #${orderNumber} criada com sucesso e cliente cadastrado!`);
-      } catch (err) {
-        console.warn('Erro ao salvar OS no Firestore:', err);
-        toast.error('Erro ao salvar Ordem de Serviço.');
-      }
-    } else {
       setServiceOrders(prev => [newOS, ...prev]);
-      toast.success(`Ordem de Serviço #${orderNumber} criada com sucesso e cliente cadastrado localmente!`);
+      setShowOSModal(false);
+
+      // Limpa campos
+      setRemClientName('');
+      setRemClientPhone('');
+      setRemClientAddress('');
+      setRemEquipment('');
+      setRemNotes('');
+    } catch (err: any) {
+      console.error(err);
+      toast.error('Erro ao salvar Ordem de Serviço.');
     }
-
-    setShowOSModal(false);
-
-    // Limpa campos
-    setRemClientName('');
-    setRemClientPhone('');
-    setRemClientAddress('');
-    setRemEquipment('');
-    setRemNotes('');
-    setRemServiceDate(new Date().toISOString().split('T')[0]);
-    setRemDaysBefore(3);
-    setAutoScheduleReminder(true);
   };
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1013,16 +750,12 @@ export default function AmigoApp() {
           <button
             onClick={async () => {
               try {
-                setDomainAuthError(false);
-                const provider = new GoogleAuthProvider();
-                await signInWithPopup(auth, provider);
-              } catch (err: any) {
-                if (err?.code === 'auth/unauthorized-domain') {
-                  setDomainAuthError(true);
-                  toast.error('Domínio não autorizado no Firebase Auth.', { duration: 5000 });
-                } else {
-                  toast.error(err.message || 'Falha no login com Google');
+                const { error } = await signInWithGoogle();
+                if (error) {
+                  toast.error(error.message || 'Falha no login com Google');
                 }
+              } catch (err: any) {
+                toast.error(err.message || 'Falha no login com Google');
               }
             }}
             type="button"
@@ -1031,49 +764,6 @@ export default function AmigoApp() {
             <Sparkles className="w-4 h-4 text-sky-600" />
             <span>Entrar com Google em 1 Clique</span>
           </button>
-
-          {domainAuthError && (
-            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2 text-left">
-              <div className="flex items-center gap-2 font-bold text-amber-300">
-                <Globe className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Autorizar Domínio no Firebase</span>
-              </div>
-              <p className="text-[11px] text-slate-300 leading-relaxed">
-                Para liberar o login com Google, adicione o domínio atual em <strong>Firebase Console &gt; Authentication &gt; Settings &gt; Authorized domains</strong>:
-              </p>
-              <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 font-mono text-[10px] text-cyan-300 break-all justify-between">
-                <span>{typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app'}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const host = typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app';
-                    navigator.clipboard.writeText(host);
-                    setCopiedDomain(true);
-                    toast.success('Domínio copiado!');
-                    setTimeout(() => setCopiedDomain(false), 2000);
-                  }}
-                  className="px-2 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center gap-1 shrink-0 cursor-pointer hover:bg-amber-400"
-                >
-                  <Copy size={12} />
-                  <span>{copiedDomain ? 'Copiado!' : 'Copiar'}</span>
-                </button>
-              </div>
-              <div className="flex items-center justify-between pt-1">
-                <a
-                  href="https://console.firebase.google.com/project/celestial-fragment-rpnh2/authentication/settings"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] text-sky-400 hover:text-sky-300 font-bold underline flex items-center gap-1"
-                >
-                  <span>Abrir Configurações do Firebase</span>
-                  <ExternalLink size={12} />
-                </a>
-              </div>
-              <p className="text-[11px] text-emerald-400 font-medium border-t border-amber-500/20 pt-1.5">
-                💡 Ou faça login por <strong>E-mail e Senha</strong> logo abaixo!
-              </p>
-            </div>
-          )}
 
           <div className="relative flex items-center justify-center">
             <div className="border-t border-slate-800 w-full" />
@@ -2563,7 +2253,7 @@ export default function AmigoApp() {
             {/* Sair da Conta */}
             <button
               onClick={async () => {
-                await signOut(auth);
+                await signOut();
                 setShowSettingsModal(false);
                 toast.success('Você saiu da sua conta.');
               }}

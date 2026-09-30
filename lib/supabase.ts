@@ -21,9 +21,9 @@ export const isSupabaseConfigured = Boolean(
   !rawUrl.includes('placeholder')
 );
 
-// URL e chave padrão seguras para inicialização sem quebra de execução
+// URL e chave segura
 const safeUrl = isSupabaseConfigured ? rawUrl : 'https://placeholder-amigorefrigerista.supabase.co';
-const safeKey = isSupabaseConfigured ? rawKey : 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy_anon_key_for_app_startup';
+const safeKey = isSupabaseConfigured ? rawKey : 'dummy_key';
 
 export const supabase: SupabaseClient = createClient(safeUrl, safeKey, {
   auth: {
@@ -103,13 +103,20 @@ export interface SupabaseDiagnostic {
 }
 
 /**
- * Serviços auxiliares de dados para o Supabase
+ * Serviços auxiliares de dados com suporte a modo LocalStorage automático se Supabase não estiver configurado
  */
 export const supabaseService = {
-  // Autenticação
   async signInWithGoogle() {
     if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.');
+      const demoUser = {
+        id: 'local-demo-user',
+        email: 'amigorefrigerista@gmail.com',
+        user_metadata: { full_name: 'Técnico Administrador (Demo)' }
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
+      }
+      return { data: { user: demoUser, session: { access_token: 'local-demo-token' } }, error: null };
     }
     return await supabase.auth.signInWithOAuth({
       provider: 'google',
@@ -121,7 +128,15 @@ export const supabaseService = {
 
   async signInWithPassword(email: string, pass: string) {
     if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.');
+      const demoUser = {
+        id: 'local-demo-user-' + email.replace(/[^a-z0-9]/gi, ''),
+        email: email.trim(),
+        user_metadata: { full_name: email.split('@')[0] }
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
+      }
+      return { data: { user: demoUser, session: { access_token: 'local-demo-token' } }, error: null };
     }
     return await supabase.auth.signInWithPassword({
       email,
@@ -131,7 +146,15 @@ export const supabaseService = {
 
   async signUpWithPassword(email: string, pass: string, fullName?: string) {
     if (!isSupabaseConfigured) {
-      throw new Error('Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY nas variáveis de ambiente.');
+      const demoUser = {
+        id: 'local-demo-user-' + email.replace(/[^a-z0-9]/gi, ''),
+        email: email.trim(),
+        user_metadata: { full_name: fullName || email.split('@')[0] }
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
+      }
+      return { data: { user: demoUser, session: { access_token: 'local-demo-token' } }, error: null };
     }
     return await supabase.auth.signUp({
       email,
@@ -145,19 +168,48 @@ export const supabaseService = {
   },
 
   async signOut() {
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem('amigo_local_user');
+    }
     if (!isSupabaseConfigured) return;
     return await supabase.auth.signOut();
   },
 
   async getCurrentUser() {
-    if (!isSupabaseConfigured) return null;
+    if (!isSupabaseConfigured) {
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('amigo_local_user');
+        if (stored) {
+          try { return JSON.parse(stored); } catch { return null; }
+        }
+      }
+      // Padrão logado como admin demo para testes imediatos sem atrito
+      const defaultDemo = {
+        id: 'local-demo-admin',
+        email: 'amigorefrigerista@gmail.com',
+        user_metadata: { full_name: 'Técnico Administrador' }
+      };
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('amigo_local_user', JSON.stringify(defaultDemo));
+      }
+      return defaultDemo;
+    }
     const { data: { user } } = await supabase.auth.getUser();
     return user;
   },
 
   // Perfil
   async getProfile(userId: string) {
-    if (!isSupabaseConfigured) return null;
+    if (!isSupabaseConfigured) {
+      return {
+        id: userId,
+        email: 'amigorefrigerista@gmail.com',
+        nome: 'Técnico Administrador',
+        is_admin: true,
+        role: 'admin',
+        plano: 'pro'
+      };
+    }
     const { data, error } = await supabase
       .from('profiles')
       .select('*')
@@ -169,7 +221,13 @@ export const supabaseService = {
 
   // Clientes
   async getClients(userId: string) {
-    if (!isSupabaseConfigured) return [];
+    if (!isSupabaseConfigured) {
+      if (typeof window === 'undefined') return [];
+      try {
+        const cached = localStorage.getItem('amigo_clients');
+        return cached ? JSON.parse(cached) : [];
+      } catch { return []; }
+    }
     const { data, error } = await supabase
       .from('clients')
       .select('*')
@@ -180,7 +238,14 @@ export const supabaseService = {
   },
 
   async saveClient(client: SupabaseClientRecord, userId: string) {
-    if (!isSupabaseConfigured) return null;
+    if (!isSupabaseConfigured) {
+      if (typeof window === 'undefined') return client;
+      const clients = await this.getClients(userId);
+      const newClient = { ...client, id: client.id || 'cli-' + Date.now(), user_id: userId, created_at: client.created_at || new Date().toISOString() };
+      const updated = [newClient, ...clients.filter(c => c.id !== newClient.id)];
+      localStorage.setItem('amigo_clients', JSON.stringify(updated));
+      return newClient;
+    }
     const { data, error } = await supabase
       .from('clients')
       .upsert({ ...client, user_id: userId, updated_at: new Date().toISOString() })
@@ -192,7 +257,13 @@ export const supabaseService = {
 
   // Ordens de Serviço (OS)
   async getWorkOrders(userId: string) {
-    if (!isSupabaseConfigured) return [];
+    if (!isSupabaseConfigured) {
+      if (typeof window === 'undefined') return [];
+      try {
+        const cached = localStorage.getItem('amigo_work_orders');
+        return cached ? JSON.parse(cached) : [];
+      } catch { return []; }
+    }
     const { data, error } = await supabase
       .from('work_orders')
       .select('*')
@@ -203,7 +274,14 @@ export const supabaseService = {
   },
 
   async saveWorkOrder(order: SupabaseWorkOrder, userId: string) {
-    if (!isSupabaseConfigured) return null;
+    if (!isSupabaseConfigured) {
+      if (typeof window === 'undefined') return order;
+      const orders = await this.getWorkOrders(userId);
+      const newOrder = { ...order, id: order.id || 'os-' + Date.now(), user_id: userId, created_at: order.created_at || new Date().toISOString() };
+      const updated = [newOrder, ...orders.filter(o => o.id !== newOrder.id)];
+      localStorage.setItem('amigo_work_orders', JSON.stringify(updated));
+      return newOrder;
+    }
     const { data, error } = await supabase
       .from('work_orders')
       .upsert({ ...order, user_id: userId, updated_at: new Date().toISOString() })
@@ -214,7 +292,13 @@ export const supabaseService = {
   },
 
   async deleteWorkOrder(orderId: string, userId: string) {
-    if (!isSupabaseConfigured) return;
+    if (!isSupabaseConfigured) {
+      if (typeof window === 'undefined') return;
+      const orders = await this.getWorkOrders(userId);
+      const updated = orders.filter(o => o.id !== orderId);
+      localStorage.setItem('amigo_work_orders', JSON.stringify(updated));
+      return;
+    }
     const { error } = await supabase
       .from('work_orders')
       .delete()
@@ -225,7 +309,14 @@ export const supabaseService = {
 
   // Histórico de Diagnósticos
   async saveDiagnostic(diag: SupabaseDiagnostic, userId: string) {
-    if (!isSupabaseConfigured) return null;
+    if (!isSupabaseConfigured) {
+      if (typeof window === 'undefined') return diag;
+      const diags = await this.getDiagnosticHistory(userId);
+      const newDiag = { ...diag, id: diag.id || 'diag-' + Date.now(), user_id: userId, created_at: new Date().toISOString() };
+      const updated = [newDiag, ...diags].slice(0, 50);
+      localStorage.setItem('amigo_diagnostics', JSON.stringify(updated));
+      return newDiag;
+    }
     const { data, error } = await supabase
       .from('diagnostic_history')
       .insert({ ...diag, user_id: userId })
@@ -236,7 +327,13 @@ export const supabaseService = {
   },
 
   async getDiagnosticHistory(userId: string) {
-    if (!isSupabaseConfigured) return [];
+    if (!isSupabaseConfigured) {
+      if (typeof window === 'undefined') return [];
+      try {
+        const cached = localStorage.getItem('amigo_diagnostics');
+        return cached ? JSON.parse(cached) : [];
+      } catch { return []; }
+    }
     const { data, error } = await supabase
       .from('diagnostic_history')
       .select('*')

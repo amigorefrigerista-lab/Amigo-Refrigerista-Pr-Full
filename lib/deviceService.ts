@@ -1,5 +1,4 @@
-import { doc, getDoc, setDoc } from 'firebase/firestore';
-import { db } from '@/firebase';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 
 export interface DeviceInfo {
   deviceId: string;
@@ -32,14 +31,19 @@ export async function recordDeviceLogin(userId: string): Promise<DeviceInfo> {
   };
 
   try {
-    const userDocRef = doc(db, 'users', userId);
-    await setDoc(userDocRef, {
-      lastActiveDevice: deviceId,
-      lastLoginAt: now,
-      deviceInfo: info,
-    }, { merge: true });
+    if (isSupabaseConfigured) {
+      await supabase
+        .from('profiles')
+        .update({
+          last_active_device: deviceId,
+          last_login_at: now,
+          device_info: info,
+          updated_at: now,
+        })
+        .eq('id', userId);
+    }
   } catch (err) {
-    console.warn('Could not record device login:', err);
+    console.warn('Could not record device login in Supabase:', err);
   }
 
   return info;

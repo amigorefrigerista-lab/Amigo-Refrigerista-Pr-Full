@@ -38,22 +38,72 @@ function normalizeBrand(brand: string): string {
 }
 
 /**
- * Validador estrito dos campos obrigatórios do diagnóstico (título, causas prováveis e solução passo a passo)
+ * Sanitiza e extrai JSON puro de respostas da IA, removendo blocos markdown e artefatos de texto
  */
-function isValidDiagnosis(res: any): boolean {
-  if (!res || typeof res !== 'object') return false;
+function parseStrictJson(rawText?: string): any {
+  if (!rawText || typeof rawText !== 'string') return null;
 
-  const hasValidTitle = typeof res.title === 'string' && res.title.trim().length >= 3;
-  const hasValidCauses =
+  let cleaned = rawText.trim();
+
+  // Remove marcações de bloco markdown de código (```json ... ``` ou ``` ...)
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '');
+
+  // Localiza o primeiro '{' e o último '}' para isolar o objeto JSON
+  const firstBrace = cleaned.indexOf('{');
+  const lastBrace = cleaned.lastIndexOf('}');
+
+  if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
+    cleaned = cleaned.slice(firstBrace, lastBrace + 1);
+  }
+
+  // Tenta o parse direto
+  try {
+    return JSON.parse(cleaned);
+  } catch (err) {
+    // Tenta remover vírgulas residuais antes de chaves ou colchetes de fechamento
+    try {
+      const sanitized = cleaned
+        .replace(/,\s*([}\]])/g, '$1')
+        .replace(/[\u201C\u201D]/g, '"');
+      return JSON.parse(sanitized);
+    } catch {
+      return null;
+    }
+  }
+}
+
+/**
+ * Verificação rigorosa dos campos obrigatórios do diagnóstico:
+ * - title: string não vazia (mínimo 3 caracteres)
+ * - probableCauses: array contendo ao menos 1 item textual válido
+ * - stepByStepSolution: array contendo ao menos 1 passo prático válido
+ */
+function validateRequiredFields(res: any): { isValid: boolean; missingFields: string[] } {
+  const missing: string[] = [];
+
+  if (!res || typeof res !== 'object') {
+    return { isValid: false, missingFields: ['objeto_json_invalido'] };
+  }
+
+  const hasTitle = typeof res.title === 'string' && res.title.trim().length >= 3;
+  if (!hasTitle) missing.push('título (title)');
+
+  const hasCauses =
     Array.isArray(res.probableCauses) &&
     res.probableCauses.length > 0 &&
     res.probableCauses.some((c: any) => typeof c === 'string' && c.trim().length > 0);
-  const hasValidSolution =
+  if (!hasCauses) missing.push('causas prováveis (probableCauses)');
+
+  const hasSolution =
     Array.isArray(res.stepByStepSolution) &&
     res.stepByStepSolution.length > 0 &&
     res.stepByStepSolution.some((s: any) => typeof s === 'string' && s.trim().length > 0);
+  if (!hasSolution) missing.push('solução passo a passo (stepByStepSolution)');
 
-  return Boolean(hasValidTitle && hasValidCauses && hasValidSolution);
+  return {
+    isValid: missing.length === 0,
+    missingFields: missing,
+  };
 }
 
 // -------------------------------------------------------------
@@ -542,28 +592,6 @@ const BRAND_CODE_DATABASE: Record<string, DiagnosisResult> = {
     safetyPrecautions: ['Aguardar descarga de capacitores antes de desconectar motores BLDC'],
     testProcedures: ['Teste de tensões do motor BLDC (Vdc, Vcc, Vsp, Vfg)']
   },
-  'lg:CH21': {
-    code: 'CH21',
-    brand: 'LG',
-    category: 'Compressor / Inversor',
-    severity: 'critical',
-    title: 'LG: Sobrecorrente de Pico DC (Módulo IPM / Compressor)',
-    description: 'Pico de sobrecorrente instantânea no estágio inversor de potência (IPM) que aciona o compressor Dual Inverter da LG.',
-    probableCauses: [
-      'Compressor com enrolamentos em curto ou travado mecanicamente',
-      'Módulo IPM da placa externa em curto-circuito',
-      'Excesso de carga de gás ou obstrução mecânica gerando alta pressão de descarga'
-    ],
-    stepByStepSolution: [
-      'Desligue o disjuntor e aguarde 5 minutos',
-      'Desconecte os cabos do compressor e meça a resistência ôhmica entre as 3 fases U, V e W (devem apresentar resistências idênticas entre si, geralmente 0.8Ω a 3.0Ω)',
-      'Meça isolamento das fases para o aterramento / carcaça (>10 MΩ)',
-      'Teste os diodos do módulo IPM na placa com o multímetro na escala de diodo'
-    ],
-    requiredTools: ['Multímetro Digital', 'Megômetro', 'Manifold'],
-    safetyPrecautions: ['Barramento DC retém mais de 300V por vários minutos após o desligamento'],
-    testProcedures: ['Medição de resistência U-V-W e teste de ponte inversora IPM']
-  },
 
   // MIDEA / SPRINGER
   'midea:EC': {
@@ -632,28 +660,6 @@ const BRAND_CODE_DATABASE: Record<string, DiagnosisResult> = {
     safetyPrecautions: ['Desenergizar o equipamento antes da manutenção'],
     testProcedures: ['Teste de sinal de comunicação e continuidade de condutores']
   },
-  'gree:F0': {
-    code: 'F0',
-    brand: 'Gree',
-    category: 'Fluido / Vazamento',
-    severity: 'high',
-    title: 'Gree: Proteção por Falta / Vazamento de Fluido Refrigerante',
-    description: 'Compressor em funcionamento sem variação de temperatura detectada na serpentina, acionando o bloqueio preventivo Gree.',
-    probableCauses: [
-      'Vazamento total ou parcial de fluido refrigerante',
-      'Sensor de serpentina descalibrado',
-      'Válvulas de serviço esquecidas fechadas após instalação'
-    ],
-    stepByStepSolution: [
-      'Instale o manifold e certifique-se de que as válvulas de sucção e líquido estão 100% abertas',
-      'Meça a pressão de trabalho com o compressor ativo',
-      'Faça busca minuciosa de vazamentos nas flanges com detector ou espuma',
-      'Refaça as flanges, efetue vácuo e complete a carga por balança'
-    ],
-    requiredTools: ['Manifold Digital', 'Detector de Vazamento', 'Balança de Carga'],
-    safetyPrecautions: ['Usar óculos e luvas de proteção contra queimaduras de refrigerante'],
-    testProcedures: ['Pressurização com nitrogênio e cálculo de superaquecimento']
-  },
 
   // SAMSUNG
   'samsung:E101': {
@@ -680,6 +686,177 @@ const BRAND_CODE_DATABASE: Record<string, DiagnosisResult> = {
   }
 };
 
+/**
+ * Constrói uma estrutura de dados de fallback técnica, amigável e completa
+ */
+function buildFriendlyFallback(brand: string, query: string): DiagnosisResult {
+  const cleanBrand = brand.trim();
+  const rawQuery = query.trim();
+  const lowerQuery = rawQuery.toLowerCase();
+  const cleanCode = rawQuery.toUpperCase().replace(/\s+/g, '');
+  const normalizedBrandName = normalizeBrand(cleanBrand);
+  const compositeKey = `${normalizedBrandName}:${cleanCode}`;
+
+  // 1. Busca no catálogo oficial de códigos
+  if (BRAND_CODE_DATABASE[compositeKey]) {
+    return {
+      ...BRAND_CODE_DATABASE[compositeKey],
+      brand: cleanBrand,
+      code: rawQuery,
+    };
+  }
+
+  // 2. Busca por aliases
+  if (normalizedBrandName === 'lg') {
+    const lgKey = `lg:CH${cleanCode.replace(/^CH/i, '')}`;
+    if (BRAND_CODE_DATABASE[lgKey]) {
+      return {
+        ...BRAND_CODE_DATABASE[lgKey],
+        brand: cleanBrand,
+        code: rawQuery,
+      };
+    }
+  }
+
+  if (normalizedBrandName === 'fujitsu') {
+    const fujitsuKey = `fujitsu:E:${cleanCode.replace(/^E:?/i, '')}`;
+    if (BRAND_CODE_DATABASE[fujitsuKey]) {
+      return {
+        ...BRAND_CODE_DATABASE[fujitsuKey],
+        brand: cleanBrand,
+        code: rawQuery,
+      };
+    }
+  }
+
+  // 3. Heurísticas baseadas em grandezas físicas do fabricante
+  const isComm = cleanCode.includes('CH05') || cleanCode.includes('U4') || cleanCode.includes('E6') || cleanCode.includes('E101') || cleanCode.includes('COM') || lowerQuery.includes('comunic') || lowerQuery.includes('sinal');
+  const isSensor = cleanCode.includes('TH') || cleanCode.includes('C4') || cleanCode.includes('C9') || cleanCode.includes('CH01') || cleanCode.includes('CH02') || cleanCode.includes('E121') || lowerQuery.includes('sensor') || lowerQuery.includes('sonda') || lowerQuery.includes('termistor');
+  const isPower = cleanCode.includes('L5') || cleanCode.includes('P4') || cleanCode.includes('CH21') || cleanCode.includes('E464') || cleanCode.includes('IPM') || lowerQuery.includes('inversor') || lowerQuery.includes('sobrecorrente') || lowerQuery.includes('compressor');
+  const isLeak = cleanCode === 'EC' || cleanCode === 'F0' || cleanCode === 'U0' || lowerQuery.includes('vazam') || lowerQuery.includes('gas') || lowerQuery.includes('gás');
+
+  if (isLeak) {
+    return {
+      code: rawQuery,
+      brand: cleanBrand,
+      category: 'Fluido / Vazamento',
+      severity: 'high',
+      title: `${cleanBrand}: Verificação de Carga e Vazamento de Fluido (${rawQuery})`,
+      description: `O sistema da ${cleanBrand} apresenta indício de perda de carga de refrigerante ou restrição no fluxo frigorígeno.`,
+      probableCauses: [
+        'Vazamento de fluido refrigerante nas porcas flange ou serpentinas',
+        'Válvulas de serviço esquecidas fechadas após intervenção',
+        'Sensor de temperatura da serpentina descalibrado'
+      ],
+      stepByStepSolution: [
+        'Instale o manifold e meça as pressões de sucção e trabalho em carga',
+        'Inspecione todas as conexões flangeadas com detector eletrônico de vazamento ou espuma',
+        'Faça vácuo abaixo de 500 microns e realize recarga por peso (balança digital)'
+      ],
+      requiredTools: ['Manifold Digital', 'Balança Frigorífica', 'Bomba de Vácuo', 'Detector de Vazamento'],
+      safetyPrecautions: ['Usar óculos e luvas de proteção térmica'],
+      testProcedures: ['Teste de estanqueidade com Nitrogênio pressurizado a 400 PSI']
+    };
+  }
+
+  if (isComm) {
+    return {
+      code: rawQuery,
+      brand: cleanBrand,
+      category: 'Comunicação Serial',
+      severity: 'high',
+      title: `${cleanBrand}: Falha de Comunicação Serial entre Unidades (${rawQuery})`,
+      description: `Interrupção na linha de transmissão de dados entre a placa eletrônica evaporadora e a condensadora ${cleanBrand}.`,
+      probableCauses: [
+        'Cabo de sinal serial rompido, invertido nos bornes ou com emenda oxidada',
+        'Interferência eletromagnética por ausência de aterramento dedicado',
+        'Placa eletrônica condensadora desenergizada ou com fusível queimado'
+      ],
+      stepByStepSolution: [
+        'Verifique os bornes de interligação de comando e reaperte os parafusos',
+        'Meça a tensão de sinal serial com multímetro True-RMS na escala DC (deve oscilar continuamente)',
+        'Verifique se os LEDs de status da placa externa estão piscando'
+      ],
+      requiredTools: ['Multímetro True-RMS', 'Chaves Isoladas', 'Alicate Decapador'],
+      safetyPrecautions: ['Desligar o disjuntor geral antes de manusear os bornes'],
+      testProcedures: ['Medição de tensão DC pulsante de comunicação e teste de continuidade']
+    };
+  }
+
+  if (isPower) {
+    return {
+      code: rawQuery,
+      brand: cleanBrand,
+      category: 'Compressor / Inversor',
+      severity: 'critical',
+      title: `${cleanBrand}: Proteção de Sobrecorrente no Inversor / Compressor (${rawQuery})`,
+      description: `Pico de corrente ou perda de sincronismo no acionamento do compressor ${cleanBrand}.`,
+      probableCauses: [
+        'Compressor com enrolamentos em curto ou rotor travado mecanicamente',
+        'Módulo IPM da placa externa danificado',
+        'Queda severa na tensão de alimentação durante a partida'
+      ],
+      stepByStepSolution: [
+        'Desligue o disjuntor e aguarde 5 minutos para descarga total do barramento DC (>300V)',
+        'Desconecte o compressor e meça a resistência ôhmica entre as 3 fases U, V e W (devem ser idênticas)',
+        'Meça o isolamento das bobinas para a massa com megômetro (>10 MΩ)',
+        'Teste os diodos da ponte inversora IPM na placa externa'
+      ],
+      requiredTools: ['Multímetro Digital', 'Megômetro', 'Alicate Amperímetro'],
+      safetyPrecautions: ['Cuidado com a tensão residual dos capacitores do barramento DC'],
+      testProcedures: ['Medição de equilíbrio ôhmico U-V-W e teste de fuga à terra']
+    };
+  }
+
+  if (isSensor) {
+    return {
+      code: rawQuery,
+      brand: cleanBrand,
+      category: 'Sensor de Temperatura',
+      severity: 'medium',
+      title: `${cleanBrand}: Falha em Sensor de Temperatura / Termistor (${rawQuery})`,
+      description: `Circuito aberto, curto-circuito ou leitura fora da curva ôhmica nas sondas de temperatura da ${cleanBrand}.`,
+      probableCauses: [
+        'Sensor termistor ambiente ou serpentina danificado ou desconectado',
+        'Oxidação ou mau contato no conector da placa eletrônica PCB',
+        'Sonda térmica fora do alojamento metálico na serpentina'
+      ],
+      stepByStepSolution: [
+        'Desconecte o sensor da placa eletrônica',
+        'Meça a resistência ôhmica na escala de kΩ do multímetro e compare com a temperatura ambiente a 25°C',
+        'Substitua a sonda caso apresente valor infinito (aberto) ou 0Ω (curto)'
+      ],
+      requiredTools: ['Multímetro Digital', 'Termômetro de Contato'],
+      safetyPrecautions: ['Desligar a alimentação antes de acessar os conectores da placa'],
+      testProcedures: ['Medição da curva de resistência ôhmica vs temperatura']
+    };
+  }
+
+  // Fallback geral amigável e técnico
+  return {
+    code: rawQuery,
+    brand: cleanBrand,
+    category: 'Diagnóstico Técnico Especializado',
+    severity: 'medium',
+    title: `${cleanBrand}: Diagnóstico e Procedimento para "${rawQuery}"`,
+    description: `Análise técnica e orientações metrológicas para a verificação de "${rawQuery}" em equipamentos de refrigeração e climatização ${cleanBrand}.`,
+    probableCauses: [
+      `Oscilação na tensão de alimentação elétrica ou ruído no circuito de comando da ${cleanBrand}`,
+      'Descalibração em sensores térmicos (sondas termistoras de 5kΩ a 20kΩ a 25°C)',
+      'Pressões de trabalho frigoríficas ou fluxo de ar fora dos parâmetros nominais'
+    ],
+    stepByStepSolution: [
+      `Desligue o disjuntor geral da ${cleanBrand} por 5 minutos para reiniciar as memórias das placas eletrônicas`,
+      'Meça a tensão de entrada nos bornes L e N (220V ± 10%) e verifique a integridade do aterramento',
+      'Conecte o manifold digital e verifique o Superaquecimento e a pressão de sucção em regime estável',
+      'Inspecione os chicotes elétricos e teste a resistência ôhmica dos sensores térmicos'
+    ],
+    requiredTools: ['Multímetro True-RMS', 'Manifold Digital', 'Termômetro de Contato', 'Chaves Isoladas'],
+    safetyPrecautions: ['Trabalhar sempre com o sistema desenergizado ao manipular fiação e conectores'],
+    testProcedures: ['Medição de tensão de alimentação, corrente de operação e curva ôhmica dos sensores']
+  };
+}
+
 export async function diagnoseErrorCode(brand: string, query: string, equipmentType?: string): Promise<DiagnosisResult> {
   if (!query || !brand) {
     throw new Error('Informe o fabricante e o código de erro ou descrição do defeito.');
@@ -688,9 +865,6 @@ export async function diagnoseErrorCode(brand: string, query: string, equipmentT
   const cleanBrand = brand.trim();
   const rawQuery = query.trim();
   const lowerQuery = rawQuery.toLowerCase();
-  const normalizedBrandName = normalizeBrand(cleanBrand);
-  const cleanCode = rawQuery.toUpperCase().replace(/\s+/g, '');
-  const compositeKey = `${normalizedBrandName}:${cleanCode}`;
   const apiKey = process.env.GEMINI_API_KEY?.trim() || '';
 
   // 1. VERIFICAÇÃO INSTANTÂNEA NA BASE DE DEFEITOS CLÍNICOS E SINTOMAS
@@ -716,206 +890,133 @@ export async function diagnoseErrorCode(brand: string, query: string, equipmentT
     }
   }
 
-  // 2. DIAGNÓSTICO COM IA (GEMINI 2.5 FLASH COM VALIDAÇÃO E SEGUNDA TENTATIVA AUTOMÁTICA)
+  // 2. DIAGNÓSTICO COM IA: RETENTATIVA AUTOMÁTICA DE ATÉ 2 VEZES E FORÇAMENTO DE JSON VÁLIDO
   if (apiKey && !apiKey.includes('your-') && !apiKey.includes('placeholder')) {
     try {
       const ai = new GoogleGenAI({ apiKey });
 
-      const generatePrompt = (isRetry: boolean = false) => `Você é um engenheiro sênior especialista em diagnóstico de ar-condicionado (HVAC-R).
-O técnico em campo informou a seguinte entrada:
+      // Total de 3 tentativas (1 chamada inicial + até 2 retentativas automáticas)
+      const MAX_RETRIES = 2;
+      let lastMissingFields: string[] = [];
+      let validResult: any = null;
+
+      for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+        const isRetry = attempt > 0;
+        
+        const prompt = isRetry
+          ? `[RETENTATIVA ${attempt} DE ${MAX_RETRIES} - VALIDAÇÃO ESTRITA DE SCHEMA JSON]
+A resposta anterior falhou porque os seguintes campos obrigatórios estavam ausentes ou incompletos: ${lastMissingFields.join(', ')}.
+
+Você é um engenheiro sênior e auditor técnico da fabricante ${cleanBrand}.
+Analise a entrada de campo: "${rawQuery}"
+Equipamento: ${equipmentType || 'Split Hi-Wall / Inverter / VRF'}
+
+REQUISITOS INEGOCIÁVEIS:
+1. Retorne EXCLUSIVAMENTE um objeto JSON puro. Não inclua texto explicativo fora das chaves {}.
+2. "title": OBRIGATÓRIO (string com no mínimo 5 caracteres informando o defeito).
+3. "probableCauses": OBRIGATÓRIO (array com no mínimo 3 causas técnicas detalhadas).
+4. "stepByStepSolution": OBRIGATÓRIO (array com no mínimo 4 passos técnicos com ferramentas e medições).
+5. "category", "severity", "requiredTools", "safetyPrecautions", "testProcedures" devem ser preenchidos.
+
+Exemplo de formato obrigatório:
+{
+  "code": "${rawQuery}",
+  "brand": "${cleanBrand}",
+  "category": "Sensor | Comunicação | Compressor / Inversor | Rendimento | Fluido / Vazamento | Ventilador | Drenagem | Elétrica",
+  "severity": "low | medium | high | critical",
+  "title": "${cleanBrand}: Título Claro e Preciso do Diagnóstico",
+  "description": "Explicação técnica detalhada da causa física, elétrica ou termodinâmica.",
+  "probableCauses": [
+    "Causa técnica 1 detalhada",
+    "Causa técnica 2 detalhada",
+    "Causa técnica 3 detalhada"
+  ],
+  "stepByStepSolution": [
+    "Passo 1: Medição com instrumento",
+    "Passo 2: Inspeção de conexões",
+    "Passo 3: Procedimento de correção",
+    "Passo 4: Teste funcional de validação"
+  ],
+  "requiredTools": ["Multímetro True-RMS", "Manifold Digital"],
+  "safetyPrecautions": ["Desligar o disjuntor geral"],
+  "testProcedures": ["Procedimento de teste com valores de referência"]
+}`
+          : `Você é um engenheiro sênior especialista em diagnóstico de ar-condicionado (HVAC-R).
+Forneça a análise técnica para a seguinte consulta de campo:
 Fabricante: ${cleanBrand}
 Consulta/Código/Defeito: "${rawQuery}"
 Tipo de Equipamento: ${equipmentType || 'Split Hi-Wall / Inverter / Cassete / Piso Teto / VRF'}
-${isRetry ? 'ATENÇÃO: A tentativa anterior falhou por campos ausentes. Certifique-se de preencher OBRIGATORIAMENTE os arrays "probableCauses" (mínimo 3 causas) e "stepByStepSolution" (mínimo 4 passos práticos com testes).' : ''}
 
-INSTRUÇÕES IMPORTANTES:
-1. A entrada pode ser um CÓDIGO DE ERRO (ex: E1, CH05, U4, EC, F0) OU a DESCRIÇÃO DE UM DEFEITO/SINTOMA (ex: "não gela", "compressor esquenta e desliga", "congelando tubo fino", "pingando água", "desarmando disjuntor").
-2. Forneça o diagnóstico técnico REAL e EXATO de acordo com a engenharia da ${cleanBrand}.
-3. Retorne EXCLUSIVAMENTE um JSON puro válido com a seguinte estrutura OBRIGATÓRIA:
+Retorne EXCLUSIVAMENTE um JSON puro válido com a seguinte estrutura obrigatória:
 {
   "code": "${rawQuery}",
   "brand": "${cleanBrand}",
   "category": "Rendimento | Fluido / Vazamento | Comunicação | Compressor / Inversor | Ventilador | Drenagem | Elétrica / Curto | Sensor",
   "severity": "low | medium | high | critical",
-  "title": "${cleanBrand}: Título técnico claro e completo do diagnóstico",
+  "title": "${cleanBrand}: Título técnico claro do diagnóstico",
   "description": "Explicação técnica minuciosa da causa física, elétrica ou termodinâmica",
-  "probableCauses": ["Causa provável 1 detalhada", "Causa provável 2 detalhada", "Causa provável 3 detalhada"],
+  "probableCauses": ["Causa provável 1", "Causa provável 2", "Causa provável 3"],
   "stepByStepSolution": ["Passo 1 detalhado com testes", "Passo 2", "Passo 3", "Passo 4"],
   "requiredTools": ["Multímetro True-RMS", "Manifold Digital", "Termômetro de Contato"],
   "safetyPrecautions": ["Desligar disjuntor geral antes de manusear componentes"],
   "testProcedures": ["Procedimento de medição e teste prático"]
 }`;
 
-      // --- PRIMEIRA TENTATIVA COM A IA ---
-      let parsedResult: any = null;
-      try {
-        const response1 = await ai.models.generateContent({
-          model: 'gemini-2.5-flash',
-          contents: generatePrompt(false),
-          config: {
-            responseMimeType: 'application/json',
-            temperature: 0.1,
-          },
-        });
-
-        const text1 = response1.text || '';
-        if (text1) {
-          parsedResult = JSON.parse(text1);
-        }
-      } catch (err1) {
-        console.warn(`[Amigo Diagnostics] Primeira tentativa com IA falhou para ${cleanBrand} - ${rawQuery}:`, err1);
-      }
-
-      // --- PASSO DE VERIFICAÇÃO DOS CAMPOS OBRIGATÓRIOS ---
-      if (!isValidDiagnosis(parsedResult)) {
-        console.warn(`[Amigo Diagnostics] Resposta incompleta na 1ª tentativa. Disparando segunda tentativa de validação...`);
         try {
-          const response2 = await ai.models.generateContent({
+          const response = await ai.models.generateContent({
             model: 'gemini-2.5-flash',
-            contents: generatePrompt(true),
+            contents: prompt,
             config: {
               responseMimeType: 'application/json',
-              temperature: 0.2,
+              temperature: isRetry ? 0.05 : 0.1,
             },
           });
 
-          const text2 = response2.text || '';
-          if (text2) {
-            parsedResult = JSON.parse(text2);
+          // 1. Extrai e sanitiza a resposta forçando JSON puro
+          const parsed = parseStrictJson(response.text);
+
+          // 2. Executa a validação rigorosa dos campos obrigatórios
+          const validation = validateRequiredFields(parsed);
+
+          if (validation.isValid) {
+            validResult = parsed;
+            break; // Sucesso! Sai do loop de retentativa
+          } else {
+            lastMissingFields = validation.missingFields;
+            console.warn(`[Amigo Diagnostics] Tentativa ${attempt + 1} falhou na validação de campos: ${validation.missingFields.join(', ')}`);
           }
-        } catch (err2) {
-          console.warn(`[Amigo Diagnostics] Segunda tentativa também falhou:`, err2);
+        } catch (attemptErr) {
+          console.warn(`[Amigo Diagnostics] Erro na tentativa ${attempt + 1}:`, attemptErr);
         }
       }
 
-      // Se a resposta validada estiver completa após a verificação / retry
-      if (isValidDiagnosis(parsedResult)) {
+      // Se obtivemos uma resposta válida após a chamada ou retentativas
+      if (validResult) {
         return {
           code: rawQuery,
           brand: cleanBrand,
-          category: parsedResult.category || 'Diagnóstico Especializado',
-          severity: parsedResult.severity || 'medium',
-          title: parsedResult.title.trim(),
-          description: parsedResult.description || `Diagnóstico gerado para ${cleanBrand} - ${rawQuery}.`,
-          probableCauses: parsedResult.probableCauses,
-          stepByStepSolution: parsedResult.stepByStepSolution,
-          requiredTools: Array.isArray(parsedResult.requiredTools) && parsedResult.requiredTools.length > 0 ? parsedResult.requiredTools : ['Multímetro True-RMS', 'Manifold Digital', 'Chaves Isoladas'],
-          safetyPrecautions: Array.isArray(parsedResult.safetyPrecautions) && parsedResult.safetyPrecautions.length > 0 ? parsedResult.safetyPrecautions : ['Desligar o disjuntor geral antes de manusear conexões'],
-          testProcedures: Array.isArray(parsedResult.testProcedures) && parsedResult.testProcedures.length > 0 ? parsedResult.testProcedures : ['Medição de grandezas elétricas e termodinâmicas'],
+          category: validResult.category || 'Diagnóstico Especializado',
+          severity: validResult.severity || 'medium',
+          title: String(validResult.title).trim(),
+          description: validResult.description || `Diagnóstico técnico validado para ${cleanBrand} - ${rawQuery}.`,
+          probableCauses: validResult.probableCauses,
+          stepByStepSolution: validResult.stepByStepSolution,
+          requiredTools: Array.isArray(validResult.requiredTools) && validResult.requiredTools.length > 0
+            ? validResult.requiredTools
+            : ['Multímetro True-RMS', 'Manifold Digital', 'Chaves Isoladas'],
+          safetyPrecautions: Array.isArray(validResult.safetyPrecautions) && validResult.safetyPrecautions.length > 0
+            ? validResult.safetyPrecautions
+            : ['Desligar o disjuntor geral antes de manusear conexões'],
+          testProcedures: Array.isArray(validResult.testProcedures) && validResult.testProcedures.length > 0
+            ? validResult.testProcedures
+            : ['Medição de grandezas elétricas e termodinâmicas'],
         };
       }
     } catch (err: any) {
-      console.warn(`[Amigo Diagnostics] Ativando base técnica calibrada para ${cleanBrand} - ${rawQuery}`);
+      console.warn(`[Amigo Diagnostics] Ativando fallback estruturado para ${cleanBrand} - ${rawQuery}:`, err?.message);
     }
   }
 
-  // 3. BUSCA POR CÓDIGO EXATO NA BASE DE CÓDIGOS OFICIAIS
-  if (BRAND_CODE_DATABASE[compositeKey]) {
-    return {
-      ...BRAND_CODE_DATABASE[compositeKey],
-      brand: cleanBrand,
-      code: rawQuery,
-    };
-  }
-
-  // 4. VERIFICAÇÃO DE ALIASES DA MARCA
-  if (normalizedBrandName === 'lg') {
-    const lgKey = `lg:CH${cleanCode.replace(/^CH/i, '')}`;
-    if (BRAND_CODE_DATABASE[lgKey]) {
-      return {
-        ...BRAND_CODE_DATABASE[lgKey],
-        brand: cleanBrand,
-        code: rawQuery,
-      };
-    }
-  }
-
-  if (normalizedBrandName === 'fujitsu') {
-    const fujitsuKey = `fujitsu:E:${cleanCode.replace(/^E:?/i, '')}`;
-    if (BRAND_CODE_DATABASE[fujitsuKey]) {
-      return {
-        ...BRAND_CODE_DATABASE[fujitsuKey],
-        brand: cleanBrand,
-        code: rawQuery,
-      };
-    }
-  }
-
-  // 5. DIAGNÓSTICO CALIBRADO AMIGÁVEL E ESTRUTURADO (FALLBACK ROBUSTO GARANTIDO)
-  const isCommCode = cleanCode.includes('CH05') || cleanCode.includes('U4') || cleanCode.includes('E6') || cleanCode.includes('E101') || cleanCode.includes('COM') || lowerQuery.includes('comunicação') || lowerQuery.includes('comunicacao');
-  const isSensorCode = cleanCode.includes('TH') || cleanCode.includes('C4') || cleanCode.includes('C9') || cleanCode.includes('CH01') || cleanCode.includes('CH02') || cleanCode.includes('E121') || lowerQuery.includes('sensor') || lowerQuery.includes('termistor');
-  const isPowerCode = cleanCode.includes('L5') || cleanCode.includes('P4') || cleanCode.includes('CH21') || cleanCode.includes('E464') || cleanCode.includes('IPM') || lowerQuery.includes('sobrecorrente') || lowerQuery.includes('inversor');
-  const isLeakCode = cleanCode === 'EC' || cleanCode === 'F0' || cleanCode === 'U0' || lowerQuery.includes('vazamento') || lowerQuery.includes('falta de gas') || lowerQuery.includes('falta de gás');
-  const isFanCode = cleanCode.includes('E7') || cleanCode.includes('CH10') || cleanCode.includes('H6') || cleanCode.includes('E458') || cleanCode.includes('FAN') || lowerQuery.includes('ventilador') || lowerQuery.includes('turbina');
-
-  let category = 'Diagnóstico Técnico Especializado';
-  let severity: 'low' | 'medium' | 'high' | 'critical' = 'medium';
-  let title = `${cleanBrand}: Análise Técnica para "${rawQuery}"`;
-  let description = `Diagnóstico técnico detalhado para a verificação de "${rawQuery}" em sistemas de climatização ${cleanBrand}.`;
-  let probableCauses = [
-    `Oscilação de tensão elétrica ou anomalia no circuito de comando da ${cleanBrand}`,
-    'Descalibração em sensores térmicos (sondas termistoras de 5kΩ a 20kΩ a 25°C)',
-    'Pressões de trabalho ou fluxo de ar fora dos parâmetros nominais'
-  ];
-  let stepByStepSolution = [
-    `Desligue o disjuntor geral da ${cleanBrand} por 5 minutos para reiniciar a memória da placa eletrônica`,
-    'Meça a tensão de entrada nos bornes L e N com multímetro (tensão recomendada: 220V ± 10%) e confira o aterramento',
-    'Conecte o manifold digital e verifique o Superaquecimento e a pressão de sucção em operação',
-    'Inspecione os chicotes elétricos e teste a resistência ôhmica dos sensores térmicos'
-  ];
-  let requiredTools = ['Multímetro True-RMS', 'Manifold Digital', 'Termômetro de Contato', 'Chaves Isoladas'];
-  let safetyPrecautions = ['Trabalhar sempre com o sistema desenergizado ao medir resistências e manipular conectores'];
-  let testProcedures = ['Medição de tensão de alimentação, corrente nominal e curva ôhmica dos sensores'];
-
-  if (isLeakCode) {
-    category = 'Fluido / Vazamento';
-    severity = 'high';
-    title = `${cleanBrand}: Detecção de Vazamento / Perda de Carga Frigorígena (${rawQuery})`;
-    description = `O sistema da ${cleanBrand} detectou perda de rendimento térmico ou pressão de evaporação insuficiente com compressor em operação.`;
-    probableCauses = [
-      'Vazamento de fluido refrigerante nas porcas flange ou serpentina',
-      'Válvulas de serviço esquecidas fechadas após instalação ou manutenção',
-      'Sensor de serpentina descalibrado'
-    ];
-    stepByStepSolution = [
-      'Instale o manifold e meça as pressões de trabalho e o superaquecimento',
-      'Faça busca de vazamentos com detector eletrônico ou espuma nas conexões flangeadas',
-      'Efetue vácuo profundo (<500 microns) e recarregue a quantidade exata por peso na balança'
-    ];
-    requiredTools = ['Manifold Digital', 'Balança de Precisão', 'Detector de Vazamento', 'Bomba de Vácuo'];
-    safetyPrecautions = ['Usar luvas e óculos de proteção contra queimaduras por fluido refrigerante'];
-    testProcedures = ['Teste de estanqueidade com Nitrogênio pressurizado a 400 PSI'];
-  } else if (isCommCode) {
-    category = 'Comunicação';
-    severity = 'high';
-    title = `${cleanBrand}: Falha de Comunicação Serial entre Unidades (${rawQuery})`;
-    description = `Interrupção na linha de transmissão de dados e sincronismo entre a placa evaporadora e condensadora da ${cleanBrand}.`;
-    probableCauses = [
-      'Cabo de sinal serial rompido, invertido nos bornes ou com emenda oxidada',
-      'Ruído eletromagnético por ausência de aterramento dedicado',
-      'Placa eletrônica condensadora sem alimentação ou com fusível queimado'
-    ];
-    stepByStepSolution = [
-      'Verifique o aperto e a correspondência dos bornes de interligação',
-      'Meça a tensão de sinal serial com multímetro True-RMS (deve oscilar continuamente em corrente contínua)',
-      'Verifique se os LEDs de status da placa externa estão piscando normalmente'
-    ];
-    requiredTools = ['Multímetro True-RMS', 'Chaves Isoladas', 'Alicate Decapador'];
-    safetyPrecautions = ['Desligar o disjuntor geral antes de manusear os bornes'];
-    testProcedures = ['Medição de tensão DC pulsante de comunicação e teste de continuidade de condutores'];
-  }
-
-  return {
-    code: rawQuery,
-    brand: cleanBrand,
-    category,
-    severity,
-    title,
-    description,
-    probableCauses,
-    stepByStepSolution,
-    requiredTools,
-    safetyPrecautions,
-    testProcedures,
-  };
+  // 3. FALLBACK ESTRUTURADO E AMIGÁVEL GARANTIDO
+  return buildFriendlyFallback(cleanBrand, rawQuery);
 }

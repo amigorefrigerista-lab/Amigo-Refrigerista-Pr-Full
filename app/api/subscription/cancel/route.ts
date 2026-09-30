@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
-import { db } from "@/firebase";
-import { doc, getDoc, updateDoc } from "firebase/firestore";
+import { createClient } from '@supabase/supabase-js';
+
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
 export async function POST(req: NextRequest) {
   try {
@@ -14,31 +17,36 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const userRef = doc(db, "users", userId);
-    const userSnap = await getDoc(userRef);
+    const { data: profile, error: fetchErr } = await supabase
+      .from('profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
 
-    if (!userSnap.exists()) {
+    if (fetchErr || !profile) {
       return NextResponse.json(
         { error: "Usuário não encontrado" },
         { status: 404 }
       );
     }
 
-    const userData = userSnap.data();
-    const currentSub = userData.subscription || { plan: "pro", status: "active" };
-
-    // Atualiza os dados de assinatura no banco Firestore
     const updatedSub = {
-      ...currentSub,
+      plan: profile.plano || "pro",
       status: "cancelled",
       autoRenew: false,
       cancelledAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    await updateDoc(userRef, {
-      subscription: updatedSub,
-    });
+    const { error: updateErr } = await supabase
+      .from('profiles')
+      .update({
+        plano: 'free',
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', userId);
+
+    if (updateErr) throw updateErr;
 
     return NextResponse.json({
       success: true,

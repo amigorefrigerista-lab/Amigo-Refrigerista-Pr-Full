@@ -2,15 +2,6 @@
 
 import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  onAuthStateChanged, 
-  signInWithPopup, 
-  GoogleAuthProvider, 
-  signOut,
-  User 
-} from 'firebase/auth';
-import { doc, getDoc } from 'firebase/firestore';
-import { auth, db } from '@/firebase';
 import { useAuth } from '@/hooks/useAuth';
 import { getAdminMetrics, AdminMetrics } from '@/app/actions/getAdminMetrics';
 import { 

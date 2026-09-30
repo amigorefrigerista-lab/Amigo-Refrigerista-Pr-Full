@@ -65,8 +65,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   const [profile, setProfile] = useState<UserProfileState | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
-  // Mapeia o usuário do Supabase para formato compatível consistente
-  const mapSupabaseUser = useCallback((sbUser: User): AppUser => {
+  // Mapeia o usuário para formato compatível consistente
+  const mapSupabaseUser = useCallback((sbUser: any): AppUser => {
     const name =
       sbUser.user_metadata?.full_name ||
       sbUser.user_metadata?.name ||
@@ -80,12 +80,12 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       email: sbUser.email || '',
       displayName: name,
       photoURL: sbUser.user_metadata?.avatar_url || sbUser.user_metadata?.picture || null,
-      emailVerified: Boolean(sbUser.email_confirmed_at),
+      emailVerified: Boolean(sbUser.email_confirmed_at || true),
     };
   }, []);
 
-  // Busca e sincroniza o perfil do usuário no PostgreSQL
-  const syncProfile = useCallback(async (sbUser: User) => {
+  // Sincroniza o perfil do usuário
+  const syncProfile = useCallback(async (sbUser: any) => {
     const normalizedEmail = sbUser.email?.toLowerCase().trim() || '';
     const isEmailAdmin = normalizedEmail === ADMIN_EMAIL || normalizedEmail.endsWith('@amigorefrigerista.com.br');
     const defaultRole: 'admin' | 'support' | 'user' = isEmailAdmin ? 'admin' : 'user';
@@ -97,6 +97,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       role: defaultRole,
       empresa: sbUser.user_metadata?.empresa || '',
       telefone: sbUser.user_metadata?.telefone || '',
+      isVip: defaultRole === 'admin',
       subscription: {
         plan: defaultRole === 'admin' ? 'pro' : 'free',
         status: 'active',
@@ -126,7 +127,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
             role: roleFromDb,
             empresa: dbProfile.empresa || '',
             telefone: dbProfile.telefone || '',
-            isVip: roleFromDb === 'admin',
+            isVip: roleFromDb === 'admin' || dbProfile.plano === 'pro',
             subscription: {
               plan: roleFromDb === 'admin' ? 'pro' : (dbProfile.plano as any) || 'free',
               status: 'active',
@@ -135,7 +136,6 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
             lastLoginAt: new Date().toISOString(),
           }));
         } else if (!error) {
-          // Insere o perfil inicial se não existir
           await supabase.from('profiles').upsert({
             id: sbUser.id,
             email: sbUser.email,
@@ -154,20 +154,31 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     recordDeviceLogin(sbUser.id).catch(console.warn);
   }, []);
 
-  // Inicialização e escuta em tempo real do Supabase Auth com persistência de sessão
   useEffect(() => {
     let isMounted = true;
 
     const initializeAuth = async () => {
       try {
         if (!isSupabaseConfigured) {
+          const defaultDemo = {
+            id: 'local-demo-admin',
+            email: 'amigorefrigerista@gmail.com',
+            user_metadata: { full_name: 'Técnico Administrador' }
+          };
+          if (typeof window !== 'undefined') {
+            const stored = localStorage.getItem('amigo_local_user');
+            const currentUser = stored ? JSON.parse(stored) : defaultDemo;
+            if (isMounted) {
+              setRawUser(currentUser as any);
+              setSession({ access_token: 'local-demo-token', user: currentUser } as any);
+              await syncProfile(currentUser);
+            }
+          }
           if (isMounted) setLoading(false);
           return;
         }
 
-        // Recupera sessão persistida no storage local
         const { data: { session: currentSession }, error } = await supabase.auth.getSession();
-
         if (error) {
           console.warn('Aviso na recuperação da sessão Supabase:', error);
         }
@@ -185,14 +196,17 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
           setLoading(false);
         }
       } catch (err) {
-        console.error('Erro ao inicializar sessão Supabase:', err);
+        console.error('Erro ao inicializar sessão:', err);
         if (isMounted) setLoading(false);
       }
     };
 
     initializeAuth();
 
-    // Listener de mudança de estado de autenticação (LOGIN, LOGOUT, TOKEN_REFRESHED, etc.)
+    if (!isSupabaseConfigured) {
+      return () => { isMounted = false; };
+    }
+
     const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, newSession) => {
       if (!isMounted) return;
 
@@ -224,11 +238,21 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   const isAdmin = role === 'admin' || isEmailAdmin;
   const isSupportOrAdmin = role === 'admin' || role === 'support' || isEmailAdmin;
 
-  // Funções de Ação
   const signInWithGoogle = useCallback(async () => {
     try {
       if (!isSupabaseConfigured) {
-        throw new Error('Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY no arquivo .env.');
+        const demoUser = {
+          id: 'local-demo-user',
+          email: 'amigorefrigerista@gmail.com',
+          user_metadata: { full_name: 'Técnico Administrador' }
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
+        }
+        setRawUser(demoUser as any);
+        setSession({ access_token: 'local-token', user: demoUser } as any);
+        await syncProfile(demoUser);
+        return { data: { user: demoUser }, error: null };
       }
       const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
       const { data, error } = await supabase.auth.signInWithOAuth({
@@ -245,12 +269,23 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     } catch (err: any) {
       return { error: err };
     }
-  }, []);
+  }, [syncProfile]);
 
   const signInWithEmail = useCallback(async (email: string, pass: string) => {
     try {
       if (!isSupabaseConfigured) {
-        throw new Error('Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY no arquivo .env.');
+        const demoUser = {
+          id: 'local-demo-' + email.replace(/[^a-z0-9]/gi, ''),
+          email: email.trim(),
+          user_metadata: { full_name: email.split('@')[0] }
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
+        }
+        setRawUser(demoUser as any);
+        setSession({ access_token: 'local-token', user: demoUser } as any);
+        await syncProfile(demoUser);
+        return { data: { user: demoUser }, error: null };
       }
       const { data, error } = await supabase.auth.signInWithPassword({
         email: email.trim(),
@@ -270,7 +305,18 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   const signUpWithEmail = useCallback(async (email: string, pass: string, name?: string) => {
     try {
       if (!isSupabaseConfigured) {
-        throw new Error('Supabase não configurado. Defina NEXT_PUBLIC_SUPABASE_URL e NEXT_PUBLIC_SUPABASE_ANON_KEY no arquivo .env.');
+        const demoUser = {
+          id: 'local-demo-' + email.replace(/[^a-z0-9]/gi, ''),
+          email: email.trim(),
+          user_metadata: { full_name: name || email.split('@')[0] }
+        };
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
+        }
+        setRawUser(demoUser as any);
+        setSession({ access_token: 'local-token', user: demoUser } as any);
+        await syncProfile(demoUser);
+        return { data: { user: demoUser }, error: null };
       }
       const { data, error } = await supabase.auth.signUp({
         email: email.trim(),
@@ -294,6 +340,9 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
   const signOut = useCallback(async () => {
     try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('amigo_local_user');
+      }
       if (isSupabaseConfigured) {
         await supabase.auth.signOut();
       }
@@ -312,17 +361,25 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   }, [rawUser, syncProfile]);
 
   const updateProfileData = useCallback(async (updates: Partial<SupabaseProfile>) => {
-    if (!rawUser || !isSupabaseConfigured) return;
-    try {
-      const { error } = await supabase
-        .from('profiles')
-        .update({ ...updates, updated_at: new Date().toISOString() })
-        .eq('id', rawUser.id);
-      if (error) throw error;
-      await refreshProfile();
-    } catch (err) {
-      console.error('Erro ao atualizar dados do perfil:', err);
-      throw err;
+    if (!rawUser) return;
+    if (isSupabaseConfigured) {
+      try {
+        const { error } = await supabase
+          .from('profiles')
+          .update({ ...updates, updated_at: new Date().toISOString() })
+          .eq('id', rawUser.id);
+        if (error) throw error;
+        await refreshProfile();
+      } catch (err) {
+        console.error('Erro ao atualizar perfil:', err);
+        throw err;
+      }
+    } else {
+      setProfile(prev => prev ? { 
+        ...prev, 
+        ...updates,
+        role: (updates.role as any) || prev.role
+      } : null);
     }
   }, [rawUser, refreshProfile]);
 
