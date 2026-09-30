@@ -161,7 +161,11 @@ export default function AdminPage() {
       await checkUserAdminStatus(result.user);
     } catch (err: any) {
       console.error('Erro no login do Google:', err);
-      setAuthError(err.message || 'Falha ao autenticar com o Google.');
+      if (err?.code === 'auth/unauthorized-domain') {
+        setAuthError('Domínio não autorizado no Firebase Auth. Adicione o domínio atual em Firebase Console > Authentication > Settings > Authorized domains.');
+      } else {
+        setAuthError(err.message || 'Falha ao autenticar com o Google.');
+      }
     } finally {
       setIsLoggingIn(false);
     }

@@ -264,7 +264,11 @@ export default function CentralSuportePage() {
                     const provider = new GoogleAuthProvider();
                     await signInWithPopup(auth, provider);
                   } catch (e: any) {
-                    toast.error(e.message || 'Erro ao autenticar');
+                    if (e?.code === 'auth/unauthorized-domain') {
+                      toast.error('Domínio não autorizado no Firebase Auth. Configure o domínio no console do Firebase.', { duration: 6000 });
+                    } else {
+                      toast.error(e.message || 'Erro ao autenticar');
+                    }
                   }
                 }}
                 className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 text-white font-extrabold text-xs transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(99,102,241,0.3)] cursor-pointer"

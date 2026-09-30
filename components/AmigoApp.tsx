@@ -1011,7 +1011,11 @@ export default function AmigoApp() {
                 const provider = new GoogleAuthProvider();
                 await signInWithPopup(auth, provider);
               } catch (err: any) {
-                toast.error(err.message || 'Falha no login com Google');
+                if (err?.code === 'auth/unauthorized-domain') {
+                  toast.error('Domínio não autorizado no Firebase Auth. Adicione o domínio atual em Firebase Console > Authentication > Settings > Authorized domains.', { duration: 6000 });
+                } else {
+                  toast.error(err.message || 'Falha no login com Google');
+                }
               }
             }}
             type="button"
