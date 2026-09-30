@@ -1,5 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { SupabaseAuthProvider } from "@/contexts/SupabaseAuthContext";
 
 export const metadata: Metadata = {
   title: "Amigo Refrigerista Full",
@@ -28,7 +29,9 @@ export default function RootLayout({
   return (
     <html lang="pt-BR" className="dark">
       <body className="bg-[#070e1c] text-slate-100 min-h-screen overflow-x-hidden">
-        {children}
+        <SupabaseAuthProvider>
+          {children}
+        </SupabaseAuthProvider>
       </body>
     </html>
   );

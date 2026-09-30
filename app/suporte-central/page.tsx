@@ -6,7 +6,6 @@ import {
   onAuthStateChanged, 
   User, 
   signInWithPopup, 
-  signInWithEmailAndPassword,
   GoogleAuthProvider, 
   signOut 
 } from 'firebase/auth';
@@ -20,6 +19,7 @@ import {
   query 
 } from 'firebase/firestore';
 import { auth, db } from '@/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { 
   Headset, 
   Search, 
@@ -38,11 +38,7 @@ import {
   AlertTriangle,
   History,
   Trash2,
-  Sparkles,
-  Copy,
-  ExternalLink,
-  Globe,
-  Mail
+  Sparkles
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import Link from 'next/link';
@@ -69,7 +65,8 @@ interface SubscriberUser {
 
 export default function CentralSuportePage() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const { user: authUser, profile, isSupportOrAdmin, role, signInWithGoogle, signInWithEmail, signOut: authSignOut } = useAuth();
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [currentUserRole, setCurrentUserRole] = useState<'admin' | 'support' | null>(null);
   const [isAuthorized, setIsAuthorized] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
@@ -79,59 +76,23 @@ export default function CentralSuportePage() {
   const [foundUser, setFoundUser] = useState<SubscriberUser | null>(null);
   const [updating, setUpdating] = useState(false);
   const [recentUsers, setRecentUsers] = useState<SubscriberUser[]>([]);
-  const [loginEmail, setLoginEmail] = useState('amigorefrigerista@gmail.com');
-  const [loginPass, setLoginPass] = useState('');
-  const [isLoggingIn, setIsLoggingIn] = useState(false);
-  const [showDomainHelper, setShowDomainHelper] = useState(false);
-  const [copiedDomain, setCopiedDomain] = useState(false);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      if (!user) {
-        setCurrentUser(null);
+    if (authUser) {
+      setCurrentUser(authUser);
+      if (isSupportOrAdmin) {
+        setCurrentUserRole(role === 'admin' ? 'admin' : 'support');
+        setIsAuthorized(true);
+      } else {
         setIsAuthorized(false);
-        setLoading(false);
-        return;
       }
-
-      setCurrentUser(user);
-
-      try {
-        const normalizedEmail = user.email?.toLowerCase().trim() || '';
-        const isAdminEmail = normalizedEmail === 'amigorefrigerista@gmail.com' || normalizedEmail.endsWith('@amigorefrigerista.com.br');
-        
-        let role = null;
-        try {
-          const userDoc = await getDoc(doc(db, 'users', user.uid));
-          if (userDoc.exists()) {
-            role = userDoc.data()?.role;
-          }
-        } catch (e) {
-          console.warn('Doc check on support page:', e);
-        }
-
-        if (isAdminEmail || role === 'admin' || role === 'support') {
-          const finalRole = isAdminEmail || role === 'admin' ? 'admin' : 'support';
-          setCurrentUserRole(finalRole);
-          setIsAuthorized(true);
-        } else {
-          setIsAuthorized(false);
-        }
-      } catch (err) {
-        console.error('Erro ao verificar credenciais de suporte:', err);
-        if (user.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com') {
-          setCurrentUserRole('admin');
-          setIsAuthorized(true);
-        } else {
-          setIsAuthorized(false);
-        }
-      } finally {
-        setLoading(false);
-      }
-    });
-
-    return () => unsubscribe();
-  }, []);
+      setLoading(false);
+    } else {
+      setCurrentUser(null);
+      setIsAuthorized(false);
+      setLoading(false);
+    }
+  }, [authUser, isSupportOrAdmin, role]);
 
   const handleSearchUser = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -266,135 +227,24 @@ export default function CentralSuportePage() {
             </p>
           </div>
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             {!currentUser ? (
-              <>
-                <button
-                  onClick={async () => {
-                    try {
-                      setIsLoggingIn(true);
-                      setShowDomainHelper(false);
-                      const provider = new GoogleAuthProvider();
-                      await signInWithPopup(auth, provider);
-                    } catch (e: any) {
-                      if (e?.code === 'auth/unauthorized-domain') {
-                        setShowDomainHelper(true);
-                        toast.error('Domínio não autorizado no Firebase Auth.', { duration: 5000 });
-                      } else {
-                        toast.error(e.message || 'Erro ao autenticar');
-                      }
-                    } finally {
-                      setIsLoggingIn(false);
+              <button
+                onClick={async () => {
+                  try {
+                    const { error } = await signInWithGoogle();
+                    if (error) {
+                      toast.error(error.message || 'Erro ao autenticar');
                     }
-                  }}
-                  disabled={isLoggingIn}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 text-white font-extrabold text-xs transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(99,102,241,0.3)] cursor-pointer disabled:opacity-50"
-                >
-                  {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-                  <span>Entrar com Google (1 Clique)</span>
-                </button>
-
-                {showDomainHelper && (
-                  <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2 text-left">
-                    <div className="flex items-center gap-2 font-bold text-amber-300">
-                      <Globe className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span>Autorizar Domínio no Firebase</span>
-                    </div>
-                    <p className="text-[11px] text-slate-300">
-                      Copie o domínio abaixo e adicione em <strong>Firebase Console &gt; Authentication &gt; Settings &gt; Authorized domains</strong>:
-                    </p>
-                    <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 font-mono text-[10px] text-cyan-300 break-all justify-between">
-                      <span>{typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app'}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const host = typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app';
-                          navigator.clipboard.writeText(host);
-                          setCopiedDomain(true);
-                          setTimeout(() => setCopiedDomain(false), 2000);
-                        }}
-                        className="px-2 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center gap-1 shrink-0 cursor-pointer hover:bg-amber-400"
-                      >
-                        <Copy size={12} />
-                        <span>{copiedDomain ? 'Copiado!' : 'Copiar'}</span>
-                      </button>
-                    </div>
-                    <a
-                      href="https://console.firebase.google.com/project/celestial-fragment-rpnh2/authentication/settings"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-sky-400 hover:text-sky-300 font-bold underline flex items-center gap-1 pt-1"
-                    >
-                      <span>Abrir Firebase Console</span>
-                      <ExternalLink size={12} />
-                    </a>
-                  </div>
-                )}
-
-                <div className="relative flex items-center justify-center my-2">
-                  <div className="border-t border-slate-800 w-full" />
-                  <span className="bg-slate-900 px-3 text-[10px] text-slate-500 uppercase tracking-widest font-mono">ou com e-mail e senha</span>
-                </div>
-
-                <form
-                  onSubmit={async (e) => {
-                    e.preventDefault();
-                    if (!loginEmail.trim() || !loginPass) {
-                      toast.error('Informe e-mail e senha');
-                      return;
-                    }
-                    try {
-                      setIsLoggingIn(true);
-                      await signInWithEmailAndPassword(auth, loginEmail.trim(), loginPass);
-                      toast.success('Login efetuado com sucesso!');
-                    } catch (err: any) {
-                      toast.error(err.message || 'Falha ao autenticar.');
-                    } finally {
-                      setIsLoggingIn(false);
-                    }
-                  }}
-                  className="space-y-3 text-left"
-                >
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-300 block mb-1">E-mail de Atendimento</label>
-                    <div className="relative">
-                      <Mail size={15} className="absolute left-3 top-2.5 text-slate-500" />
-                      <input
-                        type="email"
-                        required
-                        value={loginEmail}
-                        onChange={(e) => setLoginEmail(e.target.value)}
-                        placeholder="amigorefrigerista@gmail.com"
-                        className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-300 block mb-1">Senha de Acesso</label>
-                    <div className="relative">
-                      <Lock size={15} className="absolute left-3 top-2.5 text-slate-500" />
-                      <input
-                        type="password"
-                        required
-                        value={loginPass}
-                        onChange={(e) => setLoginPass(e.target.value)}
-                        placeholder="••••••••"
-                        className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 transition"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isLoggingIn}
-                    className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-indigo-300 font-bold text-xs border border-indigo-500/30 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin text-indigo-400" /> : <Lock className="w-3.5 h-3.5" />}
-                    <span>Acessar com Senha</span>
-                  </button>
-                </form>
-              </>
+                  } catch (e: any) {
+                    toast.error(e.message || 'Erro ao autenticar');
+                  }
+                }}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-indigo-500 to-cyan-500 hover:from-indigo-600 hover:to-cyan-600 text-white font-extrabold text-xs transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(99,102,241,0.3)] cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4" />
+                <span>Entrar com Conta de Suporte / Admin (Supabase)</span>
+              </button>
             ) : (
               <div className="space-y-2">
                 <p className="text-xs text-rose-300 text-center bg-rose-500/10 border border-rose-500/20 p-3 rounded-xl">
@@ -403,9 +253,8 @@ export default function CentralSuportePage() {
                 <button
                   onClick={async () => {
                     try {
-                      await signOut(auth);
-                      const provider = new GoogleAuthProvider();
-                      await signInWithPopup(auth, provider);
+                      await authSignOut();
+                      await signInWithGoogle();
                     } catch (e: any) {
                       toast.error(e.message || 'Erro ao trocar de conta');
                     }

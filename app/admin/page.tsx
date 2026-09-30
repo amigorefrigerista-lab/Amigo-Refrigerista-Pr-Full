@@ -5,13 +5,13 @@ import { useRouter } from 'next/navigation';
 import { 
   onAuthStateChanged, 
   signInWithPopup, 
-  signInWithEmailAndPassword,
   GoogleAuthProvider, 
   signOut,
   User 
 } from 'firebase/auth';
 import { doc, getDoc } from 'firebase/firestore';
 import { auth, db } from '@/firebase';
+import { useAuth } from '@/hooks/useAuth';
 import { getAdminMetrics, AdminMetrics } from '@/app/actions/getAdminMetrics';
 import { 
   DollarSign, 
@@ -30,11 +30,7 @@ import {
   LogOut,
   ShieldAlert,
   Headset,
-  Sparkles,
-  Copy,
-  ExternalLink,
-  Globe,
-  Mail
+  Sparkles
 } from 'lucide-react';
 import Link from 'next/link';
 import { 
@@ -84,7 +80,8 @@ const CustomSubscriptionTooltip = ({ active, payload, label }: any) => {
 
 export default function AdminPage() {
   const router = useRouter();
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const { user: authUser, profile, isAdmin: isAuthAdmin, signInWithGoogle, signInWithEmail, signOut: authSignOut, isSupabaseActive } = useAuth();
+  const [currentUser, setCurrentUser] = useState<any | null>(null);
   const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -101,82 +98,47 @@ export default function AdminPage() {
     setMounted(true);
   }, []);
 
-  const checkUserAdminStatus = useCallback(async (user: User | null) => {
-    if (!user) {
-      setCurrentUser(null);
-      setIsAdmin(false);
-      setLoading(false);
-      return;
-    }
-
-    setCurrentUser(user);
-
+  const handleRefresh = useCallback(async () => {
     try {
-      const normalizedEmail = user.email?.toLowerCase().trim() || '';
-      const isEmailMatch = normalizedEmail === ADMIN_EMAIL || normalizedEmail.endsWith('@amigorefrigerista.com.br');
-      let hasAdminRole = false;
-
-      try {
-        const userDocRef = doc(db, 'users', user.uid);
-        const userDoc = await getDoc(userDocRef);
-        if (userDoc.exists()) {
-          const role = userDoc.data()?.role;
-          if (role === 'admin') {
-            hasAdminRole = true;
-          }
-        }
-      } catch (docErr) {
-        console.warn('Firestore read check on admin page:', docErr);
-      }
-
-      if (isEmailMatch || hasAdminRole) {
-        setIsAdmin(true);
-        setAuthError(null);
-        const data = await getAdminMetrics();
-        setMetrics(data);
-      } else {
-        setIsAdmin(false);
-        setAuthError(`A conta conectada (${user.email || 'Usuário'}) não possui permissão de administrador.`);
-      }
-    } catch (error: any) {
-      console.error('Erro ao verificar permissão de administrador:', error);
-      if (user.email?.toLowerCase().trim() === ADMIN_EMAIL) {
-        setIsAdmin(true);
-        const data = await getAdminMetrics();
-        setMetrics(data);
-      } else {
-        setIsAdmin(false);
-        setAuthError('Ocorreu um erro ao verificar suas permissões.');
-      }
+      setRefreshing(true);
+      const data = await getAdminMetrics();
+      setMetrics(data);
+    } catch (err) {
+      console.error('Erro ao carregar métricas do admin:', err);
     } finally {
-      setLoading(false);
+      setRefreshing(false);
     }
   }, []);
 
   useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, (user) => {
-      checkUserAdminStatus(user);
-    });
-
-    return () => unsubscribe();
-  }, [checkUserAdminStatus]);
+    if (authUser) {
+      setCurrentUser(authUser);
+      if (isAuthAdmin) {
+        setIsAdmin(true);
+        setAuthError(null);
+        handleRefresh();
+      } else {
+        setIsAdmin(false);
+        setAuthError(`A conta conectada (${authUser.email || 'Usuário'}) não possui privilégios de administrador.`);
+      }
+      setLoading(false);
+    } else {
+      setCurrentUser(null);
+      setIsAdmin(false);
+      setLoading(false);
+    }
+  }, [authUser, isAuthAdmin, handleRefresh]);
 
   const handleLoginAdmin = async () => {
     try {
       setIsLoggingIn(true);
       setAuthError(null);
-      setShowDomainHelper(false);
-      const provider = new GoogleAuthProvider();
-      const result = await signInWithPopup(auth, provider);
-      await checkUserAdminStatus(result.user);
-    } catch (err: any) {
-      console.error('Erro no login do Google:', err);
-      if (err?.code === 'auth/unauthorized-domain') {
-        setShowDomainHelper(true);
-        setAuthError('Domínio não autorizado no Firebase Auth. Adicione o domínio atual nas configurações do Firebase ou use o login por E-mail e Senha abaixo.');
-      } else {
-        setAuthError(err.message || 'Falha ao autenticar com o Google.');
+      const { error } = await signInWithGoogle();
+      if (error) {
+        setAuthError(error.message || 'Falha ao autenticar com o Google.');
       }
+    } catch (err: any) {
+      setAuthError(err.message || 'Falha ao autenticar com o Google.');
     } finally {
       setIsLoggingIn(false);
     }
@@ -192,15 +154,12 @@ export default function AdminPage() {
     try {
       setIsLoggingIn(true);
       setAuthError(null);
-      const userCred = await signInWithEmailAndPassword(auth, adminEmailInput.trim(), adminPassInput);
-      await checkUserAdminStatus(userCred.user);
-    } catch (err: any) {
-      console.error('Erro no login de e-mail admin:', err);
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        setAuthError('E-mail ou senha incorretos.');
-      } else {
-        setAuthError(err.message || 'Falha ao autenticar com e-mail e senha.');
+      const { error } = await signInWithEmail(adminEmailInput.trim(), adminPassInput);
+      if (error) {
+        setAuthError(error.message || 'E-mail ou senha incorretos.');
       }
+    } catch (err: any) {
+      setAuthError(err.message || 'Falha ao autenticar com e-mail e senha.');
     } finally {
       setIsLoggingIn(false);
     }
@@ -208,24 +167,12 @@ export default function AdminPage() {
 
   const handleLogout = async () => {
     try {
-      await signOut(auth);
+      await authSignOut();
       setCurrentUser(null);
       setIsAdmin(false);
       setMetrics(null);
     } catch (err) {
       console.error('Erro ao desconectar:', err);
-    }
-  };
-
-  const handleRefresh = async () => {
-    try {
-      setRefreshing(true);
-      const data = await getAdminMetrics();
-      setMetrics(data);
-    } catch (err) {
-      console.error('Erro ao carregar métricas do admin:', err);
-    } finally {
-      setRefreshing(false);
     }
   };
 
@@ -264,106 +211,20 @@ export default function AdminPage() {
             </div>
           )}
 
-          <div className="space-y-4">
+          <div className="space-y-3">
             {!currentUser ? (
-              <>
-                <button
-                  onClick={handleLoginAdmin}
-                  disabled={isLoggingIn}
-                  className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.3)] cursor-pointer disabled:opacity-50"
-                >
-                  {isLoggingIn ? (
-                    <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                  ) : (
-                    <Sparkles className="w-4 h-4 text-slate-950" />
-                  )}
-                  <span>Entrar com Google (1 Clique)</span>
-                </button>
-
-                {showDomainHelper && (
-                  <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2 text-left">
-                    <div className="flex items-center gap-2 font-bold text-amber-300">
-                      <Globe className="w-4 h-4 text-amber-400 shrink-0" />
-                      <span>Autorizar Domínio no Firebase</span>
-                    </div>
-                    <p className="text-[11px] text-slate-300">
-                      Copie o domínio abaixo e adicione em <strong>Firebase Console &gt; Authentication &gt; Settings &gt; Authorized domains</strong>:
-                    </p>
-                    <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 font-mono text-[10px] text-cyan-300 break-all justify-between">
-                      <span>{typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app'}</span>
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const host = typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app';
-                          navigator.clipboard.writeText(host);
-                          setCopiedDomain(true);
-                          setTimeout(() => setCopiedDomain(false), 2000);
-                        }}
-                        className="px-2 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center gap-1 shrink-0 cursor-pointer hover:bg-amber-400"
-                      >
-                        <Copy size={12} />
-                        <span>{copiedDomain ? 'Copiado!' : 'Copiar'}</span>
-                      </button>
-                    </div>
-                    <a
-                      href="https://console.firebase.google.com/project/celestial-fragment-rpnh2/authentication/settings"
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-[11px] text-sky-400 hover:text-sky-300 font-bold underline flex items-center gap-1 pt-1"
-                    >
-                      <span>Abrir Firebase Console</span>
-                      <ExternalLink size={12} />
-                    </a>
-                  </div>
+              <button
+                onClick={handleLoginAdmin}
+                disabled={isLoggingIn}
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.3)] cursor-pointer disabled:opacity-50"
+              >
+                {isLoggingIn ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                ) : (
+                  <Sparkles className="w-4 h-4 text-slate-950" />
                 )}
-
-                <div className="relative flex items-center justify-center my-2">
-                  <div className="border-t border-slate-800 w-full" />
-                  <span className="bg-slate-900 px-3 text-[10px] text-slate-500 uppercase tracking-widest font-mono">ou com e-mail e senha</span>
-                </div>
-
-                {/* Form de Login por E-mail do Admin */}
-                <form onSubmit={handleEmailLoginAdmin} className="space-y-3 text-left">
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-300 block mb-1">E-mail de Administrador</label>
-                    <div className="relative">
-                      <Mail size={15} className="absolute left-3 top-2.5 text-slate-500" />
-                      <input
-                        type="email"
-                        required
-                        value={adminEmailInput}
-                        onChange={(e) => setAdminEmailInput(e.target.value)}
-                        placeholder="amigorefrigerista@gmail.com"
-                        className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="text-[11px] font-semibold text-slate-300 block mb-1">Senha de Acesso</label>
-                    <div className="relative">
-                      <Lock size={15} className="absolute left-3 top-2.5 text-slate-500" />
-                      <input
-                        type="password"
-                        required
-                        value={adminPassInput}
-                        onChange={(e) => setAdminPassInput(e.target.value)}
-                        placeholder="••••••••"
-                        className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition"
-                      />
-                    </div>
-                  </div>
-
-                  <button
-                    type="submit"
-                    disabled={isLoggingIn}
-                    className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 font-bold text-xs border border-amber-500/30 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
-                  >
-                    {isLoggingIn ? <Loader2 className="w-4 h-4 animate-spin text-amber-400" /> : <Lock className="w-3.5 h-3.5" />}
-                    <span>Acessar com Senha</span>
-                  </button>
-                </form>
-              </>
+                <span>Entrar como Administrador</span>
+              </button>
             ) : (
               <div className="space-y-2">
                 <button

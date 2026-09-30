@@ -27,9 +27,11 @@ const safeKey = isSupabaseConfigured ? rawKey : 'eyJhbGciOiJIUzI1NiIsInR5cCI6Ikp
 
 export const supabase: SupabaseClient = createClient(safeUrl, safeKey, {
   auth: {
-    persistSession: isSupabaseConfigured,
-    autoRefreshToken: isSupabaseConfigured,
-    detectSessionInUrl: isSupabaseConfigured,
+    persistSession: true,
+    autoRefreshToken: true,
+    detectSessionInUrl: true,
+    storageKey: 'amigo-refrigerista-auth-token',
+    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
   },
 });
 

@@ -54,10 +54,7 @@ import {
   MessageSquare,
   CalendarCheck,
   BellRing,
-  Gift,
-  Copy,
-  ExternalLink,
-  Globe
+  Gift
 } from 'lucide-react';
 import { 
   MaintenanceReminder, 
@@ -113,7 +110,18 @@ import {
 
 export default function AmigoApp() {
   const router = useRouter();
-  const { user, profile, loading: authLoading, isAdmin, isSupportOrAdmin } = useAuth();
+  const { 
+    user, 
+    profile, 
+    loading: authLoading, 
+    isAdmin, 
+    isSupportOrAdmin, 
+    signInWithGoogle, 
+    signInWithEmail, 
+    signUpWithEmail, 
+    signOut: handleAppSignOut,
+    isSupabaseActive 
+  } = useAuth();
   
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
@@ -182,8 +190,6 @@ export default function AmigoApp() {
   const [showPassword, setShowPassword] = useState(false);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(true);
-  const [domainAuthError, setDomainAuthError] = useState(false);
-  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // Subscription & Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -660,14 +666,15 @@ export default function AmigoApp() {
     }
     setAuthSubmitting(true);
     try {
-      await signInWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
-      toast.success('Login efetuado com sucesso!');
-    } catch (err: any) {
-      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
-        toast.error('E-mail ou senha incorretos.');
+      const { error } = await signInWithEmail(emailInput.trim(), passwordInput);
+      if (error) {
+        toast.error(error.message || 'E-mail ou senha incorretos.');
       } else {
-        toast.error(err.message || 'Falha ao realizar login.');
+        toast.success('Login efetuado com sucesso!');
+        setShowAuthModal(false);
       }
+    } catch (err: any) {
+      toast.error(err.message || 'Falha ao realizar login.');
     } finally {
       setAuthSubmitting(false);
     }
@@ -694,29 +701,15 @@ export default function AmigoApp() {
 
     setAuthSubmitting(true);
     try {
-      const userCred = await createUserWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
-      const createdUser = userCred.user;
-      if (nameInput) {
-        await updateProfile(createdUser, { displayName: nameInput.trim() });
-      }
-
-      await setDoc(doc(db, 'users', createdUser.uid), {
-        uid: createdUser.uid,
-        email: createdUser.email,
-        name: nameInput.trim(),
-        phone: phoneInput.trim(),
-        document: documentInput.trim(),
-        role: createdUser.email?.toLowerCase() === 'amigorefrigerista@gmail.com' ? 'admin' : 'user',
-        createdAt: new Date().toISOString()
-      }, { merge: true });
-
-      toast.success('Conta criada com sucesso! Seja bem-vindo ao Amigo Refrigerista Pro.');
-    } catch (err: any) {
-      if (err.code === 'auth/email-already-in-use') {
-        toast.error('Este e-mail já está cadastrado. Faça login na guia "Entrar".');
+      const { error } = await signUpWithEmail(emailInput.trim(), passwordInput, nameInput.trim());
+      if (error) {
+        toast.error(error.message || 'Falha ao realizar cadastro.');
       } else {
-        toast.error(err.message || 'Falha ao realizar cadastro.');
+        toast.success('Conta criada com sucesso! Seja bem-vindo ao Amigo Refrigerista Pro.');
+        setShowAuthModal(false);
       }
+    } catch (err: any) {
+      toast.error(err.message || 'Falha ao realizar cadastro.');
     } finally {
       setAuthSubmitting(false);
     }
@@ -1013,67 +1006,20 @@ export default function AmigoApp() {
           <button
             onClick={async () => {
               try {
-                setDomainAuthError(false);
-                const provider = new GoogleAuthProvider();
-                await signInWithPopup(auth, provider);
-              } catch (err: any) {
-                if (err?.code === 'auth/unauthorized-domain') {
-                  setDomainAuthError(true);
-                  toast.error('Domínio não autorizado no Firebase Auth.', { duration: 5000 });
-                } else {
-                  toast.error(err.message || 'Falha no login com Google');
+                const { error } = await signInWithGoogle();
+                if (error) {
+                  toast.error(error.message || 'Falha no login com Google');
                 }
+              } catch (err: any) {
+                toast.error(err.message || 'Falha no login com Google');
               }
             }}
             type="button"
             className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-2.5 shadow-md cursor-pointer"
           >
             <Sparkles className="w-4 h-4 text-sky-600" />
-            <span>Entrar com Google em 1 Clique</span>
+            <span>Entrar com Google (Supabase Auth)</span>
           </button>
-
-          {domainAuthError && (
-            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2 text-left">
-              <div className="flex items-center gap-2 font-bold text-amber-300">
-                <Globe className="w-4 h-4 text-amber-400 shrink-0" />
-                <span>Autorizar Domínio no Firebase</span>
-              </div>
-              <p className="text-[11px] text-slate-300 leading-relaxed">
-                Para liberar o login com Google, adicione o domínio atual em <strong>Firebase Console &gt; Authentication &gt; Settings &gt; Authorized domains</strong>:
-              </p>
-              <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 font-mono text-[10px] text-cyan-300 break-all justify-between">
-                <span>{typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app'}</span>
-                <button
-                  type="button"
-                  onClick={() => {
-                    const host = typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app';
-                    navigator.clipboard.writeText(host);
-                    setCopiedDomain(true);
-                    toast.success('Domínio copiado!');
-                    setTimeout(() => setCopiedDomain(false), 2000);
-                  }}
-                  className="px-2 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center gap-1 shrink-0 cursor-pointer hover:bg-amber-400"
-                >
-                  <Copy size={12} />
-                  <span>{copiedDomain ? 'Copiado!' : 'Copiar'}</span>
-                </button>
-              </div>
-              <div className="flex items-center justify-between pt-1">
-                <a
-                  href="https://console.firebase.google.com/project/celestial-fragment-rpnh2/authentication/settings"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="text-[11px] text-sky-400 hover:text-sky-300 font-bold underline flex items-center gap-1"
-                >
-                  <span>Abrir Configurações do Firebase</span>
-                  <ExternalLink size={12} />
-                </a>
-              </div>
-              <p className="text-[11px] text-emerald-400 font-medium border-t border-amber-500/20 pt-1.5">
-                💡 Ou faça login por <strong>E-mail e Senha</strong> logo abaixo!
-              </p>
-            </div>
-          )}
 
           <div className="relative flex items-center justify-center">
             <div className="border-t border-slate-800 w-full" />
