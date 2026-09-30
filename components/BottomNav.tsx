@@ -6,7 +6,8 @@ import {
   AlertCircle, 
   Calculator, 
   TrendingUp, 
-  Users
+  Users,
+  Settings
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -26,7 +27,8 @@ export function BottomNav({
     { id: 'errors', label: 'Erros HVAC', icon: AlertCircle },
     { id: 'calc', label: 'Cálculos', icon: Calculator },
     { id: 'finance', label: 'Financeiro', icon: TrendingUp },
-    { id: 'clients', label: 'Clientes & OS', icon: Users },
+    { id: 'clients', label: 'Clientes', icon: Users },
+    { id: 'settings', label: 'Ajustes', icon: Settings },
   ];
 
   return (

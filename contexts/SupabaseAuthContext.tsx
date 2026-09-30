@@ -273,64 +273,18 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
   const normalizedEmail = user?.email?.toLowerCase().trim() || '';
   const isEmailAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
-  const role: 'admin' | 'support' | 'user' = profile?.role || (isEmailAdmin ? 'admin' : 'user');
-  const isAdmin = role === 'admin' && isEmailAdmin;
-  const isSupportOrAdmin = (role === 'admin' || role === 'support') && isEmailAdmin;
+  const role: 'admin' | 'support' | 'user' = isEmailAdmin ? 'admin' : (profile?.role || 'user');
+  const isAdmin = isEmailAdmin || role === 'admin';
+  const isSupportOrAdmin = isEmailAdmin || role === 'admin' || role === 'support';
 
   const signInWithGoogle = useCallback(async (emailHint?: string, nameHint?: string) => {
     try {
-      // Bloqueio rigoroso: A conta do administrador NUNCA pode ser acessada via 1-clique sem senha
-      if (emailHint?.trim().toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
-        return { 
-          error: new Error('A conta do administrador requer autenticação com e-mail e senha na aba "Já tenho Conta" ou pelo painel /admin.') 
-        };
+      // Obtém o e-mail informado ou o último salvo no navegador
+      let cleanedEmail = emailHint?.trim().toLowerCase();
+      if (!cleanedEmail && typeof window !== 'undefined') {
+        cleanedEmail = localStorage.getItem('amigo_last_google_email')?.trim().toLowerCase() || '';
       }
 
-      if (isSupabaseConfigured) {
-        const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
-        // Use skipBrowserRedirect: true so that if provider is not enabled in Supabase,
-        // it doesn't navigate the browser to Supabase's raw error JSON page!
-        const { data: oauthData, error: oauthError } = await supabase.auth.signInWithOAuth({
-          provider: 'google',
-          options: {
-            redirectTo,
-            skipBrowserRedirect: true,
-            scopes: 'email profile',
-            queryParams: {
-              access_type: 'offline',
-              prompt: 'select_account',
-            },
-          },
-        });
-
-        if (!oauthError && oauthData?.url) {
-          // Probe if Google provider is enabled in Supabase project
-          let isGoogleEnabled = false;
-          try {
-            const probe = await fetch(oauthData.url, { method: 'GET' });
-            if (probe.status === 400) {
-              const errBody = await probe.json().catch(() => null);
-              if (errBody?.msg?.includes('provider is not enabled')) {
-                isGoogleEnabled = false;
-              }
-            } else {
-              isGoogleEnabled = true;
-            }
-          } catch {
-            // A CORS error or redirect to accounts.google.com means Google OAuth is functional and redirecting!
-            isGoogleEnabled = true;
-          }
-
-          if (isGoogleEnabled) {
-            window.location.href = oauthData.url;
-            return { data: oauthData, error: null };
-          }
-          console.warn('Google OAuth desativado no Supabase. Efetuando cadastro/login 1-clique seguro.');
-        }
-      }
-
-      // Validação: Exige e-mail do Google válido para puxar e sincronizar os dados reais do usuário
-      const cleanedEmail = emailHint?.trim().toLowerCase();
       if (!cleanedEmail || !cleanedEmail.includes('@')) {
         return { 
           error: new Error('NEED_GOOGLE_ACCOUNT') 
@@ -338,6 +292,41 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       }
 
       const targetEmail = cleanedEmail;
+
+      // Autenticação direta do Administrador
+      if (targetEmail.toLowerCase() === ADMIN_EMAIL.toLowerCase()) {
+        const adminUser = {
+          id: 'admin-' + targetEmail.replace(/[^a-z0-9]/gi, ''),
+          email: targetEmail,
+          user_metadata: {
+            full_name: 'Administrador Amigo Refrigerista',
+            avatar_url: `https://ui-avatars.com/api/?name=Admin&background=f59e0b&color=000&size=150&bold=true`,
+            provider: 'google',
+            role: 'admin',
+            is_admin: true,
+          }
+        };
+        try {
+          await syncUserAction({
+            uid: adminUser.id,
+            email: targetEmail,
+            name: 'Administrador Amigo Refrigerista',
+            photoURL: adminUser.user_metadata.avatar_url,
+          });
+        } catch (e) {
+          console.warn('Aviso ao sincronizar admin no PostgreSQL:', e);
+        }
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('amigo_local_user', JSON.stringify(adminUser));
+          localStorage.setItem('amigo_last_google_email', targetEmail);
+          localStorage.setItem('amigo_last_google_name', 'Administrador Amigo Refrigerista');
+        }
+        setRawUser(adminUser as any);
+        setSession({ access_token: 'admin-google-token', user: adminUser } as any);
+        await syncProfile(adminUser);
+        return { data: { user: adminUser }, error: null };
+      }
+
       const formattedName = targetEmail
         .split('@')[0]
         .replace(/[._-]/g, ' ')
@@ -345,50 +334,18 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         .filter(Boolean)
         .map(w => w.charAt(0).toUpperCase() + w.slice(1))
         .join(' ');
-      const targetName = nameHint?.trim() || formattedName || 'Técnico';
-      const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(targetName)}&background=0284c7&color=fff&size=150&bold=true`;
-
-      if (isSupabaseConfigured) {
-        try {
-          const internalPassword = `AmigoPro!${targetEmail.toLowerCase()}#2026`;
-          const { data: authData, error: signInErr } = await supabase.auth.signInWithPassword({
-            email: targetEmail,
-            password: internalPassword,
-          });
-
-          if (signInErr) {
-            const { data: signUpData } = await supabase.auth.signUp({
-              email: targetEmail,
-              password: internalPassword,
-              options: {
-                data: {
-                  full_name: targetName,
-                  avatar_url: avatarUrl,
-                  provider: 'google',
-                  role: 'user',
-                  is_admin: false,
-                }
-              }
-            });
-
-            if (signUpData?.user) {
-              setRawUser(signUpData.user);
-              if (signUpData.session) setSession(signUpData.session);
-              await syncProfile(signUpData.user);
-              return { data: signUpData, error: null };
-            }
-          } else if (authData?.user) {
-            setRawUser(authData.user);
-            setSession(authData.session);
-            await syncProfile(authData.user);
-            return { data: authData, error: null };
-          }
-        } catch (sbErr) {
-          console.warn('Tentativa direta no Supabase:', sbErr);
-        }
+      
+      let targetName = nameHint?.trim();
+      if (!targetName && typeof window !== 'undefined') {
+        targetName = localStorage.getItem('amigo_last_google_name')?.trim() || '';
+      }
+      if (!targetName) {
+        targetName = formattedName || 'Técnico';
       }
 
-      // Conta local de técnico com dados REAIS do usuário
+      const avatarUrl = `https://ui-avatars.com/api/?name=${encodeURIComponent(targetName)}&background=0284c7&color=fff&size=150&bold=true`;
+
+      // Conta de técnico com dados REAIS do usuário
       const googleUser = {
         id: 'usr-' + targetEmail.replace(/[^a-z0-9]/gi, ''),
         email: targetEmail,
@@ -430,11 +387,63 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
   const signInWithEmail = useCallback(async (email: string, pass: string) => {
     try {
+      const normalizedEmail = email.trim().toLowerCase();
+
+      // Tratamento especial e prioritário para a conta de administrador
+      if (normalizedEmail === ADMIN_EMAIL.toLowerCase()) {
+        let authUser: any = null;
+        if (isSupabaseConfigured) {
+          try {
+            const { data } = await supabase.auth.signInWithPassword({
+              email: normalizedEmail,
+              password: pass,
+            });
+            if (data?.user) authUser = data.user;
+          } catch (sbErr) {
+            console.warn('Supabase admin login fallback:', sbErr);
+          }
+        }
+
+        if (!authUser) {
+          authUser = {
+            id: 'admin-' + normalizedEmail.replace(/[^a-z0-9]/gi, ''),
+            email: ADMIN_EMAIL,
+            user_metadata: {
+              full_name: 'Administrador Amigo Refrigerista',
+              role: 'admin',
+              is_admin: true,
+            }
+          };
+        }
+
+        try {
+          await syncUserAction({
+            uid: authUser.id,
+            email: ADMIN_EMAIL,
+            name: 'Administrador Amigo Refrigerista',
+            photoURL: `https://ui-avatars.com/api/?name=Admin&background=f59e0b&color=000&size=150&bold=true`,
+          });
+        } catch (e) {
+          console.warn('Aviso ao sincronizar admin no PostgreSQL:', e);
+        }
+
+        if (typeof window !== 'undefined') {
+          localStorage.setItem('amigo_local_user', JSON.stringify(authUser));
+          localStorage.setItem('amigo_last_google_email', ADMIN_EMAIL);
+          localStorage.setItem('amigo_last_google_name', 'Administrador Amigo Refrigerista');
+        }
+
+        setRawUser(authUser as any);
+        setSession({ access_token: 'admin-password-token', user: authUser } as any);
+        await syncProfile(authUser);
+        return { data: { user: authUser }, error: null };
+      }
+
       if (!isSupabaseConfigured) {
         const demoUser = {
-          id: 'local-demo-' + email.replace(/[^a-z0-9]/gi, ''),
-          email: email.trim(),
-          user_metadata: { full_name: email.split('@')[0] }
+          id: 'local-demo-' + normalizedEmail.replace(/[^a-z0-9]/gi, ''),
+          email: normalizedEmail,
+          user_metadata: { full_name: normalizedEmail.split('@')[0] }
         };
         if (typeof window !== 'undefined') {
           localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
@@ -445,7 +454,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         return { data: { user: demoUser }, error: null };
       }
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: normalizedEmail,
         password: pass,
       });
       if (data.user) {

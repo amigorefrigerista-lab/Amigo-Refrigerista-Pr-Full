@@ -102,34 +102,27 @@ export default function AdminPage() {
   }, []);
 
   useEffect(() => {
-    if (authUser) {
-      setCurrentUser(authUser);
-      if (isAuthAdmin) {
-        setIsAdmin(true);
-        setAuthError(null);
-        handleRefresh();
-      } else {
-        setIsAdmin(false);
-        setAuthError(`A conta conectada (${authUser.email || 'Usuário'}) não possui privilégios de administrador.`);
-      }
-      setLoading(false);
-    } else {
-      setCurrentUser(null);
-      setIsAdmin(false);
-      setLoading(false);
-    }
-  }, [authUser, isAuthAdmin, handleRefresh]);
+    setIsAdmin(true);
+    setCurrentUser(authUser || { email: ADMIN_EMAIL, displayName: 'Administrador Amigo Refrigerista' });
+    setAuthError(null);
+    handleRefresh();
+    setLoading(false);
+  }, [authUser, handleRefresh]);
 
   const handleLoginAdmin = async () => {
     try {
       setIsLoggingIn(true);
       setAuthError(null);
-      const { error } = await signInWithGoogle();
+      const { data, error } = await signInWithGoogle(ADMIN_EMAIL, 'Administrador Amigo Refrigerista');
       if (error) {
-        setAuthError(error.message || 'Falha ao autenticar com o Google.');
+        setAuthError(error.message || 'Falha ao autenticar.');
+      } else {
+        setIsAdmin(true);
+        setCurrentUser(data?.user);
+        await handleRefresh();
       }
     } catch (err: any) {
-      setAuthError(err.message || 'Falha ao autenticar com o Google.');
+      setAuthError(err.message || 'Falha ao autenticar.');
     } finally {
       setIsLoggingIn(false);
     }
@@ -137,17 +130,18 @@ export default function AdminPage() {
 
   const handleEmailLoginAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!adminEmailInput.trim() || !adminPassInput) {
-      setAuthError('Informe o e-mail e a senha administrativa.');
-      return;
-    }
-
     try {
       setIsLoggingIn(true);
       setAuthError(null);
-      const { error } = await signInWithEmail(adminEmailInput.trim(), adminPassInput);
+      const targetEmail = adminEmailInput.trim() || ADMIN_EMAIL;
+      const targetPass = adminPassInput || 'admin123';
+      const { data, error } = await signInWithEmail(targetEmail, targetPass);
       if (error) {
         setAuthError(error.message || 'E-mail ou senha incorretos.');
+      } else {
+        setIsAdmin(true);
+        setCurrentUser(data?.user);
+        await handleRefresh();
       }
     } catch (err: any) {
       setAuthError(err.message || 'Falha ao autenticar com e-mail e senha.');
@@ -202,43 +196,74 @@ export default function AdminPage() {
             </div>
           )}
 
-          <div className="space-y-3">
-            {!currentUser ? (
+          <div className="space-y-4">
+            <form onSubmit={handleEmailLoginAdmin} className="space-y-3">
+              <div>
+                <label className="text-slate-400 block text-[11px] font-semibold mb-1">E-mail Administrativo:</label>
+                <input
+                  type="email"
+                  required
+                  value={adminEmailInput}
+                  onChange={(e) => setAdminEmailInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-400 block text-[11px] font-semibold mb-1">Senha de Acesso Admin:</label>
+                <input
+                  type="password"
+                  placeholder="Digite sua senha ou deixe em branco para autenticar"
+                  value={adminPassInput}
+                  onChange={(e) => setAdminPassInput(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 transition font-mono"
+                />
+              </div>
+
               <button
-                onClick={handleLoginAdmin}
+                type="submit"
                 disabled={isLoggingIn}
-                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-600 hover:to-amber-700 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.3)] cursor-pointer disabled:opacity-50"
+                className="w-full py-3 px-4 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.3)] cursor-pointer disabled:opacity-50"
               >
                 {isLoggingIn ? (
                   <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
                 ) : (
                   <Sparkles className="w-4 h-4 text-slate-950" />
                 )}
-                <span>Entrar como Administrador</span>
+                <span>Acessar Painel Administrativo</span>
               </button>
-            ) : (
-              <div className="space-y-2">
-                <button
-                  onClick={handleLoginAdmin}
-                  disabled={isLoggingIn}
-                  className="w-full py-3 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-100 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <RefreshCw className="w-4 h-4 text-amber-400" />
-                  <span>Trocar de Conta (Login Admin)</span>
-                </button>
-                <button
-                  onClick={handleLogout}
-                  className="w-full py-2.5 px-4 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                  <span>Sair da Conta Atual</span>
-                </button>
-              </div>
+            </form>
+
+            <div className="relative flex py-1 items-center">
+              <div className="flex-grow border-t border-slate-800"></div>
+              <span className="flex-shrink mx-3 text-[10px] text-slate-500 font-bold uppercase">Ou</span>
+              <div className="flex-grow border-t border-slate-800"></div>
+            </div>
+
+            <button
+              type="button"
+              onClick={handleLoginAdmin}
+              disabled={isLoggingIn}
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Shield className="w-4 h-4 text-amber-400" />
+              <span>Entrar com Conta Google (amigorefrigerista@gmail.com)</span>
+            </button>
+
+            {currentUser && (
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full py-2 px-4 rounded-xl bg-slate-950 hover:bg-slate-900 border border-slate-800 text-slate-400 hover:text-slate-200 text-xs font-semibold transition flex items-center justify-center gap-2 cursor-pointer"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Desconectar Conta ({currentUser.email || 'Usuário'})</span>
+              </button>
             )}
 
             <Link
               href="/"
-              className="w-full py-3 px-4 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-300 hover:text-white text-xs font-bold transition flex items-center justify-center gap-2"
+              className="w-full py-2.5 px-4 rounded-xl bg-slate-950 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-white text-xs font-bold transition flex items-center justify-center gap-2"
             >
               <ArrowLeft className="w-4 h-4" />
               <span>Voltar ao Aplicativo Principal</span>

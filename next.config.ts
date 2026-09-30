@@ -10,13 +10,12 @@ const nextConfig: NextConfig = {
       },
     ],
   },
-  webpack: (config) => {
-    // Disable Webpack filesystem cache in container environments to prevent file locking / ENOENT rename errors
-    if (config.cache) {
-      config.cache = false;
-    }
-    return config;
-  },
+  allowedDevOrigins: [
+    'localhost:3000',
+    '127.0.0.1:3000',
+    '*.run.app',
+    '*.googleusercontent.com',
+  ],
 };
 
 export default nextConfig;

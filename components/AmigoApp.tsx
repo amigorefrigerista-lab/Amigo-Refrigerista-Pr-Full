@@ -1,12 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useMemo, lazy, Suspense } from 'react';
-
-const DashTab = lazy(() => import('@/components/tabs/DashTab'));
-const ErrorsTab = lazy(() => import('@/components/tabs/ErrorsTab'));
-const CalcTab = lazy(() => import('@/components/tabs/CalcTab'));
-const FinanceTab = lazy(() => import('@/components/tabs/FinanceTab'));
-const ClientsTab = lazy(() => import('@/components/tabs/ClientsTab'));
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { 
   LayoutDashboard, 
   AlertCircle, 
@@ -111,6 +105,8 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
+import SettingsTab from '@/components/tabs/SettingsTab';
+import { sendOrderEmailAction, SmtpConfig } from '@/app/actions/smtpActions';
 import { diagnoseErrorCode } from '@/app/actions/diagnoseErrorCode';
 import { parseEquipmentPlate } from '@/app/actions/parsePlateImage';
 import { 
@@ -165,7 +161,7 @@ export default function AmigoApp() {
     const verifyDatabaseProfile = async () => {
       if (!user?.uid || authLoading) return;
       try {
-        const dbUser = await getUserProfileAction(user.uid);
+        const dbUser = await getUserProfileAction(user.uid).catch(() => null);
         const nameVal = dbUser?.name?.trim() || profile?.name?.trim() || user.displayName?.trim();
         const emailVal = dbUser?.email?.trim() || profile?.email?.trim() || user.email?.trim();
 
@@ -330,6 +326,7 @@ export default function AmigoApp() {
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
   const [remClientName, setRemClientName] = useState('');
   const [remClientPhone, setRemClientPhone] = useState('');
+  const [remClientEmail, setRemClientEmail] = useState('');
   const [remClientAddress, setRemClientAddress] = useState('');
   const [remEquipment, setRemEquipment] = useState('');
   const [remMonths, setRemMonths] = useState<number>(6);
@@ -715,6 +712,7 @@ export default function AmigoApp() {
           userUid: user.uid,
           name: remClientName.trim(),
           phone: remClientPhone.trim(),
+          email: remClientEmail.trim() || undefined,
           address: remClientAddress.trim(),
           notes: remNotes.trim(),
         });
@@ -739,12 +737,54 @@ export default function AmigoApp() {
         toast.success(`Ordem de Serviço #${orderNumber} criada localmente!`);
       }
 
+      // Envio automático via SMTP se configurado e ativado
+      if (typeof window !== 'undefined' && remClientEmail.trim()) {
+        try {
+          const savedSmtpStr = localStorage.getItem('amigo_smtp_config');
+          if (savedSmtpStr) {
+            const smtpCfg: SmtpConfig = JSON.parse(savedSmtpStr);
+            if (smtpCfg.enabled && smtpCfg.sendOnOsCreated && smtpCfg.host && smtpCfg.user && smtpCfg.pass) {
+              sendOrderEmailAction(smtpCfg, {
+                orderNumber,
+                clientName: remClientName.trim(),
+                clientEmail: remClientEmail.trim(),
+                equipment: remEquipment.trim(),
+                type: 'Instalação / Manutenção',
+                date: remServiceDate,
+                notes: remNotes.trim(),
+                companyName: profile?.empresa || profile?.name || 'Amigo Refrigerista PRO',
+                companyPhone: profile?.telefone || remClientPhone.trim(),
+              }).then((res) => {
+                if (res.log && typeof window !== 'undefined') {
+                  try {
+                    const existingLogsStr = localStorage.getItem('amigo_smtp_email_logs');
+                    const existingLogs = existingLogsStr ? JSON.parse(existingLogsStr) : [];
+                    const updatedLogs = [res.log, ...existingLogs].slice(0, 20);
+                    localStorage.setItem('amigo_smtp_email_logs', JSON.stringify(updatedLogs));
+                  } catch (logErr) {
+                    console.warn('Erro ao salvar log de e-mail:', logErr);
+                  }
+                }
+                if (res.success) {
+                  toast.success(`✉️ E-mail da OS #${orderNumber} enviado com sucesso ao cliente!`);
+                } else {
+                  toast.error(`Falha no envio do e-mail da OS: ${res.message}`);
+                }
+              }).catch(console.warn);
+            }
+          }
+        } catch (e) {
+          console.warn('Erro ao disparar e-mail automático SMTP:', e);
+        }
+      }
+
       setServiceOrders(prev => [newOS, ...prev]);
       setShowOSModal(false);
 
       // Limpa campos
       setRemClientName('');
       setRemClientPhone('');
+      setRemClientEmail('');
       setRemClientAddress('');
       setRemEquipment('');
       setRemNotes('');
@@ -844,7 +884,7 @@ export default function AmigoApp() {
                       toast.error(error.message || 'Falha na autenticação Google');
                     } else {
                       const loggedUid = data?.user?.id;
-                      const dbUser = loggedUid ? await getUserProfileAction(loggedUid) : null;
+                      const dbUser = loggedUid ? await getUserProfileAction(loggedUid).catch(() => null) : null;
                       const finalName = dbUser?.name?.trim() || targetName || data?.user?.user_metadata?.full_name?.trim() || 'Técnico';
                       toast.success(`Bem-vindo de volta, ${finalName}!`);
                     }
@@ -1091,7 +1131,7 @@ export default function AmigoApp() {
 
             // Verificação pós-login com Google: Checa campos obrigatórios (nome, email) no banco
             const loggedUid = data?.user?.id;
-            const dbUser = loggedUid ? await getUserProfileAction(loggedUid) : null;
+            const dbUser = loggedUid ? await getUserProfileAction(loggedUid).catch(() => null) : null;
             const finalName = dbUser?.name?.trim() || name.trim();
             const finalEmail = dbUser?.email?.trim() || email.trim();
 
@@ -1139,7 +1179,7 @@ export default function AmigoApp() {
       
       {/* Header com os botões de Suporte e Admin */}
       <Header 
-        onOpenSettings={() => setShowSettingsModal(true)} 
+        onOpenSettings={() => setActiveTab('settings')} 
       />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -1203,7 +1243,7 @@ export default function AmigoApp() {
                   <span>Resgatar Licença / Upgrade</span>
                 </button>
 
-                {isAdmin && (
+                {(isAdmin || user?.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com') && (
                   <Link
                     href="/admin"
                     className="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs transition flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.25)]"
@@ -2467,6 +2507,13 @@ export default function AmigoApp() {
             </div>
           </div>
         )}
+
+        {/* 6. ABA: CONFIGURAÇÕES, E-MAIL SMTP & DADOS DA EMPRESA */}
+        {activeTab === 'settings' && (
+          <SettingsTab
+            onOpenUpgradeModal={() => setShowUpgradeModal(true)}
+          />
+        )}
       </main>
 
       {/* Navegação Inferior (BottomNav) */}
@@ -2655,6 +2702,19 @@ export default function AmigoApp() {
                   placeholder="Ex: (11) 98765-4321 ou 5584999998888"
                   value={remClientPhone}
                   onChange={(e) => setRemClientPhone(e.target.value)}
+                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">
+                  E-mail do Cliente (Opcional - para envio automático de OS)
+                </label>
+                <input
+                  type="email"
+                  placeholder="cliente@email.com"
+                  value={remClientEmail}
+                  onChange={(e) => setRemClientEmail(e.target.value)}
                   className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition font-mono"
                 />
               </div>
@@ -2870,7 +2930,7 @@ export default function AmigoApp() {
 
           // Verificação pós-login com Google: Checa campos obrigatórios (nome, email) no banco
           const loggedUid = data?.user?.id;
-          const dbUser = loggedUid ? await getUserProfileAction(loggedUid) : null;
+          const dbUser = loggedUid ? await getUserProfileAction(loggedUid).catch(() => null) : null;
           const finalName = dbUser?.name?.trim() || name.trim();
           const finalEmail = dbUser?.email?.trim() || email.trim();
 

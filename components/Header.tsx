@@ -3,8 +3,9 @@
 import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Headset, ShieldCheck, Snowflake, Bell, Settings, LogOut, Plus } from 'lucide-react';
+import { Headset, ShieldCheck, Snowflake, Bell, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { toast } from 'sonner';
 
 interface HeaderProps {
   onOpenNotifications?: () => void;
@@ -14,7 +15,21 @@ interface HeaderProps {
 
 export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }: HeaderProps) {
   const router = useRouter();
-  const { user, profile, isSupportOrAdmin, isAdmin } = useAuth();
+  const { user, profile, isSupportOrAdmin, isAdmin, signOut } = useAuth();
+
+  const handleSignOut = async () => {
+    try {
+      await signOut();
+      toast.success('Sessão encerrada com sucesso!');
+      if (typeof window !== 'undefined') {
+        window.location.href = '/';
+      } else {
+        router.push('/');
+      }
+    } catch (err) {
+      console.error('Erro ao encerrar sessão:', err);
+    }
+  };
 
   const displayName = profile?.name || user?.displayName || user?.email?.split('@')[0] || 'Técnico';
   const avatarUrl = user?.photoURL || (displayName ? `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=0284c7&color=fff&size=80&bold=true` : null);
@@ -45,39 +60,27 @@ export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }:
 
       {/* Lado Direito: Ações Administrativas & Perfil */}
       <div className="flex items-center gap-2 sm:gap-2.5">
-        {/* Botão de Suporte ao Cliente: Visível apenas para Atendentes e Admin */}
-        {isSupportOrAdmin && (
-          <Link
-            href="/suporte-central"
-            onClick={(e) => {
-              e.preventDefault();
-              router.push('/suporte-central');
-            }}
-            className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(99,102,241,0.2)] active:scale-95 cursor-pointer select-none"
-            title="Acessar Central de Atendimento ao Assinante"
-          >
-            <Headset size={16} className="text-indigo-400 shrink-0" />
-            <span className="hidden sm:inline font-bold">Suporte Central</span>
-            <span className="sm:hidden font-bold">Suporte</span>
-          </Link>
-        )}
+        {/* Botão de Suporte Central */}
+        <Link
+          href="/suporte-central"
+          className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(99,102,241,0.2)] active:scale-95 cursor-pointer select-none"
+          title="Acessar Central de Atendimento ao Assinante"
+        >
+          <Headset size={16} className="text-indigo-400 shrink-0" />
+          <span className="hidden sm:inline font-bold">Suporte Central</span>
+          <span className="sm:hidden font-bold">Suporte</span>
+        </Link>
 
-        {/* Botão de Painel de Administração: Visível APENAS para o Admin */}
-        {isAdmin && (
-          <Link
-            href="/admin"
-            onClick={(e) => {
-              e.preventDefault();
-              router.push('/admin');
-            }}
-            className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.2)] active:scale-95 cursor-pointer select-none"
-            title="Acessar Painel Geral de Administração"
-          >
-            <ShieldCheck size={16} className="text-amber-400 shrink-0" />
-            <span className="hidden sm:inline font-bold">Painel Admin</span>
-            <span className="sm:hidden font-bold">Admin</span>
-          </Link>
-        )}
+        {/* Botão de Painel de Administração */}
+        <Link
+          href="/admin"
+          className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.2)] active:scale-95 cursor-pointer select-none"
+          title="Acessar Painel Geral de Administração"
+        >
+          <ShieldCheck size={16} className="text-amber-400 shrink-0" />
+          <span className="hidden sm:inline font-bold">Painel Admin</span>
+          <span className="sm:hidden font-bold">Admin</span>
+        </Link>
 
         {onOpenNotifications && (
           <button
@@ -114,6 +117,17 @@ export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }:
             <Settings size={14} className="text-slate-400 group-hover:text-sky-400 group-hover:rotate-45 transition-all" />
           </button>
         )}
+
+        {/* Botão de Sair / Encerrar Sessão */}
+        <button
+          type="button"
+          onClick={handleSignOut}
+          className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 hover:text-rose-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(244,63,94,0.15)] active:scale-95 cursor-pointer select-none"
+          title="Encerrar Sessão e Sair do Aplicativo"
+        >
+          <LogOut size={16} className="text-rose-400 shrink-0" />
+          <span className="hidden sm:inline font-bold">Sair</span>
+        </button>
       </div>
     </header>
   );
