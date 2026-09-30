@@ -812,46 +812,13 @@ export default function AmigoApp() {
 
           {/* Botão rápido do Google com Dados Reais */}
           <button
-            onClick={async () => {
-              if (emailInput.trim()) {
-                try {
-                  setIsGoogleLoading(true);
-                  const { data, error } = await signInWithGoogle(emailInput.trim(), nameInput.trim());
-                  if (error) {
-                    if (error.message === 'NEED_GOOGLE_ACCOUNT') {
-                      setShowGoogleModal(true);
-                    } else {
-                      toast.error(error.message || 'Falha na autenticação Google');
-                    }
-                  } else {
-                    // Verificação pós-login: Checa se os campos obrigatórios (nome, email) foram preenchidos no banco
-                    const loggedUid = data?.user?.id;
-                    const dbUser = loggedUid ? await getUserProfileAction(loggedUid) : null;
-                    const finalName = dbUser?.name?.trim() || data?.user?.user_metadata?.full_name?.trim() || nameInput.trim();
-                    const finalEmail = dbUser?.email?.trim() || data?.user?.email?.trim() || emailInput.trim();
-
-                    if (!finalName || !finalEmail || finalName === 'Técnico' || finalName === 'Usuário') {
-                      toast.error(
-                        'Atenção: Os campos obrigatórios do seu perfil (Nome e E-mail) estão vazios no banco de dados. Por favor, atualize seus dados!',
-                        { duration: 8000, id: 'google-login-empty' }
-                      );
-                      setShowProfileUpdateModal(true);
-                    } else {
-                      toast.success(`Conta Google conectada com sucesso! Bem-vindo(a), ${finalName}!`);
-                    }
-                  }
-                } catch (err: any) {
-                  toast.error(err.message || 'Falha na autenticação Google');
-                } finally {
-                  setIsGoogleLoading(false);
-                }
-              } else {
-                setShowGoogleModal(true);
-              }
+            type="button"
+            onClick={(e) => {
+              e.preventDefault();
+              setShowGoogleModal(true);
             }}
             disabled={isGoogleLoading}
-            type="button"
-            className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 disabled:opacity-75 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-2.5 shadow-md cursor-pointer"
+            className="w-full py-3.5 px-4 rounded-xl bg-white hover:bg-slate-100 active:scale-[0.99] disabled:opacity-75 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-2.5 shadow-lg shadow-white/10 cursor-pointer"
           >
             {isGoogleLoading ? (
               <>
@@ -1046,6 +1013,61 @@ export default function AmigoApp() {
             </Link>
           </div>
         </div>
+
+        {/* Modal de Conexão com Conta Google Real para usuário não autenticado */}
+        <GoogleConnectModal
+          isOpen={showGoogleModal}
+          onClose={() => setShowGoogleModal(false)}
+          initialEmail={emailInput}
+          initialName={nameInput}
+          onConnect={async (email, name) => {
+            setEmailInput(email);
+            setNameInput(name);
+            const { data, error } = await signInWithGoogle(email, name);
+            if (error) {
+              throw error;
+            }
+
+            // Verificação pós-login com Google: Checa campos obrigatórios (nome, email) no banco
+            const loggedUid = data?.user?.id;
+            const dbUser = loggedUid ? await getUserProfileAction(loggedUid) : null;
+            const finalName = dbUser?.name?.trim() || name.trim();
+            const finalEmail = dbUser?.email?.trim() || email.trim();
+
+            if (!finalName || !finalEmail || finalName === 'Técnico' || finalName === 'Usuário') {
+              toast.error(
+                'Atenção: Os campos obrigatórios do seu perfil (Nome e E-mail) estão vazios no banco de dados. Atualize seus dados!',
+                { duration: 8000, id: 'google-modal-incomplete' }
+              );
+              setShowProfileUpdateModal(true);
+            } else {
+              toast.success(`Conta Google conectada com sucesso! Bem-vindo(a), ${finalName}!`);
+            }
+          }}
+        />
+
+        {/* Modal de Atualização de Campos Obrigatórios de Perfil */}
+        <ProfileUpdateModal
+          isOpen={showProfileUpdateModal}
+          onClose={() => setShowProfileUpdateModal(false)}
+          currentName={nameInput}
+          currentEmail={emailInput}
+          onSave={async (newName, newEmail) => {
+            setNameInput(newName);
+            setEmailInput(newEmail);
+            const activeUser = user as any;
+            if (activeUser?.uid) {
+              await updateUserProfileAction({
+                uid: activeUser.uid,
+                email: newEmail,
+                name: newName,
+                photoURL: `https://ui-avatars.com/api/?name=${encodeURIComponent(newName)}&background=0284c7&color=fff&size=150&bold=true`
+              });
+              await updateProfileData({ name: newName, email: newEmail });
+              await refreshProfile();
+            }
+          }}
+        />
       </div>
     );
   }

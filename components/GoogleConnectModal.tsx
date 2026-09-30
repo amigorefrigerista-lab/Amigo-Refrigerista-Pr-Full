@@ -23,6 +23,13 @@ export function GoogleConnectModal({
   const [googleName, setGoogleName] = useState(initialName);
   const [isLoading, setIsLoading] = useState(false);
 
+  React.useEffect(() => {
+    if (isOpen) {
+      if (initialEmail) setGoogleEmail(initialEmail);
+      if (initialName) setGoogleName(initialName);
+    }
+  }, [isOpen, initialEmail, initialName]);
+
   if (!isOpen) return null;
 
   const handleSubmit = async (e: React.FormEvent) => {
