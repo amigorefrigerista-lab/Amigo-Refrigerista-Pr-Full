@@ -54,7 +54,10 @@ import {
   MessageSquare,
   CalendarCheck,
   BellRing,
-  Gift
+  Gift,
+  Copy,
+  ExternalLink,
+  Globe
 } from 'lucide-react';
 import { 
   MaintenanceReminder, 
@@ -110,18 +113,7 @@ import {
 
 export default function AmigoApp() {
   const router = useRouter();
-  const { 
-    user, 
-    profile, 
-    loading: authLoading, 
-    isAdmin, 
-    isSupportOrAdmin, 
-    signInWithGoogle, 
-    signInWithEmail, 
-    signUpWithEmail, 
-    signOut: handleAppSignOut,
-    isSupabaseActive 
-  } = useAuth();
+  const { user, profile, loading: authLoading, isAdmin, isSupportOrAdmin } = useAuth();
   
   const [isMounted, setIsMounted] = useState(false);
   useEffect(() => {
@@ -190,6 +182,8 @@ export default function AmigoApp() {
   const [showPassword, setShowPassword] = useState(false);
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [termsAccepted, setTermsAccepted] = useState(true);
+  const [domainAuthError, setDomainAuthError] = useState(false);
+  const [copiedDomain, setCopiedDomain] = useState(false);
 
   // Subscription & Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -666,15 +660,14 @@ export default function AmigoApp() {
     }
     setAuthSubmitting(true);
     try {
-      const { error } = await signInWithEmail(emailInput.trim(), passwordInput);
-      if (error) {
-        toast.error(error.message || 'E-mail ou senha incorretos.');
-      } else {
-        toast.success('Login efetuado com sucesso!');
-        setShowAuthModal(false);
-      }
+      await signInWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
+      toast.success('Login efetuado com sucesso!');
     } catch (err: any) {
-      toast.error(err.message || 'Falha ao realizar login.');
+      if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+        toast.error('E-mail ou senha incorretos.');
+      } else {
+        toast.error(err.message || 'Falha ao realizar login.');
+      }
     } finally {
       setAuthSubmitting(false);
     }
@@ -701,15 +694,29 @@ export default function AmigoApp() {
 
     setAuthSubmitting(true);
     try {
-      const { error } = await signUpWithEmail(emailInput.trim(), passwordInput, nameInput.trim());
-      if (error) {
-        toast.error(error.message || 'Falha ao realizar cadastro.');
-      } else {
-        toast.success('Conta criada com sucesso! Seja bem-vindo ao Amigo Refrigerista Pro.');
-        setShowAuthModal(false);
+      const userCred = await createUserWithEmailAndPassword(auth, emailInput.trim(), passwordInput);
+      const createdUser = userCred.user;
+      if (nameInput) {
+        await updateProfile(createdUser, { displayName: nameInput.trim() });
       }
+
+      await setDoc(doc(db, 'users', createdUser.uid), {
+        uid: createdUser.uid,
+        email: createdUser.email,
+        name: nameInput.trim(),
+        phone: phoneInput.trim(),
+        document: documentInput.trim(),
+        role: createdUser.email?.toLowerCase() === 'amigorefrigerista@gmail.com' ? 'admin' : 'user',
+        createdAt: new Date().toISOString()
+      }, { merge: true });
+
+      toast.success('Conta criada com sucesso! Seja bem-vindo ao Amigo Refrigerista Pro.');
     } catch (err: any) {
-      toast.error(err.message || 'Falha ao realizar cadastro.');
+      if (err.code === 'auth/email-already-in-use') {
+        toast.error('Este e-mail já está cadastrado. Faça login na guia "Entrar".');
+      } else {
+        toast.error(err.message || 'Falha ao realizar cadastro.');
+      }
     } finally {
       setAuthSubmitting(false);
     }
@@ -1006,20 +1013,67 @@ export default function AmigoApp() {
           <button
             onClick={async () => {
               try {
-                const { error } = await signInWithGoogle();
-                if (error) {
-                  toast.error(error.message || 'Falha no login com Google');
-                }
+                setDomainAuthError(false);
+                const provider = new GoogleAuthProvider();
+                await signInWithPopup(auth, provider);
               } catch (err: any) {
-                toast.error(err.message || 'Falha no login com Google');
+                if (err?.code === 'auth/unauthorized-domain') {
+                  setDomainAuthError(true);
+                  toast.error('Domínio não autorizado no Firebase Auth.', { duration: 5000 });
+                } else {
+                  toast.error(err.message || 'Falha no login com Google');
+                }
               }
             }}
             type="button"
             className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-2.5 shadow-md cursor-pointer"
           >
             <Sparkles className="w-4 h-4 text-sky-600" />
-            <span>Entrar com Google (Supabase Auth)</span>
+            <span>Entrar com Google em 1 Clique</span>
           </button>
+
+          {domainAuthError && (
+            <div className="p-3.5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-200 text-xs space-y-2 text-left">
+              <div className="flex items-center gap-2 font-bold text-amber-300">
+                <Globe className="w-4 h-4 text-amber-400 shrink-0" />
+                <span>Autorizar Domínio no Firebase</span>
+              </div>
+              <p className="text-[11px] text-slate-300 leading-relaxed">
+                Para liberar o login com Google, adicione o domínio atual em <strong>Firebase Console &gt; Authentication &gt; Settings &gt; Authorized domains</strong>:
+              </p>
+              <div className="flex items-center gap-2 bg-slate-950 p-2 rounded-xl border border-slate-800 font-mono text-[10px] text-cyan-300 break-all justify-between">
+                <span>{typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app'}</span>
+                <button
+                  type="button"
+                  onClick={() => {
+                    const host = typeof window !== 'undefined' ? window.location.hostname : 'ais-dev-qra27imdzdc4xbsitf6zdr-546064254082.us-east1.run.app';
+                    navigator.clipboard.writeText(host);
+                    setCopiedDomain(true);
+                    toast.success('Domínio copiado!');
+                    setTimeout(() => setCopiedDomain(false), 2000);
+                  }}
+                  className="px-2 py-1 bg-amber-500 text-slate-950 font-bold rounded-lg text-[10px] flex items-center gap-1 shrink-0 cursor-pointer hover:bg-amber-400"
+                >
+                  <Copy size={12} />
+                  <span>{copiedDomain ? 'Copiado!' : 'Copiar'}</span>
+                </button>
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <a
+                  href="https://console.firebase.google.com/project/celestial-fragment-rpnh2/authentication/settings"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[11px] text-sky-400 hover:text-sky-300 font-bold underline flex items-center gap-1"
+                >
+                  <span>Abrir Configurações do Firebase</span>
+                  <ExternalLink size={12} />
+                </a>
+              </div>
+              <p className="text-[11px] text-emerald-400 font-medium border-t border-amber-500/20 pt-1.5">
+                💡 Ou faça login por <strong>E-mail e Senha</strong> logo abaixo!
+              </p>
+            </div>
+          )}
 
           <div className="relative flex items-center justify-center">
             <div className="border-t border-slate-800 w-full" />
@@ -1486,10 +1540,10 @@ export default function AmigoApp() {
               <div>
                 <h2 className="text-lg font-bold text-white flex items-center gap-2">
                   <AlertCircle className="w-5 h-5 text-rose-400" />
-                  <span>Diagnóstico Inteligente de Erros HVAC</span>
+                  <span>Diagnóstico Inteligente de Erros & Defeitos HVAC</span>
                 </h2>
                 <p className="text-xs text-slate-400 mt-1">
-                  Consulte tabelas oficiais e causas prováveis de todas as marcas (Split, Inverter, Cassete, Piso Teto e VRF).
+                  Pesquise por <strong>Código de Erro</strong> (ex: E1, CH05, U4, EC, F0) ou <strong>Descrição do Defeito</strong> (ex: não gela, congelando tubo, compressor esquenta e desliga, pingando água, desarmando disjuntor).
                 </p>
               </div>
 
@@ -1520,14 +1574,95 @@ export default function AmigoApp() {
                   </div>
 
                   <div>
-                    <label className="text-xs font-semibold text-slate-300 block mb-1.5">Código de Erro / Pisca de LED</label>
+                    <label className="text-xs font-semibold text-slate-300 block mb-1.5">Código de Erro OU Sintoma / Defeito</label>
                     <input
                       type="text"
                       value={errorCodeInput}
                       onChange={(e) => setErrorCodeInput(e.target.value)}
-                      placeholder="Ex: E1, CH05, U4, F0, 14..."
-                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white uppercase focus:outline-none focus:border-rose-500 font-mono"
+                      placeholder="Ex: E1, CH05, U4 ou digite 'não gela', 'congelando tubo'..."
+                      className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3 py-2.5 text-sm text-white focus:outline-none focus:border-rose-500 font-sans"
                     />
+                  </div>
+                </div>
+
+                {/* Atalhos de Defeitos e Sintomas Mais Frequentes */}
+                <div className="space-y-2 pt-1">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-slate-400">Defeitos frequentes:</span>
+                    {[
+                      { label: '❄️ Não Gela', query: 'não gela' },
+                      { label: '🧊 Congelando Tubo Fino', query: 'congelando tubo fino' },
+                      { label: '🧊 Congelando Sucção', query: 'congelando tubo grosso' },
+                      { label: '⚡ Compressor Não Parte', query: 'compressor não liga' },
+                      { label: '🔥 Compressor Esquenta & Desliga', query: 'compressor esquenta e desliga' },
+                      { label: '💧 Pingando Água', query: 'pingando água' },
+                      { label: '🔌 Desarmando Disjuntor', query: 'desarmando disjuntor' },
+                      { label: '🌀 Ventilador Parado', query: 'ventilador parado' },
+                      { label: '💥 Barulho Excessivo', query: 'barulho excessivo' },
+                      { label: '📴 Placa Não Liga', query: 'placa não liga' },
+                    ].map((symptom) => (
+                      <button
+                        key={symptom.query}
+                        type="button"
+                        onClick={async () => {
+                          setErrorCodeInput(symptom.query);
+                          setIsDiagnosing(true);
+                          setDiagnosisResult(null);
+                          try {
+                            const res = await diagnoseErrorCode(errorBrand, symptom.query);
+                            setDiagnosisResult(res);
+                            toast.success(`Diagnóstico gerado para: ${symptom.label}`);
+                          } catch (err: any) {
+                            toast.error(err.message || 'Falha ao analisar defeito');
+                          } finally {
+                            setIsDiagnosing(false);
+                          }
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-slate-900 hover:bg-sky-500/20 border border-slate-800 hover:border-sky-500/40 text-[11px] font-semibold text-slate-300 hover:text-sky-300 transition cursor-pointer"
+                      >
+                        {symptom.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Atalhos rápidos dos códigos mais comuns da marca selecionada */}
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[11px] font-semibold text-slate-400">Códigos {errorBrand}:</span>
+                    {(
+                      errorBrand === 'Daikin' ? ['U4', 'L5', 'E7', 'A5', 'C4', 'C9', 'U0', 'E1'] :
+                      errorBrand === 'LG' ? ['CH05', 'CH10', 'CH21', 'CH01', 'CH02', 'CH32'] :
+                      errorBrand === 'Midea' ? ['EC', 'E1', 'E3', 'P4', 'E7'] :
+                      errorBrand === 'Gree' ? ['E6', 'F0', 'E1', 'H6'] :
+                      errorBrand === 'Samsung' ? ['E101', 'E458', 'E464', 'E121'] :
+                      errorBrand === 'Carrier' ? ['EC', 'E1', 'P4', 'E3'] :
+                      errorBrand === 'Fujitsu' ? ['E:01', 'E:11'] :
+                      errorBrand === 'Elgin' ? ['E1', 'E6', 'EC'] :
+                      errorBrand === 'TCL' ? ['E1', 'E6', 'EC'] :
+                      errorBrand === 'Hitachi' ? ['01', '03'] :
+                      ['E1', 'E6', 'EC', 'F1']
+                    ).map((quickCode) => (
+                      <button
+                        key={quickCode}
+                        type="button"
+                        onClick={async () => {
+                          setErrorCodeInput(quickCode);
+                          setIsDiagnosing(true);
+                          setDiagnosisResult(null);
+                          try {
+                            const res = await diagnoseErrorCode(errorBrand, quickCode);
+                            setDiagnosisResult(res);
+                            toast.success(`Diagnóstico oficial para ${errorBrand} - ${quickCode}`);
+                          } catch (err: any) {
+                            toast.error(err.message || 'Falha ao consultar código');
+                          } finally {
+                            setIsDiagnosing(false);
+                          }
+                        }}
+                        className="px-2 py-0.5 rounded-md bg-slate-950 hover:bg-rose-500/20 border border-slate-800 hover:border-rose-500/40 text-[11px] font-mono font-bold text-slate-300 hover:text-rose-300 transition cursor-pointer"
+                      >
+                        {quickCode}
+                      </button>
+                    ))}
                   </div>
                 </div>
 
