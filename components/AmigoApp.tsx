@@ -230,6 +230,7 @@ export default function AmigoApp() {
   const [termsAccepted, setTermsAccepted] = useState(true);
   const [domainAuthError, setDomainAuthError] = useState(false);
   const [copiedDomain, setCopiedDomain] = useState(false);
+  const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
   // Subscription & Settings State
   const [showSettingsModal, setShowSettingsModal] = useState(false);
@@ -746,23 +747,38 @@ export default function AmigoApp() {
             </button>
           </div>
 
-          {/* Botão rápido do Google */}
+          {/* Botão rápido do Google / 1-Clique */}
           <button
             onClick={async () => {
               try {
-                const { error } = await signInWithGoogle();
+                setIsGoogleLoading(true);
+                const { error } = await signInWithGoogle(emailInput, nameInput);
                 if (error) {
-                  toast.error(error.message || 'Falha no login com Google');
+                  toast.error(error.message || 'Falha na autenticação rápida');
+                } else {
+                  toast.success('Acesso em 1 clique realizado com sucesso!');
                 }
               } catch (err: any) {
-                toast.error(err.message || 'Falha no login com Google');
+                toast.error(err.message || 'Falha na autenticação rápida');
+              } finally {
+                setIsGoogleLoading(false);
               }
             }}
+            disabled={isGoogleLoading}
             type="button"
-            className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-2.5 shadow-md cursor-pointer"
+            className="w-full py-3 px-4 rounded-xl bg-white hover:bg-slate-100 disabled:opacity-75 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-2.5 shadow-md cursor-pointer"
           >
-            <Sparkles className="w-4 h-4 text-sky-600" />
-            <span>Entrar com Google em 1 Clique</span>
+            {isGoogleLoading ? (
+              <>
+                <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
+                <span>Conectando em 1 clique...</span>
+              </>
+            ) : (
+              <>
+                <Sparkles className="w-4 h-4 text-sky-600" />
+                <span>{authMode === 'register' ? 'Criar Conta com 1 Clique (Google)' : 'Entrar com Google em 1 Clique'}</span>
+              </>
+            )}
           </button>
 
           <div className="relative flex items-center justify-center">

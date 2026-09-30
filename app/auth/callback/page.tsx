@@ -12,6 +12,13 @@ export default function AuthCallbackPage() {
     const handleAuthCallback = async () => {
       try {
         if (isSupabaseConfigured) {
+          if (typeof window !== 'undefined') {
+            const params = new URLSearchParams(window.location.search);
+            const code = params.get('code');
+            if (code) {
+              await supabase.auth.exchangeCodeForSession(code);
+            }
+          }
           const { data: { session }, error } = await supabase.auth.getSession();
           if (error) {
             console.error('Erro no callback de autenticação:', error);

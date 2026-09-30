@@ -103,25 +103,29 @@ export interface SupabaseDiagnostic {
 }
 
 /**
- * Serviços auxiliares de dados com suporte a modo LocalStorage automático se Supabase não estiver configurado
+ * Serviços auxiliares de dados com suporte a modo LocalStorage e serviço de e-mail integrado
  */
 export const supabaseService = {
-  async signInWithGoogle() {
+  async signInWithGoogle(emailHint?: string, nameHint?: string) {
+    const targetEmail = emailHint?.trim() || 'amigorefrigerista@gmail.com';
+    const targetName = nameHint?.trim() || (targetEmail === 'amigorefrigerista@gmail.com' ? 'Técnico Administrador' : targetEmail.split('@')[0]);
     if (!isSupabaseConfigured) {
       const demoUser = {
-        id: 'local-demo-user',
-        email: 'amigorefrigerista@gmail.com',
-        user_metadata: { full_name: 'Técnico Administrador (Demo)' }
+        id: 'local-demo-user-' + targetEmail.replace(/[^a-z0-9]/gi, ''),
+        email: targetEmail,
+        user_metadata: { full_name: targetName }
       };
       if (typeof window !== 'undefined') {
         localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
       }
       return { data: { user: demoUser, session: { access_token: 'local-demo-token' } }, error: null };
     }
+    const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
     return await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
-        redirectTo: typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined,
+        redirectTo,
+        skipBrowserRedirect: true,
       },
     });
   },
@@ -156,14 +160,26 @@ export const supabaseService = {
       }
       return { data: { user: demoUser, session: { access_token: 'local-demo-token' } }, error: null };
     }
+    const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
     return await supabase.auth.signUp({
       email,
       password: pass,
       options: {
+        emailRedirectTo: redirectTo,
         data: {
           full_name: fullName,
         },
       },
+    });
+  },
+
+  async resetPasswordForEmail(email: string) {
+    if (!isSupabaseConfigured) {
+      return { data: { message: 'Link de redefinição enviado com sucesso (modo demo)' }, error: null };
+    }
+    const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/reset-password` : undefined;
+    return await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo,
     });
   },
 
@@ -183,7 +199,6 @@ export const supabaseService = {
           try { return JSON.parse(stored); } catch { return null; }
         }
       }
-      // Padrão logado como admin demo para testes imediatos sem atrito
       const defaultDemo = {
         id: 'local-demo-admin',
         email: 'amigorefrigerista@gmail.com',
