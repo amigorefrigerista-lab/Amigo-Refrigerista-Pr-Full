@@ -158,11 +158,12 @@ export default function AmigoApp() {
     // Buscar Clientes
     getClientsAction(user.uid)
       .then((data) => {
-        if (data && data.length > 0) {
-          setClients(data);
-        }
+        setClients(data || []);
       })
-      .catch(console.error);
+      .catch((err) => {
+        console.error('Erro ao buscar clientes:', err);
+        setClients([]);
+      });
 
     // Buscar Ordens de Serviço / Instalações
     getInstallationsAction(user.uid)
@@ -187,18 +188,24 @@ export default function AmigoApp() {
             autoScheduleReminder: true,
             reminderDaysBefore: 3,
           })));
+        } else {
+          setServiceOrders([]);
         }
       })
-      .catch(console.error);
+      .catch((err) => {
+        console.error('Erro ao buscar ordens de serviço:', err);
+        setServiceOrders([]);
+      });
 
     // Buscar Histórico de Diagnósticos
     getDiagnosesAction(user.uid)
       .then((logs) => {
-        if (logs && logs.length > 0) {
-          setDiagnosisHistory(logs);
-        }
+        setDiagnosisHistory(logs || []);
       })
-      .catch(console.error);
+      .catch((err) => {
+        console.error('Erro ao buscar diagnósticos:', err);
+        setDiagnosisHistory([]);
+      });
   }, [user]);
 
   // Superheating & Subcooling State
@@ -236,29 +243,8 @@ export default function AmigoApp() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [isCancellingSub, setIsCancellingSub] = useState(false);
 
-  // Lembretes de Manutenção Preventiva State
-  const [reminders, setReminders] = useState<MaintenanceReminder[]>([
-    {
-      id: 'rem-1',
-      clientName: 'Dr. Marcos Silveira',
-      clientPhone: '5511987654321',
-      equipment: 'Split Daikin Inverter 12.000 BTU/h',
-      serviceDate: '2026-03-28',
-      monthsInterval: 6,
-      status: 'pending',
-      createdAt: '2026-03-28'
-    },
-    {
-      id: 'rem-2',
-      clientName: 'Academia Fit Life',
-      clientPhone: '5511912345678',
-      equipment: 'Cassete Carrier 60.000 BTU/h',
-      serviceDate: '2026-06-28',
-      monthsInterval: 3,
-      status: 'pending',
-      createdAt: '2026-06-28'
-    }
-  ]);
+  // Lembretes de Manutenção Preventiva State (Inicia 100% limpo para novos usuários)
+  const [reminders, setReminders] = useState<MaintenanceReminder[]>([]);
 
   const [showOSModal, setShowOSModal] = useState(false);
   const [showUpgradeModal, setShowUpgradeModal] = useState(false);
@@ -280,22 +266,44 @@ export default function AmigoApp() {
     return `OS-${year}-${String(count).padStart(4, '0')}`;
   }, [serviceOrders.length]);
 
-  // Financial State with Expanded Mock Data for Offline/New Users
-  const [revenueItems, setRevenueItems] = useState<any[]>([
-    { id: 't1', desc: 'Instalação Tri-Split - Condomínio Alpha', value: 2450, date: '2026-09-28', type: 'in' },
-    { id: 't2', desc: 'Higienização + PMOC Academia Fit', value: 1200, date: '2026-09-24', type: 'in' },
-    { id: 't3', desc: 'Instalação Split Inverter 12k - Dr. Marcos', value: 650, date: '2026-09-21', type: 'in' },
-    { id: 't4', desc: 'Compra de Tubo de Cobre 1/4 e 3/8', value: 420, date: '2026-09-20', type: 'out' },
-    { id: 't5', desc: 'Manutenção Corretiva VRF Shopping', value: 3400, date: '2026-08-15', type: 'in' },
-    { id: 't6', desc: 'Ferramentas de Vácuo Pro', value: 950, date: '2026-08-10', type: 'out' },
-    { id: 't7', desc: 'Recarga de Gás R410A de 13.6kg', value: 680, date: '2026-08-02', type: 'out' },
-    { id: 't8', desc: 'PMOC Anual Escritório Advocacia', value: 2800, date: '2026-07-22', type: 'in' },
-    { id: 't9', desc: 'Troca de compressor 36000 BTU', value: 1450, date: '2026-07-15', type: 'in' },
-    { id: 't10', desc: 'Compra de Peças de Reposição e Filtros', value: 550, date: '2026-07-08', type: 'out' },
-    { id: 't11', desc: 'Instalação K7 48k Cassete - Galpão', value: 3100, date: '2026-06-25', type: 'in' },
-    { id: 't12', desc: 'Pagamento Auxiliar Diária', value: 300, date: '2026-06-24', type: 'out' },
-    { id: 't13', desc: 'Curso de Atualização Inverter Daikin', value: 450, date: '2026-06-05', type: 'out' }
-  ]);
+  // Financial State (Inicia 100% limpo para novos usuários)
+  const [revenueItems, setRevenueItems] = useState<any[]>([]);
+
+  // Sincroniza e limpa dados locais por usuário
+  useEffect(() => {
+    if (typeof window !== 'undefined' && user?.uid) {
+      try {
+        const storedRev = localStorage.getItem(`amigo_revenue_${user.uid}`);
+        setRevenueItems(storedRev ? JSON.parse(storedRev) : []);
+      } catch {
+        setRevenueItems([]);
+      }
+      try {
+        const storedRem = localStorage.getItem(`amigo_reminders_${user.uid}`);
+        setReminders(storedRem ? JSON.parse(storedRem) : []);
+      } catch {
+        setReminders([]);
+      }
+    } else {
+      setRevenueItems([]);
+      setReminders([]);
+      setClients([]);
+      setServiceOrders([]);
+      setDiagnosisHistory([]);
+    }
+  }, [user?.uid]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && user?.uid) {
+      localStorage.setItem(`amigo_revenue_${user.uid}`, JSON.stringify(revenueItems));
+    }
+  }, [revenueItems, user?.uid]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && user?.uid) {
+      localStorage.setItem(`amigo_reminders_${user.uid}`, JSON.stringify(reminders));
+    }
+  }, [reminders, user?.uid]);
 
   // Form para novas transações financeiras
   const [newTxDesc, setNewTxDesc] = useState('');
@@ -388,28 +396,8 @@ export default function AmigoApp() {
     }
   };
 
-  // Clients State
-  const [clients, setClients] = useState<any[]>([
-    {
-      id: 'c1',
-      name: 'Dr. Marcos Silveira',
-      phone: '(11) 98765-4321',
-      address: 'Av. Paulista, 1000 - Cj 42, SP',
-      equipment: [
-        { brand: 'Daikin', model: 'FTXM35M', capacity: '12.000 BTU/h', gas: 'R32', lastMaintenance: '2026-08-10' }
-      ]
-    },
-    {
-      id: 'c2',
-      name: 'Academia Fit Life',
-      phone: '(11) 91234-5678',
-      address: 'Rua das Flores, 450 - Moema, SP',
-      equipment: [
-        { brand: 'Carrier', model: '42XQL060515LC', capacity: '60.000 BTU/h', gas: 'R410A', lastMaintenance: '2026-09-15' },
-        { brand: 'Midea', model: '42MACA36M5', capacity: '36.000 BTU/h', gas: 'R410A', lastMaintenance: '2026-09-15' }
-      ]
-    }
-  ]);
+  // Clients State (Inicia 100% limpo para novos usuários)
+  const [clients, setClients] = useState<any[]>([]);
 
   // Superheating Calculation
   const shCalculations = useMemo(() => {
@@ -2115,7 +2103,14 @@ export default function AmigoApp() {
               </div>
 
               <div className="space-y-3">
-                {clients.map((c) => (
+                {clients.length === 0 ? (
+                  <div className="p-8 text-center bg-slate-950/60 border border-slate-800 rounded-2xl space-y-2">
+                    <Users className="w-8 h-8 text-slate-600 mx-auto" />
+                    <p className="text-xs font-semibold text-slate-300">Nenhum cliente cadastrado ainda.</p>
+                    <p className="text-[11px] text-slate-500">Cadastre clientes ou gere Ordens de Serviço para gerenciar manutenções e PMOC do zero.</p>
+                  </div>
+                ) : (
+                  clients.map((c) => (
                   <div key={c.id} className="p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
                     <div className="flex items-center justify-between">
                       <div>
@@ -2143,7 +2138,7 @@ export default function AmigoApp() {
                       ))}
                     </div>
                   </div>
-                ))}
+                )))}
               </div>
             </div>
           </div>

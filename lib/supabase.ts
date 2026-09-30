@@ -107,18 +107,23 @@ export interface SupabaseDiagnostic {
  */
 export const supabaseService = {
   async signInWithGoogle(emailHint?: string, nameHint?: string) {
-    const targetEmail = emailHint?.trim() || 'amigorefrigerista@gmail.com';
-    const targetName = nameHint?.trim() || (targetEmail === 'amigorefrigerista@gmail.com' ? 'Técnico Administrador' : targetEmail.split('@')[0]);
+    const cleanedEmail = emailHint?.trim().toLowerCase();
+    const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+    const targetEmail = (cleanedEmail && cleanedEmail !== 'amigorefrigerista@gmail.com')
+      ? cleanedEmail
+      : `tecnico.${randomSuffix}@amigorefrigerista.pro`;
+    const targetName = nameHint?.trim() || (cleanedEmail ? cleanedEmail.split('@')[0] : `Técnico #${randomSuffix}`);
+
     if (!isSupabaseConfigured) {
-      const demoUser = {
-        id: 'local-demo-user-' + targetEmail.replace(/[^a-z0-9]/gi, ''),
+      const newUser = {
+        id: 'usr-' + targetEmail.replace(/[^a-z0-9]/gi, ''),
         email: targetEmail,
-        user_metadata: { full_name: targetName }
+        user_metadata: { full_name: targetName, role: 'user', is_admin: false }
       };
       if (typeof window !== 'undefined') {
-        localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
+        localStorage.setItem('amigo_local_user', JSON.stringify(newUser));
       }
-      return { data: { user: demoUser, session: { access_token: 'local-demo-token' } }, error: null };
+      return { data: { user: newUser, session: { access_token: 'local-user-token' } }, error: null };
     }
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
     return await supabase.auth.signInWithOAuth({
@@ -196,18 +201,17 @@ export const supabaseService = {
       if (typeof window !== 'undefined') {
         const stored = localStorage.getItem('amigo_local_user');
         if (stored) {
-          try { return JSON.parse(stored); } catch { return null; }
+          try {
+            const parsed = JSON.parse(stored);
+            if (parsed && parsed.id !== 'local-demo-admin') {
+              return parsed;
+            }
+          } catch {
+            return null;
+          }
         }
       }
-      const defaultDemo = {
-        id: 'local-demo-admin',
-        email: 'amigorefrigerista@gmail.com',
-        user_metadata: { full_name: 'Técnico Administrador' }
-      };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('amigo_local_user', JSON.stringify(defaultDemo));
-      }
-      return defaultDemo;
+      return null;
     }
     const { data: { user } } = await supabase.auth.getUser();
     return user;
@@ -216,13 +220,26 @@ export const supabaseService = {
   // Perfil
   async getProfile(userId: string) {
     if (!isSupabaseConfigured) {
+      let email = '';
+      let nome = 'Técnico';
+      if (typeof window !== 'undefined') {
+        const stored = localStorage.getItem('amigo_local_user');
+        if (stored) {
+          try {
+            const parsed = JSON.parse(stored);
+            email = parsed.email || '';
+            nome = parsed.user_metadata?.full_name || 'Técnico';
+          } catch {}
+        }
+      }
+      const isRealAdmin = email.toLowerCase().trim() === 'amigorefrigerista@gmail.com';
       return {
         id: userId,
-        email: 'amigorefrigerista@gmail.com',
-        nome: 'Técnico Administrador',
-        is_admin: true,
-        role: 'admin',
-        plano: 'pro'
+        email,
+        nome,
+        is_admin: isRealAdmin,
+        role: isRealAdmin ? 'admin' : 'user',
+        plano: isRealAdmin ? 'pro' : 'free'
       };
     }
     const { data, error } = await supabase
