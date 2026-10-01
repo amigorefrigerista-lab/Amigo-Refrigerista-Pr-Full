@@ -267,6 +267,22 @@ export default function AmigoApp() {
         console.error('Erro ao buscar diagnósticos:', err);
         setDiagnosisHistory([]);
       });
+
+    // CORREÇÃO 1: Carregar Estoque do Instalador do Supabase
+    getStockAction(user.uid)
+      .then((data) => setStockItems(data || []))
+      .catch((err) => {
+        console.error('Erro ao buscar estoque de materiais:', err);
+        setStockItems([]);
+      });
+
+    // CORREÇÃO 2: Carregar Orçamentos e Tabela de Preços do Supabase
+    getQuotesAction(user.uid)
+      .then((data) => setQuotes(data || []))
+      .catch((err) => {
+        console.error('Erro ao buscar orçamentos e preços:', err);
+        setQuotes([]);
+      });
   }, [user]);
 
   // Superheating & Subcooling State
@@ -324,6 +340,8 @@ export default function AmigoApp() {
 
   // Lembretes de Manutenção Preventiva State (Inicia 100% limpo para novos usuários)
   const [reminders, setReminders] = useState<MaintenanceReminder[]>([]);
+  const [stockItems, setStockItems] = useState<any[]>([]);
+  const [quotes, setQuotes] = useState<any[]>([]);
   const [showTemplateModal, setShowTemplateModal] = useState(false);
   const [waTemplate, setWaTemplate] = useState<string>(DEFAULT_WHATSAPP_TEMPLATE);
 
@@ -487,6 +505,114 @@ export default function AmigoApp() {
     } catch (err) {
       console.error(err);
       toast.error('Falha ao deletar lançamento.');
+    }
+  };
+
+  // Handlers para o Estoque do Instalador
+  const handleSaveStockItem = async (itemData: {
+    id?: number;
+    name: string;
+    category?: string;
+    quantity: number;
+    unit?: string;
+    minQuantity?: number;
+    unitCost?: number;
+  }) => {
+    if (!user) return;
+    try {
+      const saved = await saveStockItemAction({
+        ...itemData,
+        userUid: user.uid,
+      });
+      if (saved) {
+        setStockItems((prev) => {
+          const idx = prev.findIndex((i) => i.id === saved.id);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = saved;
+            return updated;
+          }
+          return [saved, ...prev];
+        });
+        toast.success('Item de estoque salvo no Supabase!');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao salvar item no estoque.');
+    }
+  };
+
+  const handleUpdateStockQuantity = async (id: number, newQty: number) => {
+    if (!user) return;
+    try {
+      const updated = await updateStockQuantityAction(id, newQty, user.uid);
+      if (updated) {
+        setStockItems((prev) => prev.map((item) => (item.id === id ? updated : item)));
+        toast.success('Quantidade atualizada!');
+      }
+    } catch (err) {
+      toast.error('Erro ao atualizar quantidade no estoque.');
+    }
+  };
+
+  const handleDeleteStockItem = async (id: number) => {
+    if (!user) return;
+    try {
+      const ok = await deleteStockItemAction(id, user.uid);
+      if (ok) {
+        setStockItems((prev) => prev.filter((item) => item.id !== id));
+        toast.success('Item removido do estoque!');
+      }
+    } catch (err) {
+      toast.error('Erro ao remover item do estoque.');
+    }
+  };
+
+  // Handlers para Orçamentos e Preços
+  const handleSaveQuote = async (quoteData: {
+    id?: number;
+    clientName: string;
+    clientPhone?: string;
+    equipment?: string;
+    description?: string;
+    totalAmount: number;
+    status?: string;
+    validityDays?: number;
+    items?: any[];
+    notes?: string;
+  }) => {
+    if (!user) return;
+    try {
+      const saved = await saveQuoteAction({
+        ...quoteData,
+        userUid: user.uid,
+      });
+      if (saved) {
+        setQuotes((prev) => {
+          const idx = prev.findIndex((q) => q.id === saved.id);
+          if (idx >= 0) {
+            const updated = [...prev];
+            updated[idx] = saved;
+            return updated;
+          }
+          return [saved, ...prev];
+        });
+        toast.success('Orçamento/Preço salvo com sucesso!');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Erro ao salvar orçamento.');
+    }
+  };
+
+  const handleDeleteQuote = async (id: number) => {
+    if (!user) return;
+    try {
+      const ok = await deleteQuoteAction(id, user.uid);
+      if (ok) {
+        setQuotes((prev) => prev.filter((q) => q.id !== id));
+        toast.success('Orçamento excluído!');
+      }
+    } catch (err) {
+      toast.error('Erro ao excluir orçamento.');
     }
   };
 
