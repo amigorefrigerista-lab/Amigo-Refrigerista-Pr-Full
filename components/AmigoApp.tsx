@@ -59,7 +59,10 @@ import {
   ExternalLink,
   Globe,
   SlidersHorizontal,
-  AlertTriangle
+  AlertTriangle,
+  Package,
+  Tag,
+  Minus
 } from 'lucide-react';
 import { 
   MaintenanceReminder, 
@@ -1415,6 +1418,30 @@ export default function AmigoApp() {
         {/* Banner de Boas-Vindas */}
         <PlanCarousel />
 
+        {/* Botões de Navegação entre Abas */}
+        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+          <button
+            onClick={() => setActiveTab('dash')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'dash' ? 'bg-sky-500 text-white' : 'text-slate-400 hover:text-white bg-slate-900 border border-slate-800' }`}
+          >
+            Dashboard
+          </button>
+
+          <button
+            onClick={() => setActiveTab('estoque')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'estoque' ? 'bg-sky-500 text-white' : 'text-slate-400 hover:text-white bg-slate-900 border border-slate-800' }`}
+          >
+            Estoque do Técnico
+          </button>
+
+          <button
+            onClick={() => setActiveTab('precos')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'precos' ? 'bg-sky-500 text-white' : 'text-slate-400 hover:text-white bg-slate-900 border border-slate-800' }`}
+          >
+            Tabela de Preços / Orçamentos
+          </button>
+        </div>
+
 
         {/* 1. ABA: DASHBOARD */}
         {activeTab === 'dash' && (
@@ -2699,6 +2726,145 @@ export default function AmigoApp() {
         {activeTab === 'suporte-admin' && (
           <AdminSupportChatView onBack={() => setActiveTab('dash')} />
         )}
+        {/* ABA DE ESTOQUE DO INSTALADOR */}
+        {activeTab === 'estoque' && (
+          <div className="space-y-6 bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Package className="w-5 h-5 text-sky-400" />
+                  <span>Controle de Estoque & Materiais</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">Gerencie fluidos refrigerantes, tubulações, peças e insumos</p>
+              </div>
+              <button
+                onClick={() => {
+                  const name = prompt('Nome do Material (ex: Fluido R410A 1kg):');
+                  const qty = prompt('Quantidade atual:');
+                  if (name && qty) {
+                    handleSaveStockItem({
+                      name,
+                      quantity: parseFloat(qty) || 0,
+                      category: 'fluido',
+                      unit: 'kg',
+                      unitCost: 0,
+                    });
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs transition flex items-center gap-1.5"
+              >
+                <Plus size={14} />
+                Novo Item
+              </button>
+            </div>
+
+            {stockItems.length === 0 ? (
+              <div className="p-8 text-center bg-slate-950/60 border border-slate-800 rounded-2xl space-y-2">
+                <Package className="w-8 h-8 text-slate-600 mx-auto" />
+                <p className="text-xs font-semibold text-slate-300">Nenhum item cadastrado no estoque ainda.</p>
+                <p className="text-[11px] text-slate-500">Clique em + Novo Item para cadastrar seu primeiro material no Supabase!</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {stockItems.map((item) => (
+                  <div key={item.id} className="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl">
+                    <div>
+                      <p className="text-sm font-bold text-white">{item.name}</p>
+                      <p className="text-[10px] text-slate-500 uppercase">{item.category || 'Geral'}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <p className="text-xs text-slate-400">Quantidade:</p>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleUpdateStockQuantity(item.id, Math.max(0, item.quantity - 1))}
+                          className="w-6 h-6 rounded bg-slate-800 text-slate-300 flex items-center justify-center hover:bg-slate-700"
+                        >
+                          <Minus size={12} />
+                        </button>
+                        <span className="text-sm font-bold text-white w-12 text-center">{item.quantity} {item.unit || 'un'}</span>
+                        <button
+                          onClick={() => handleUpdateStockQuantity(item.id, item.quantity + 1)}
+                          className="w-6 h-6 rounded bg-slate-800 text-slate-300 flex items-center justify-center hover:bg-slate-700"
+                        >
+                          <Plus size={12} />
+                        </button>
+                      </div>
+                      <button
+                        onClick={() => handleDeleteStockItem(item.id)}
+                        className="text-rose-400 hover:text-rose-300 text-xs font-bold p-2"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* ABA DE TABELA DE PREÇOS / ORÇAMENTOS */}
+        {activeTab === 'precos' && (
+          <div className="space-y-6 bg-slate-900 border border-slate-800 rounded-3xl p-6">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <Tag className="w-5 h-5 text-emerald-400" />
+                  <span>Tabela de Preços & Orçamentos</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">Consulte e crie orçamentos rápidos para enviar aos clientes</p>
+              </div>
+              <button
+                onClick={() => {
+                  const clientName = prompt('Nome do Cliente:');
+                  const amount = prompt('Valor Total (R$):');
+                  const equipment = prompt('Equipamento / Serviço:');
+                  if (clientName && amount) {
+                    handleSaveQuote({
+                      clientName,
+                      totalAmount: parseFloat(amount) || 0,
+                      equipment: equipment || 'Instalação / Manutenção',
+                      status: 'pendente',
+                    });
+                  }
+                }}
+                className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs transition flex items-center gap-1.5"
+              >
+                <Plus size={14} />
+                Novo Orçamento
+              </button>
+            </div>
+
+            {quotes.length === 0 ? (
+              <div className="p-8 text-center bg-slate-950/60 border border-slate-800 rounded-2xl space-y-2">
+                <Tag className="w-8 h-8 text-slate-600 mx-auto" />
+                <p className="text-xs font-semibold text-slate-300">Nenhum orçamento ou preço cadastrado no Supabase ainda.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {quotes.map((q) => (
+                  <div key={q.id} className="flex items-center justify-between p-4 bg-slate-950 border border-slate-800 rounded-xl">
+                    <div>
+                      <p className="text-sm font-bold text-white">{q.clientName}</p>
+                      <p className="text-[10px] text-slate-500">{q.equipment || 'Serviço de Refrigeração'}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-sm font-black text-emerald-400">R$ {Number(q.totalAmount).toFixed(2)}</p>
+                      <p className="text-[10px] text-slate-500 uppercase">{q.status || 'Pendente'}</p>
+                    </div>
+                    <button
+                      onClick={() => handleDeleteQuote(q.id)}
+                      className="text-rose-400 hover:text-rose-300 text-xs font-bold p-2"
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
       </main>
 
       {/* Navegação Inferior (BottomNav) */}
