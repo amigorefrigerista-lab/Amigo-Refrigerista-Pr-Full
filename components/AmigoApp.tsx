@@ -73,10 +73,11 @@ import { WhatsAppTemplateModal } from '@/components/WhatsAppTemplateModal';
 import { GoogleConnectModal } from '@/components/GoogleConnectModal';
 import { ProfileUpdateModal } from '@/components/ProfileUpdateModal';
 import { RecurringRevenueCard } from '@/components/RecurringRevenueCard';
-import { VipWelcomeBanner } from '@/components/VipWelcomeBanner';
+import { PlanCarousel } from '@/components/PlanCarousel';
 import { UpgradeModal } from '@/components/UpgradeModal';
 import { InstallPrompt } from '@/components/InstallPrompt';
 import { ClientSupportModal } from '@/components/ClientSupportModal';
+import { Footer } from '@/components/Footer';
 import { AdminSupportChatView } from '@/components/AdminSupportChatView';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
@@ -1186,10 +1187,7 @@ export default function AmigoApp() {
           )}
 
           <div className="text-center pt-2">
-            <Link href="/privacidade" className="text-[11px] text-slate-500 hover:text-sky-400 transition flex items-center justify-center gap-1">
-              <Shield size={12} />
-              <span>Privacidade e Segurança de Dados (Play Store Data Safety)</span>
-            </Link>
+            {/* O rodapé agora é global via componente Footer */}
           </div>
         </div>
 
@@ -1289,44 +1287,8 @@ export default function AmigoApp() {
         )}
 
         {/* Banner de Boas-Vindas */}
-        {profile?.role === 'admin' || (profile as any)?.isVip || profile?.subscription?.isLifetimeFree || profile?.subscription?.plan === 'pro_trial' || profile?.subscription?.plan === 'pro_paid' || profile?.subscription?.plan === 'pro' ? (
-          <VipWelcomeBanner 
-            name={profile?.name || user.displayName || user.email?.split('@')[0] || 'Técnico VIP'} 
-            isTrial={profile?.subscription?.plan === 'pro_trial'}
-            licenseCode={profile?.subscription?.licenseKeyUsed}
-            endDate={profile?.subscription?.endDate}
-          />
-        ) : (
-          <div className="bg-gradient-to-r from-sky-950/70 via-slate-900 to-slate-900 border border-sky-500/20 rounded-3xl p-6 relative overflow-hidden shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <div className="flex items-center gap-2 mb-1">
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-300 border border-sky-500/30">
-                    ⚡ Técnico HVAC-R
-                  </span>
-                  <span className="text-xs text-slate-400 font-mono">{user.email}</span>
-                </div>
-                <h2 className="text-xl sm:text-2xl font-black text-white">
-                  Olá, {user.displayName || user.email?.split('@')[0]}!
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">
-                  Diagnósticos por IA, cálculo de superaquecimento, tabela PxT e ordens de serviço.
-                </p>
-              </div>
+        <PlanCarousel />
 
-              <div className="flex flex-wrap items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => setShowUpgradeModal(true)}
-                  className="px-4 py-2 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center gap-1.5 cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.3)] shrink-0"
-                >
-                  <Gift size={15} />
-                  <span>Resgatar Licença / Upgrade</span>
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
 
         {/* 1. ABA: DASHBOARD */}
         {activeTab === 'dash' && (
@@ -3057,6 +3019,7 @@ export default function AmigoApp() {
       />
 
       <InstallPrompt />
+      <Footer />
     </div>
   );
 }

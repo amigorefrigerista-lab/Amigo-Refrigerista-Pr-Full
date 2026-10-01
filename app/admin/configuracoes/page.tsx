@@ -43,6 +43,7 @@ export default function AdminSettingsPage() {
     mercadopago_public_key: '',
     webhook_secret: '',
     pro_plan_price: 39.90,
+    flex_plan_price: 19.90,
     maintenance_interval_months: 6,
     free_trial_days: 7,
     whatsapp_api_url: '',
@@ -65,6 +66,7 @@ export default function AdminSettingsPage() {
               ...prev,
               ...data,
               pro_plan_price: data.pro_plan_price ? Number(data.pro_plan_price) : prev.pro_plan_price,
+              flex_plan_price: data.flex_plan_price ? Number(data.flex_plan_price) : prev.flex_plan_price,
               maintenance_interval_months: data.maintenance_interval_months ? Number(data.maintenance_interval_months) : prev.maintenance_interval_months,
               free_trial_days: data.free_trial_days ? Number(data.free_trial_days) : prev.free_trial_days,
             }));
@@ -345,6 +347,23 @@ export default function AdminSettingsPage() {
                     required
                     value={form.pro_plan_price}
                     onChange={(e) => setForm({ ...form, pro_plan_price: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  Valor da Assinatura Flex (Mensal R$)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 pointer-events-none">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={form.flex_plan_price}
+                    onChange={(e) => setForm({ ...form, flex_plan_price: parseFloat(e.target.value) || 0 })}
                     className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
                   />
                 </div>
