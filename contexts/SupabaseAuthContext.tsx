@@ -587,7 +587,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       if (!isSupabaseConfigured) {
         return { data: { message: 'Link de redefinição enviado com sucesso (modo demo)' }, error: null };
       }
-      const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/reset-password` : undefined;
+      const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback?next=/redefinir-senha` : undefined;
       const { data, error } = await supabase.auth.resetPasswordForEmail(email.trim(), {
         redirectTo,
       });

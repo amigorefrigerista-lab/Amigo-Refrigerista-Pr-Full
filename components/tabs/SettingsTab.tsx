@@ -876,14 +876,6 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
               <span>Configuração da API do WhatsApp & Templates (/whatsapp-config)</span>
             </Link>
 
-            <Link
-              href="/admin"
-              className="w-full py-2.5 px-4 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Shield size={16} className="text-amber-400" />
-              <span>Acessar Painel Geral de Administração (/admin)</span>
-            </Link>
-
             <button
               type="button"
               onClick={async () => {
