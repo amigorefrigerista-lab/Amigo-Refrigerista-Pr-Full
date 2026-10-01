@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Calculator, Gauge, Thermometer, Wind } from 'lucide-react';
+import { Calculator, Gauge, Thermometer, Wind, Sparkles } from 'lucide-react';
 
 interface CalcTabProps {
   calcSubTab: 'sh_sub' | 'thermal' | 'pt_table';
@@ -56,94 +56,208 @@ export default function CalcTab({
   shCalculations,
   calculatedBtus,
 }: CalcTabProps) {
+  // Diagnóstico do Superaquecimento
+  const shValue = Number(shCalculations?.superheat || 0);
+  let shStatus = 'Normal (5°C - 8°C)';
+  let shColor = 'text-sky-400 bg-sky-500/10 border-sky-500/30';
+  if (shValue < 4) {
+    shStatus = 'Muito Baixo (< 4°C) - Risco de Golpe de Líquido';
+    shColor = 'text-rose-400 bg-rose-500/10 border-rose-500/30';
+  } else if (shValue > 11) {
+    shStatus = 'Muito Alto (> 11°C) - Possível Falta de Fluido';
+    shColor = 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+  }
+
+  // Diagnóstico do Sub-resfriamento
+  const scValue = Number(shCalculations?.subcooling || 0);
+  let scStatus = 'Normal (4°C - 7°C)';
+  let scColor = 'text-emerald-400 bg-emerald-500/10 border-emerald-500/30';
+  if (scValue < 3) {
+    scStatus = 'Baixo (< 3°C) - Falta de Fluido ou Condensadora Suja';
+    scColor = 'text-amber-400 bg-amber-500/10 border-amber-500/30';
+  } else if (scValue > 9) {
+    scStatus = 'Alto (> 9°C) - Excesso de Fluido Refrigerante';
+    scColor = 'text-rose-400 bg-rose-500/10 border-rose-500/30';
+  }
+
   return (
     <div className="space-y-6">
-      <div className="flex bg-slate-900 border border-slate-800 p-1 rounded-2xl">
+      {/* Seletor de Abas da Calculadora */}
+      <div className="flex bg-slate-900 border border-slate-800 p-1.5 rounded-2xl gap-1">
         <button
           type="button"
           onClick={() => setCalcSubTab('sh_sub')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${calcSubTab === 'sh_sub' ? 'bg-sky-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+          className={`flex-1 py-3 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px] ${
+            calcSubTab === 'sh_sub' ? 'bg-sky-500 text-slate-950 font-black shadow-lg shadow-sky-500/20' : 'text-slate-400 hover:text-white'
+          }`}
         >
-          Superaquecimento & Sub-resfriamento
+          <Gauge size={15} />
+          <span>Superaquecimento</span>
         </button>
         <button
           type="button"
           onClick={() => setCalcSubTab('thermal')}
-          className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition cursor-pointer ${calcSubTab === 'thermal' ? 'bg-sky-600 text-white shadow-lg' : 'text-slate-400 hover:text-white'}`}
+          className={`flex-1 py-3 px-3 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer min-h-[44px] ${
+            calcSubTab === 'thermal' ? 'bg-sky-500 text-slate-950 font-black shadow-lg shadow-sky-500/20' : 'text-slate-400 hover:text-white'
+          }`}
         >
-          Cálculo de Carga Térmica (BTU/h)
+          <Calculator size={15} />
+          <span>Carga Térmica (BTU)</span>
         </button>
       </div>
 
       {calcSubTab === 'sh_sub' && (
-        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 space-y-4">
-          <div className="flex items-center justify-between">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Gauge className="w-5 h-5 text-sky-400" />
-              <span>Calculadora de Superaquecimento & Sub-resfriamento</span>
-            </h3>
-            <select
-              value={selectedGas}
-              onChange={(e) => setSelectedGas(e.target.value)}
-              className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-slate-200 font-bold"
-            >
-              <option value="R410A">R-410A</option>
-              <option value="R32">R-32</option>
-              <option value="R22">R-22</option>
-              <option value="R134a">R-134a</option>
-            </select>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 space-y-3">
-              <h4 className="text-xs font-bold text-sky-400">Superaquecimento (Linha de Sucção)</h4>
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Pressão de Sucção (PSIG)</label>
-                <input
-                  type="number"
-                  value={suctionPressure}
-                  onChange={(e) => setSuctionPressure(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
-                />
+        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 sm:p-6 space-y-6 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-2.5">
+              <div className="p-2.5 rounded-xl bg-sky-500/15 text-sky-400 border border-sky-500/30">
+                <Gauge size={20} />
               </div>
               <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Temperatura do Tubo Grosso (°C)</label>
-                <input
-                  type="number"
-                  value={suctionTemp}
-                  onChange={(e) => setSuctionTemp(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
-                />
-              </div>
-              <div className="pt-2 border-t border-slate-900 flex justify-between items-center text-xs">
-                <span className="text-slate-400">Superaquecimento Útil:</span>
-                <strong className="text-sky-400 text-sm font-mono">{shCalculations.superheat.toFixed(1)} °C (K)</strong>
+                <h3 className="text-sm sm:text-base font-bold text-white">
+                  Superaquecimento & Sub-resfriamento
+                </h3>
+                <p className="text-[11px] text-slate-400">Cálculo de rendimento térmico do ciclo</p>
               </div>
             </div>
 
-            <div className="bg-slate-950 p-4 rounded-2xl border border-slate-800/80 space-y-3">
-              <h4 className="text-xs font-bold text-emerald-400">Sub-resfriamento (Linha de Líquido)</h4>
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Pressão de Descarga/Líquido (PSIG)</label>
-                <input
-                  type="number"
-                  value={liquidPressure}
-                  onChange={(e) => setLiquidPressure(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
-                />
+            <div className="flex items-center gap-2 bg-slate-950 p-1.5 rounded-xl border border-slate-800 self-start sm:self-auto">
+              <span className="text-[10px] text-slate-400 font-bold uppercase px-2">Gás:</span>
+              <select
+                value={selectedGas}
+                onChange={(e) => setSelectedGas(e.target.value)}
+                className="bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 text-xs text-amber-300 font-mono font-bold focus:outline-none focus:border-amber-500 cursor-pointer min-h-[38px]"
+              >
+                <option value="R410A">R-410A</option>
+                <option value="R32">R-32</option>
+                <option value="R22">R-22</option>
+                <option value="R134a">R-134a</option>
+                <option value="R407C">R-407C</option>
+                <option value="R404A">R-404A</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Bloco Superaquecimento */}
+            <div className="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-sky-500/20 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                <h4 className="text-xs font-bold text-sky-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Wind size={14} />
+                  <span>Superaquecimento (Sucção)</span>
+                </h4>
+                <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">Tubo Grosso</span>
               </div>
-              <div>
-                <label className="block text-[11px] text-slate-400 mb-1">Temperatura do Tubo Fino (°C)</label>
-                <input
-                  type="number"
-                  value={liquidTemp}
-                  onChange={(e) => setLiquidTemp(e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
-                />
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Pressão de Sucção (PSIG)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Ex: 120"
+                      value={suctionPressure}
+                      onChange={(e) => setSuctionPressure(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3.5 pr-14 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700/60 pointer-events-none">
+                      PSIG
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Temperatura do Tubo (°C)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Ex: 12"
+                      value={suctionTemp}
+                      onChange={(e) => setSuctionTemp(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3.5 pr-12 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700/60 pointer-events-none">
+                      °C
+                    </span>
+                  </div>
+                </div>
               </div>
-              <div className="pt-2 border-t border-slate-900 flex justify-between items-center text-xs">
-                <span className="text-slate-400">Sub-resfriamento:</span>
-                <strong className="text-emerald-400 text-sm font-mono">{shCalculations.subcooling.toFixed(1)} °C (K)</strong>
+
+              {/* Resultado Superaquecimento */}
+              <div className="pt-3 border-t border-slate-900 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-slate-400 font-medium">Superaquecimento Útil:</span>
+                  <span className="text-lg sm:text-xl font-black text-sky-400 font-mono">
+                    {shCalculations.superheat.toFixed(1)} °C (K)
+                  </span>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border text-[11px] font-semibold flex items-center justify-between ${shColor}`}>
+                  <span>{shStatus}</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Bloco Sub-resfriamento */}
+            <div className="bg-slate-950 p-4 sm:p-5 rounded-2xl border border-emerald-500/20 space-y-4">
+              <div className="flex items-center justify-between border-b border-slate-900 pb-2">
+                <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                  <Thermometer size={14} />
+                  <span>Sub-resfriamento (Líquido)</span>
+                </h4>
+                <span className="text-[10px] font-mono text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800">Tubo Fino</span>
+              </div>
+
+              <div className="space-y-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Pressão de Líquido (PSIG)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Ex: 320"
+                      value={liquidPressure}
+                      onChange={(e) => setLiquidPressure(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3.5 pr-14 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[44px]"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700/60 pointer-events-none">
+                      PSIG
+                    </span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-300 mb-1.5">Temperatura do Tubo (°C)</label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Ex: 42"
+                      value={liquidTemp}
+                      onChange={(e) => setLiquidTemp(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3.5 pr-12 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[44px]"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700/60 pointer-events-none">
+                      °C
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Resultado Sub-resfriamento */}
+              <div className="pt-3 border-t border-slate-900 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-slate-400 font-medium">Sub-resfriamento:</span>
+                  <span className="text-lg sm:text-xl font-black text-emerald-400 font-mono">
+                    {shCalculations.subcooling.toFixed(1)} °C (K)
+                  </span>
+                </div>
+
+                <div className={`p-2.5 rounded-xl border text-[11px] font-semibold flex items-center justify-between ${scColor}`}>
+                  <span>{scStatus}</span>
+                </div>
               </div>
             </div>
           </div>
@@ -151,46 +265,69 @@ export default function CalcTab({
       )}
 
       {calcSubTab === 'thermal' && (
-        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 space-y-4">
-          <h3 className="text-base font-bold text-white flex items-center gap-2">
-            <Calculator className="w-5 h-5 text-indigo-400" />
-            <span>Dimensionamento de Carga Térmica (BTU/h)</span>
-          </h3>
+        <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 sm:p-6 space-y-6 shadow-xl">
+          <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+            <div className="p-2.5 rounded-xl bg-indigo-500/15 text-indigo-400 border border-indigo-500/30">
+              <Calculator size={20} />
+            </div>
+            <div>
+              <h3 className="text-sm sm:text-base font-bold text-white">
+                Dimensionamento de Carga Térmica (BTU/h)
+              </h3>
+              <p className="text-[11px] text-slate-400">Cálculo de capacidade necessária para ambientes</p>
+            </div>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
-              <label className="block text-xs text-slate-300 mb-1">Área do Ambiente (m²)</label>
-              <input
-                type="number"
-                value={coolingAreaM2}
-                onChange={(e) => setCoolingAreaM2(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
-              />
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Área do Ambiente (m²)</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  placeholder="Ex: 20"
+                  value={coolingAreaM2}
+                  onChange={(e) => setCoolingAreaM2(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-3.5 pr-12 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 min-h-[44px]"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 pointer-events-none">
+                  m²
+                </span>
+              </div>
             </div>
+
             <div>
-              <label className="block text-xs text-slate-300 mb-1">Número de Pessoas</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Número de Pessoas</label>
               <input
                 type="number"
+                placeholder="Ex: 2"
                 value={peopleCount}
                 onChange={(e) => setPeopleCount(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 min-h-[44px]"
               />
             </div>
+
             <div>
-              <label className="block text-xs text-slate-300 mb-1">Carga Eletrônica Total (Watts)</label>
-              <input
-                type="number"
-                value={electronicWatts}
-                onChange={(e) => setElectronicWatts(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
-              />
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Carga Eletrônica Total (Watts)</label>
+              <div className="relative">
+                <input
+                  type="number"
+                  placeholder="Ex: 300"
+                  value={electronicWatts}
+                  onChange={(e) => setElectronicWatts(e.target.value)}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-3.5 pr-12 py-3 text-sm text-white font-mono font-bold focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 min-h-[44px]"
+                />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] font-mono font-bold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 pointer-events-none">
+                  W
+                </span>
+              </div>
             </div>
+
             <div>
-              <label className="block text-xs text-slate-300 mb-1">Incidência Solar</label>
+              <label className="block text-xs font-semibold text-slate-300 mb-1.5">Incidência Solar</label>
               <select
                 value={sunExposure}
                 onChange={(e) => setSunExposure(e.target.value)}
-                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white"
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white font-semibold focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 min-h-[44px] cursor-pointer"
               >
                 <option value="morning">Manhã (Sol parcial)</option>
                 <option value="afternoon">Tarde (Sol forte direto)</option>
@@ -199,13 +336,13 @@ export default function CalcTab({
             </div>
           </div>
 
-          <div className="p-4 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 flex items-center justify-between">
+          <div className="p-4 sm:p-5 rounded-2xl bg-indigo-950/60 border border-indigo-500/40 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg">
             <div>
-              <div className="text-xs text-indigo-300 font-bold uppercase">Capacidade Recomendada</div>
-              <div className="text-xs text-slate-400">Inclui margem de segurança e fator de carga térmica</div>
+              <div className="text-xs text-indigo-300 font-bold uppercase tracking-wider">Capacidade Recomendada</div>
+              <div className="text-[11px] text-slate-400">Com margem de segurança e fator de insolação</div>
             </div>
-            <div className="text-2xl font-black text-indigo-400 font-mono">
-              {calculatedBtus.toLocaleString('pt-BR')} BTU/h
+            <div className="text-2xl sm:text-3xl font-black text-indigo-300 font-mono tracking-tight">
+              {calculatedBtus.toLocaleString('pt-BR')} <span className="text-xs font-bold text-slate-400">BTU/h</span>
             </div>
           </div>
         </div>

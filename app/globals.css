@@ -24,3 +24,31 @@
 .pt-safe {
   padding-top: env(safe-area-inset-top, 0.75rem);
 }
+
+/* Previne zoom automático do iOS em inputs e garante legibilidade harmoniosa */
+@media (max-width: 640px) {
+  input[type="text"],
+  input[type="number"],
+  input[type="email"],
+  input[type="tel"],
+  input[type="password"],
+  input[type="date"],
+  select,
+  textarea {
+    font-size: 16px !important;
+    min-height: 44px;
+  }
+
+  /* Ajusta touch targets de botões e seletores em telas menores */
+  button, 
+  a {
+    min-height: 42px;
+  }
+
+  /* Rolagem suave de modais e prevenção de estouro */
+  .modal-mobile-body {
+    max-height: 80vh;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+}

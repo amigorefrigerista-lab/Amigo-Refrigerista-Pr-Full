@@ -30,6 +30,30 @@ export interface SmtpEmailLog {
 }
 
 /**
+ * Formata erros comuns de SMTP (como a exigência de Senha de App do Gmail 534)
+ */
+export async function formatSmtpErrorMessage(error: any): Promise<string> {
+  const rawMsg = String(error?.message || error || '');
+
+  // Gmail 534 / 5.7.9 Application-specific password required
+  if (rawMsg.includes('534') || rawMsg.includes('5.7.9') || rawMsg.includes('Application-specific password required')) {
+    return 'Erro 534 (Google/Gmail): O Google exige uma "Senha de Aplicativo" de 16 letras para enviar e-mails via SMTP.\n\nComo resolver em 3 passos:\n1. Acesse: https://myaccount.google.com/apppasswords\n2. Crie uma senha de app para "Amigo Refrigerista"\n3. Cole o código de 16 caracteres gerado no campo "Senha do SMTP".';
+  }
+
+  // Falha de Autenticação 535 / Invalid login
+  if (rawMsg.includes('Invalid login') || rawMsg.includes('535') || rawMsg.includes('Username and Password not accepted')) {
+    return 'Erro 535 (Autenticação): E-mail ou Senha incorretos. No Gmail/Outlook, utilize uma "Senha de Aplicativo" de 16 letras criada nas configurações da sua conta de e-mail.';
+  }
+
+  // Erros de Conexão / Porta / Timeout
+  if (rawMsg.includes('ETIMEDOUT') || rawMsg.includes('ECONNREFUSED') || rawMsg.includes('ENOTFOUND')) {
+    return 'Erro de Conexão (Timeout): Não foi possível alcançar o servidor SMTP. Verifique o Host (ex: smtp.gmail.com) e a Porta (465 para SSL ou 587 para TLS).';
+  }
+
+  return `Erro no servidor SMTP: ${rawMsg}`;
+}
+
+/**
  * Testa a conexão com o servidor SMTP e envia um e-mail de teste
  */
 export async function testSmtpConnectionAction(config: SmtpConfig, testRecipient?: string) {
@@ -95,15 +119,10 @@ export async function testSmtpConnectionAction(config: SmtpConfig, testRecipient
     };
   } catch (error: any) {
     console.error('Erro no teste SMTP:', error);
-    let errorMsg = error.message || 'Falha ao conectar com o servidor SMTP.';
-    if (errorMsg.includes('Invalid login') || errorMsg.includes('535')) {
-      errorMsg = 'Falha de Autenticação (535): E-mail ou Senha incorretos. Para Gmail/Outlook, gere uma "Senha de Aplicativo" com autenticação em 2 etapas.';
-    } else if (errorMsg.includes('ETIMEDOUT') || errorMsg.includes('ECONNREFUSED')) {
-      errorMsg = 'Tempo esgotado ou porta bloqueada: Verifique se o Host e a Porta (465 para SSL / 587 para TLS) estão corretos.';
-    }
+    const msg = await formatSmtpErrorMessage(error);
     return {
       success: false,
-      message: errorMsg,
+      message: msg,
     };
   }
 }
@@ -238,9 +257,10 @@ export async function sendOrderEmailAction(
       errorMessage: error.message || 'Erro de conexão SMTP',
       equipment: orderData.equipment,
     };
+    const errorFormatted = await formatSmtpErrorMessage(error);
     return { 
       success: false, 
-      message: error.message || 'Erro ao enviar e-mail da OS.',
+      message: errorFormatted,
       log: failedLog
     };
   }
@@ -333,6 +353,7 @@ export async function sendReminderEmailAction(
     return { success: true, message: `Lembrete de manutenção enviado por e-mail para ${reminderData.clientEmail} com sucesso!` };
   } catch (error: any) {
     console.error('Erro ao enviar e-mail de lembrete:', error);
-    return { success: false, message: error.message || 'Erro ao enviar lembrete por e-mail.' };
+    const errorFormatted = await formatSmtpErrorMessage(error);
+    return { success: false, message: errorFormatted };
   }
 }

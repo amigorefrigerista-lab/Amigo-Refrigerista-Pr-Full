@@ -510,14 +510,24 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
           </div>
 
           {/* Dica de Segurança e Senha de App */}
-          <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-sky-500/20 flex items-start gap-3 text-xs text-slate-300">
-            <HelpCircle size={18} className="text-sky-400 shrink-0 mt-0.5" />
-            <div className="space-y-1">
-              <strong className="text-sky-300">Dica Importante para contas Gmail / Google Workspace:</strong>
-              <p className="text-slate-400 text-[11px] leading-relaxed">
-                O Google exige o uso de <strong>&quot;Senha de Aplicativo&quot;</strong> de 16 letras (gerada em <em>Segurança da Conta Google &gt; Verificação em duas etapas &gt; Senhas de App</em>). Não utilize sua senha pessoal normal.
-              </p>
+          <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs text-slate-300">
+            <div className="flex items-start gap-3">
+              <HelpCircle size={20} className="text-amber-400 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <strong className="text-amber-300 font-bold block">Como resolver o Erro 534 (Gmail / Google Workspace):</strong>
+                <p className="text-slate-300 text-[11px] leading-relaxed">
+                  O Google <strong>não permite a senha comum</strong> do e-mail no SMTP por segurança. É necessário utilizar uma <strong>&quot;Senha de Aplicativo&quot; de 16 caracteres</strong> criada na sua Conta do Google com Verificação em 2 etapas ativa.
+                </p>
+              </div>
             </div>
+            <a
+              href="https://myaccount.google.com/apppasswords"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="px-3.5 py-2 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-[11px] transition flex items-center gap-1.5 shrink-0 shadow-sm"
+            >
+              <span>Gerar Senha de App no Google</span>
+            </a>
           </div>
 
           {/* Opções de Automação de Disparo */}

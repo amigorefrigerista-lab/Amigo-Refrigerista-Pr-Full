@@ -2750,31 +2750,31 @@ export default function AmigoApp() {
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Nome do Cliente *</label>
+                <label className="text-slate-300 font-semibold block mb-1.5">Nome do Cliente *</label>
                 <input
                   type="text"
                   required
                   placeholder="Ex: Dona Maria Silveira"
                   value={remClientName}
                   onChange={(e) => setRemClientName(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition"
+                  className="w-full px-3.5 py-3 text-base sm:text-xs min-h-[44px] bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition"
                 />
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">WhatsApp do Cliente (com DDD) *</label>
+                <label className="text-slate-300 font-semibold block mb-1.5">WhatsApp do Cliente (com DDD) *</label>
                 <input
                   type="tel"
                   required
                   placeholder="Ex: (11) 98765-4321 ou 5584999998888"
                   value={remClientPhone}
                   onChange={(e) => setRemClientPhone(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition font-mono"
+                  className="w-full px-3.5 py-3 text-base sm:text-xs min-h-[44px] bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition font-mono"
                 />
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">
+                <label className="text-slate-300 font-semibold block mb-1.5">
                   E-mail do Cliente (Opcional - para envio automático de OS)
                 </label>
                 <input
@@ -2782,18 +2782,18 @@ export default function AmigoApp() {
                   placeholder="cliente@email.com"
                   value={remClientEmail}
                   onChange={(e) => setRemClientEmail(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition font-mono"
+                  className="w-full px-3.5 py-3 text-base sm:text-xs min-h-[44px] bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition font-mono"
                 />
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Endereço do Cliente / Local</label>
+                <label className="text-slate-300 font-semibold block mb-1.5">Endereço do Cliente / Local</label>
                 <input
                   type="text"
                   placeholder="Ex: Av. Brasil, 1500 - Apto 42, Jardins"
                   value={remClientAddress}
                   onChange={(e) => setRemClientAddress(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition"
+                  className="w-full px-3.5 py-3 text-base sm:text-xs min-h-[44px] bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition"
                 />
                 <span className="text-[10px] text-slate-500 mt-1 block">
                   💡 O cliente será cadastrado automaticamente com este endereço e equipamento.
@@ -2801,25 +2801,25 @@ export default function AmigoApp() {
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Equipamento Servido *</label>
+                <label className="text-slate-300 font-semibold block mb-1.5">Equipamento Servido *</label>
                 <input
                   type="text"
                   required
                   placeholder="Ex: Split Inverter LG 12.000 BTUs"
                   value={remEquipment}
                   onChange={(e) => setRemEquipment(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition"
+                  className="w-full px-3.5 py-3 text-base sm:text-xs min-h-[44px] bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition"
                 />
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Data da Realização do Serviço *</label>
+                <label className="text-slate-300 font-semibold block mb-1.5">Data da Realização do Serviço *</label>
                 <input
                   type="date"
                   required
                   value={remServiceDate}
                   onChange={(e) => setRemServiceDate(e.target.value)}
-                  className="w-full px-3.5 py-2.5 bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500 transition font-mono"
+                  className="w-full px-3.5 py-3 text-base sm:text-xs min-h-[44px] bg-slate-950 border border-slate-800 rounded-xl text-white focus:outline-none focus:border-emerald-500 transition font-mono"
                 />
               </div>
 
