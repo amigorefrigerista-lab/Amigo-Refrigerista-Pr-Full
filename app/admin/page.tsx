@@ -548,6 +548,61 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
+
+            {/* Menu de Atalhos do Administrador */}
+            <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-4">
+              <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+                <Sparkles className="w-4 h-4 text-amber-400" />
+                <span>Atalhos Administrativos & Módulos</span>
+              </h3>
+
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <Link
+                  href="/admin/whatsapp"
+                  className="p-4 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-emerald-500/20 flex items-center justify-center text-emerald-400 font-bold text-xs">
+                      💬
+                    </div>
+                    <div>
+                      <strong className="text-xs font-bold text-white block">Configuração WhatsApp</strong>
+                      <span className="text-[10px] text-emerald-400 font-mono">/admin/whatsapp</span>
+                    </div>
+                  </div>
+                </Link>
+
+                <Link
+                  href="/suporte-central"
+                  className="p-4 rounded-xl bg-indigo-500/10 hover:bg-indigo-500/20 border border-indigo-500/30 text-indigo-300 transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-500/20 flex items-center justify-center text-indigo-400 font-bold text-xs">
+                      🎧
+                    </div>
+                    <div>
+                      <strong className="text-xs font-bold text-white block">Central de Suporte</strong>
+                      <span className="text-[10px] text-indigo-400 font-mono">/suporte-central</span>
+                    </div>
+                  </div>
+                </Link>
+
+                <Link
+                  href="/suporte-admin"
+                  className="p-4 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-xs">
+                      👑
+                    </div>
+                    <div>
+                      <strong className="text-xs font-bold text-white block">Suporte Admin Chat</strong>
+                      <span className="text-[10px] text-amber-400 font-mono">/suporte-admin</span>
+                    </div>
+                  </div>
+                </Link>
+              </div>
+            </div>
           </>
         )}
       </div>

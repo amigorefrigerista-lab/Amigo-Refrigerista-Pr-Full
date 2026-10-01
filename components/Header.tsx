@@ -10,10 +10,11 @@ import { toast } from 'sonner';
 interface HeaderProps {
   onOpenNotifications?: () => void;
   onOpenSettings?: () => void;
+  onOpenSupportModal?: () => void;
   unreadCount?: number;
 }
 
-export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }: HeaderProps) {
+export function Header({ onOpenNotifications, onOpenSettings, onOpenSupportModal, unreadCount = 0 }: HeaderProps) {
   const router = useRouter();
   const { user, profile, isSupportOrAdmin, isAdmin, signOut } = useAuth();
 
@@ -60,27 +61,42 @@ export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }:
 
       {/* Lado Direito: Ações Administrativas & Perfil */}
       <div className="flex items-center gap-2 sm:gap-2.5">
-        {/* Botão de Suporte Central */}
-        <Link
-          href="/suporte-central"
-          className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(99,102,241,0.2)] active:scale-95 cursor-pointer select-none"
-          title="Acessar Central de Atendimento ao Assinante"
-        >
-          <Headset size={16} className="text-indigo-400 shrink-0" />
-          <span className="hidden sm:inline font-bold">Suporte Central</span>
-          <span className="sm:hidden font-bold">Suporte</span>
-        </Link>
+        {/* Botão de Canal de Suporte (Equipe & Admin) ou Suporte ao Cliente (Usuários) */}
+        {isSupportOrAdmin ? (
+          <Link
+            href="/suporte-central"
+            className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-gradient-to-r from-indigo-600/30 to-sky-600/30 hover:from-indigo-600/40 hover:to-sky-600/40 border border-indigo-500/40 text-indigo-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_18px_rgba(99,102,241,0.25)] active:scale-95 cursor-pointer select-none"
+            title="Acessar Canal de Suporte e Atendimento aos Clientes"
+          >
+            <Headset size={16} className="text-indigo-400 shrink-0" />
+            <span className="hidden sm:inline font-bold">Canal de Suporte</span>
+            <span className="sm:hidden font-bold">Suporte</span>
+          </Link>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpenSupportModal}
+            className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(99,102,241,0.2)] active:scale-95 cursor-pointer select-none"
+            title="Abrir Chamado de Suporte ao Cliente"
+          >
+            <Headset size={16} className="text-indigo-400 shrink-0" />
+            <span className="hidden sm:inline font-bold">Suporte ao Cliente</span>
+            <span className="sm:hidden font-bold">Suporte</span>
+          </button>
+        )}
 
         {/* Botão de Painel de Administração */}
-        <Link
-          href="/admin"
-          className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.2)] active:scale-95 cursor-pointer select-none"
-          title="Acessar Painel Geral de Administração"
-        >
-          <ShieldCheck size={16} className="text-amber-400 shrink-0" />
-          <span className="hidden sm:inline font-bold">Painel Admin</span>
-          <span className="sm:hidden font-bold">Admin</span>
-        </Link>
+        {(isAdmin || isSupportOrAdmin) && (
+          <Link
+            href="/admin"
+            className="px-3 py-1.5 sm:px-3.5 sm:py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_15px_rgba(245,158,11,0.2)] active:scale-95 cursor-pointer select-none"
+            title="Acessar Painel Geral de Administração"
+          >
+            <ShieldCheck size={16} className="text-amber-400 shrink-0" />
+            <span className="hidden sm:inline font-bold">Painel Admin</span>
+            <span className="sm:hidden font-bold">Admin</span>
+          </Link>
+        )}
 
         {onOpenNotifications && (
           <button

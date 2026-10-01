@@ -76,6 +76,8 @@ import { RecurringRevenueCard } from '@/components/RecurringRevenueCard';
 import { VipWelcomeBanner } from '@/components/VipWelcomeBanner';
 import { UpgradeModal } from '@/components/UpgradeModal';
 import { InstallPrompt } from '@/components/InstallPrompt';
+import { ClientSupportModal } from '@/components/ClientSupportModal';
+import { AdminSupportChatView } from '@/components/AdminSupportChatView';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -146,6 +148,7 @@ export default function AmigoApp() {
   const [activeTab, setActiveTab] = useState('dash');
   const [calcSubTab, setCalcSubTab] = useState<'sh_sub' | 'thermal' | 'pt_table'>('sh_sub');
   const [showProfileUpdateModal, setShowProfileUpdateModal] = useState(false);
+  const [showSupportModal, setShowSupportModal] = useState(false);
 
   // Validação: Detecta se campos obrigatórios do perfil (nome, email) estão vazios
   const isProfileIncomplete = useMemo(() => {
@@ -1180,6 +1183,7 @@ export default function AmigoApp() {
       {/* Header com os botões de Suporte e Admin */}
       <Header 
         onOpenSettings={() => setActiveTab('settings')} 
+        onOpenSupportModal={() => setShowSupportModal(true)}
       />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
@@ -2514,6 +2518,11 @@ export default function AmigoApp() {
             onOpenUpgradeModal={() => setShowUpgradeModal(true)}
           />
         )}
+
+        {/* 7. ABA: SUPORTE ADMIN (CANAL EXCLUSIVO & CHAT) */}
+        {activeTab === 'suporte-admin' && (
+          <AdminSupportChatView onBack={() => setActiveTab('dash')} />
+        )}
       </main>
 
       {/* Navegação Inferior (BottomNav) */}
@@ -2981,6 +2990,12 @@ export default function AmigoApp() {
         onClose={() => setShowUpgradeModal(false)}
         title="Liberar Recursos Pró ou Resgatar Licença"
         description="Tenha diagnósticos ilimitados com IA, Ordens de Serviço completas com QR Code PMOC e lembretes inteligentes de manutenção preventiva."
+      />
+
+      {/* Modal de Suporte ao Cliente */}
+      <ClientSupportModal
+        isOpen={showSupportModal}
+        onClose={() => setShowSupportModal(false)}
       />
 
       <InstallPrompt />

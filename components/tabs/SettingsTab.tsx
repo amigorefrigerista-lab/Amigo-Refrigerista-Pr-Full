@@ -856,8 +856,16 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
             </button>
           )}
 
-          {/* Atalho para o Painel Administrativo e Botão de Sair */}
+          {/* Atalhos para WhatsApp, Painel Admin e Botão de Sair */}
           <div className="pt-2 border-t border-slate-800 space-y-2">
+            <Link
+              href="/whatsapp-config"
+              className="w-full py-2.5 px-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+            >
+              <Phone size={16} className="text-emerald-400" />
+              <span>Configuração da API do WhatsApp & Templates (/whatsapp-config)</span>
+            </Link>
+
             <Link
               href="/admin"
               className="w-full py-2.5 px-4 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"

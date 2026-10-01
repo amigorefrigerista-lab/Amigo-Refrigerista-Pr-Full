@@ -22,6 +22,9 @@ export function useAuth() {
     isAdmin: authContext.isAdmin,
     isSupportOrAdmin: authContext.isSupportOrAdmin,
     isSupabaseActive: authContext.isSupabaseConfigured,
+    delegatedEmails: authContext.delegatedEmails,
+    addDelegatedEmail: authContext.addDelegatedEmail,
+    removeDelegatedEmail: authContext.removeDelegatedEmail,
     // Métodos de autenticação
     signInWithGoogle: authContext.signInWithGoogle,
     signInWithEmail: authContext.signInWithEmail,

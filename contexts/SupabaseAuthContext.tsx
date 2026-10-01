@@ -50,6 +50,9 @@ interface SupabaseAuthContextType {
   isAdmin: boolean;
   isSupportOrAdmin: boolean;
   isSupabaseConfigured: boolean;
+  delegatedEmails: string[];
+  addDelegatedEmail: (email: string) => Promise<boolean>;
+  removeDelegatedEmail: (email: string) => Promise<boolean>;
   signInWithGoogle: (emailHint?: string, nameHint?: string) => Promise<{ data?: any; error?: AuthError | Error | null }>;
   signInWithEmail: (email: string, pass: string) => Promise<{ data?: any; error?: AuthError | Error | null }>;
   signUpWithEmail: (email: string, pass: string, name?: string) => Promise<{ data?: any; error?: AuthError | Error | null }>;
@@ -267,15 +270,83 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     };
   }, [syncProfile]);
 
+  const [delegatedEmails, setDelegatedEmails] = useState<string[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const saved = localStorage.getItem('amigo_delegated_support_emails');
+        return saved ? JSON.parse(saved) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
+  });
+
+  const addDelegatedEmail = useCallback(async (emailToAdd: string): Promise<boolean> => {
+    const cleaned = emailToAdd.trim().toLowerCase();
+    if (!cleaned || !cleaned.includes('@')) return false;
+
+    setDelegatedEmails((prev) => {
+      if (prev.includes(cleaned)) return prev;
+      const updated = [...prev, cleaned];
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('amigo_delegated_support_emails', JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    try {
+      if (isSupabaseConfigured) {
+        await supabase
+          .from('profiles')
+          .update({ role: 'support', is_admin: false, updated_at: new Date().toISOString() })
+          .ilike('email', cleaned);
+      }
+    } catch (err) {
+      console.warn('Aviso ao sincronizar delegado no Supabase:', err);
+    }
+
+    return true;
+  }, []);
+
+  const removeDelegatedEmail = useCallback(async (emailToRemove: string): Promise<boolean> => {
+    const cleaned = emailToRemove.trim().toLowerCase();
+    setDelegatedEmails((prev) => {
+      const updated = prev.filter((e) => e.toLowerCase() !== cleaned);
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('amigo_delegated_support_emails', JSON.stringify(updated));
+      }
+      return updated;
+    });
+
+    try {
+      if (isSupabaseConfigured) {
+        await supabase
+          .from('profiles')
+          .update({ role: 'user', updated_at: new Date().toISOString() })
+          .ilike('email', cleaned);
+      }
+    } catch (err) {
+      console.warn('Aviso ao remover delegado no Supabase:', err);
+    }
+
+    return true;
+  }, []);
+
   const user = useMemo(() => {
     return rawUser ? mapSupabaseUser(rawUser) : null;
   }, [rawUser, mapSupabaseUser]);
 
   const normalizedEmail = user?.email?.toLowerCase().trim() || '';
   const isEmailAdmin = normalizedEmail === ADMIN_EMAIL.toLowerCase();
-  const role: 'admin' | 'support' | 'user' = isEmailAdmin ? 'admin' : (profile?.role || 'user');
+  const isDelegatedSupport = delegatedEmails.some(e => e.toLowerCase() === normalizedEmail);
+
+  const role: 'admin' | 'support' | 'user' = isEmailAdmin 
+    ? 'admin' 
+    : (isDelegatedSupport || profile?.role === 'support' ? 'support' : (profile?.role || 'user'));
+
   const isAdmin = isEmailAdmin || role === 'admin';
-  const isSupportOrAdmin = isEmailAdmin || role === 'admin' || role === 'support';
+  const isSupportOrAdmin = isEmailAdmin || role === 'admin' || role === 'support' || isDelegatedSupport;
 
   const signInWithGoogle = useCallback(async (emailHint?: string, nameHint?: string) => {
     try {
@@ -618,6 +689,9 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     isAdmin,
     isSupportOrAdmin,
     isSupabaseConfigured,
+    delegatedEmails,
+    addDelegatedEmail,
+    removeDelegatedEmail,
     signInWithGoogle,
     signInWithEmail,
     signUpWithEmail,
@@ -634,6 +708,9 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     role,
     isAdmin,
     isSupportOrAdmin,
+    delegatedEmails,
+    addDelegatedEmail,
+    removeDelegatedEmail,
     signInWithGoogle,
     signInWithEmail,
     signUpWithEmail,

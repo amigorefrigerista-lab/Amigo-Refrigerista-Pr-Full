@@ -7,7 +7,8 @@ import {
   Calculator, 
   TrendingUp, 
   Users,
-  Settings
+  Settings,
+  Headset
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -21,13 +22,24 @@ export interface BottomNavProps {
 export function BottomNav({
   activeTab,
   setActiveTab,
+  isAdmin = false,
+  isSupportOrAdmin = false,
 }: BottomNavProps) {
-  const tabs = [
+  const baseTabs = [
     { id: 'dash', label: 'Painel', icon: LayoutDashboard },
     { id: 'errors', label: 'Erros HVAC', icon: AlertCircle },
     { id: 'calc', label: 'Cálculos', icon: Calculator },
     { id: 'finance', label: 'Financeiro', icon: TrendingUp },
     { id: 'clients', label: 'Clientes', icon: Users },
+  ];
+
+  const adminTab = (isSupportOrAdmin || isAdmin) 
+    ? [{ id: 'suporte-admin', label: 'Suporte Admin', icon: Headset }] 
+    : [];
+
+  const tabs = [
+    ...baseTabs,
+    ...adminTab,
     { id: 'settings', label: 'Ajustes', icon: Settings },
   ];
 
