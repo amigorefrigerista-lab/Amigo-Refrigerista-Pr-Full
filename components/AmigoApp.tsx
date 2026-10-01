@@ -2460,6 +2460,36 @@ export default function AmigoApp() {
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              onClick={() => {
+                                const url = `${window.location.origin}/os/${os.id}`;
+                                if (navigator.share) {
+                                  navigator.share({
+                                    title: `Ordem de Serviço #${os.orderNumber}`,
+                                    text: `Confira os detalhes da OS #${os.orderNumber} para ${os.clientName}.`,
+                                    url: url,
+                                  }).catch(console.error);
+                                } else {
+                                  navigator.clipboard.writeText(url);
+                                  toast.success("Link copiado!");
+                                }
+                              }}
+                              className="p-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition"
+                              title="Compartilhar"
+                            >
+                              <Share2 size={14} />
+                            </button>
+                            <button
+                              onClick={() => {
+                                const url = `${window.location.origin}/os/${os.id}`;
+                                navigator.clipboard.writeText(url);
+                                toast.success("Link copiado para a área de transferência!");
+                              }}
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
+                              title="Copiar Link"
+                            >
+                              <Copy size={14} />
+                            </button>
                             {os.autoScheduleReminder ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />

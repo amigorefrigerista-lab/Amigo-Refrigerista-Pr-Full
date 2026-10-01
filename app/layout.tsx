@@ -10,6 +10,12 @@ export const metadata: Metadata = {
     description: "Ferramenta de aministração para técnicos de Refrigeração e Climatização.",
     type: "website",
   },
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: 'default',
+    title: 'AmigoRefri',
+  },
+  manifest: '/manifest.json',
 };
 
 export const viewport: Viewport = {
