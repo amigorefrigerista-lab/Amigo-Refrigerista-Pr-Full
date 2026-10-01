@@ -17,6 +17,8 @@ export const createPool = () => {
       connectionTimeoutMillis: 15000,
     });
 
+    console.log('SQL Pool initialized with host:', process.env.SQL_HOST);
+
     global._postgresPool.on('error', (err) => {
       console.error('Unexpected error on idle SQL pool client:', err);
     });
