@@ -19,7 +19,9 @@ import {
   Loader2,
   Check,
   Power,
-  ShieldCheck
+  ShieldCheck,
+  Webhook,
+  BellRing
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -32,6 +34,10 @@ export interface WhatsAppSettingsForm {
   instance_name: string;
   phone_number: string;
   is_active: boolean;
+  webhook_url: string;
+  webhook_secret: string;
+  listen_confirmations: boolean;
+  webhook_events: string[];
   template_orcamento: string;
   template_agendamento: string;
   template_lembrete: string;
@@ -45,6 +51,10 @@ const DEFAULT_FORM: WhatsAppSettingsForm = {
   instance_name: '',
   phone_number: '',
   is_active: true,
+  webhook_url: '',
+  webhook_secret: 'wh_secret_' + Math.random().toString(36).substring(2, 9),
+  listen_confirmations: true,
+  webhook_events: ['CONFIRMACOES_OS', 'ORCAMENTOS', 'REMARCAMENTOS'],
   template_orcamento: 'Olá {{nome}}! Segue o seu orçamento para {{servico}} no valor de R$ {{valor}}. Acesse a proposta completa no link!',
   template_agendamento: 'Olá {{nome}}! Confirmamos o agendamento do serviço de {{servico}} para a data {{data}}. Qualquer dúvida, fale conosco!',
   template_lembrete: 'Olá {{nome}}! Passando para lembrar que está no prazo para a manutenção preventiva de {{servico}}. Vamos agendar para {{data}}?',
@@ -85,6 +95,7 @@ export default function AdminWhatsAppConfigPage() {
               .single();
 
             if (data && !error) {
+              const originUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/whatsapp` : '';
               setForm({
                 api_provider: data.api_provider || 'evolution_api',
                 api_url: data.api_url || '',
@@ -92,6 +103,10 @@ export default function AdminWhatsAppConfigPage() {
                 instance_name: data.instance_name || '',
                 phone_number: data.phone_number || '',
                 is_active: data.is_active ?? true,
+                webhook_url: data.webhook_url || originUrl,
+                webhook_secret: data.webhook_secret || DEFAULT_FORM.webhook_secret,
+                listen_confirmations: data.listen_confirmations ?? true,
+                webhook_events: Array.isArray(data.webhook_events) ? data.webhook_events : DEFAULT_FORM.webhook_events,
                 template_orcamento: data.template_orcamento || DEFAULT_FORM.template_orcamento,
                 template_agendamento: data.template_agendamento || DEFAULT_FORM.template_agendamento,
                 template_lembrete: data.template_lembrete || DEFAULT_FORM.template_lembrete,
@@ -189,6 +204,46 @@ export default function AdminWhatsAppConfigPage() {
       toast.error('Falha ao conectar com o serviço de teste.');
     } finally {
       setTesting(false);
+    }
+  };
+
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [webhookResult, setWebhookResult] = useState<{
+    success: boolean;
+    sender?: string;
+    text_received?: string;
+    confirmation_status?: string;
+    message?: string;
+    error?: string;
+  } | null>(null);
+
+  const handleTestWebhook = async () => {
+    setTestingWebhook(true);
+    setWebhookResult(null);
+    try {
+      const res = await fetch('/api/webhooks/whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: form.phone_number || '5511999999999',
+          message: 'SIM, CONFIRMO O AGENDAMENTO DA MANUTENÇÃO',
+          event: 'MESSAGES_UPSERT',
+          instance: form.instance_name || 'Instancia_AmigoRefrigerista'
+        })
+      });
+      const data = await res.json();
+      setWebhookResult(data);
+
+      if (data.success) {
+        toast.success(`Webhook testado! Resposta do cliente (${data.confirmation_status}) recebida com sucesso.`);
+      } else {
+        toast.error('Erro no teste de webhook: ' + (data.error || 'Falha de envio'));
+      }
+    } catch (err: any) {
+      console.error('Erro ao testar webhook:', err);
+      toast.error('Erro ao disparar teste de webhook.');
+    } finally {
+      setTestingWebhook(false);
     }
   };
 
@@ -367,6 +422,157 @@ export default function AdminWhatsAppConfigPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+
+          {/* Nova Seção: Configuração de Webhooks para Confirmação do Cliente */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400">
+                  <Webhook size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Webhooks & Confirmação Automática de Clientes</span>
+                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-sky-500/20 text-sky-300 border border-sky-500/30 font-mono">
+                      ENTRADA
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Insira a URL abaixo no seu provedor de WhatsApp para receber respostas (&apos;SIM&apos;, &apos;CONFIRMAR&apos;, &apos;REMARCAR&apos;) automaticamente.
+                  </p>
+                </div>
+              </div>
+
+              {/* Toggle de escuta ativa */}
+              <button
+                type="button"
+                onClick={() => setForm(f => ({ ...f, listen_confirmations: !f.listen_confirmations }))}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                  form.listen_confirmations 
+                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-300' 
+                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                }`}
+              >
+                <BellRing size={14} />
+                <span>{form.listen_confirmations ? 'Escuta de Webhook Ativa' : 'Escuta Desativada'}</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  URL de Destino do Webhook (Cole na sua plataforma WhatsApp API):
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    readOnly
+                    value={form.webhook_url || (typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/whatsapp` : '')}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-emerald-400 font-mono focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const urlToCopy = form.webhook_url || `${window.location.origin}/api/webhooks/whatsapp`;
+                      navigator.clipboard.writeText(urlToCopy);
+                      toast.success('URL do Webhook copiada para a área de transferência!');
+                    }}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Copy size={14} />
+                    <span>Copiar URL</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Segredo do Webhook (Secret Token):</label>
+                  <input
+                    type="text"
+                    value={form.webhook_secret || ''}
+                    onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })}
+                    placeholder="Chave secreta de autenticação do webhook"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Eventos Escutados:</label>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {[
+                      { id: 'CONFIRMACOES_OS', label: 'Confirmações de OS' },
+                      { id: 'ORCAMENTOS', label: 'Aprovações de Orçamento' },
+                      { id: 'REMARCAMENTOS', label: 'Remarcamentos' },
+                    ].map((evt) => {
+                      const isChecked = form.webhook_events?.includes(evt.id);
+                      return (
+                        <button
+                          type="button"
+                          key={evt.id}
+                          onClick={() => {
+                            const current = form.webhook_events || [];
+                            const updated = isChecked 
+                              ? current.filter(x => x !== evt.id)
+                              : [...current, evt.id];
+                            setForm({ ...form, webhook_events: updated });
+                          }}
+                          className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            isChecked
+                              ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
+                              : 'bg-slate-950 border-slate-800 text-slate-500'
+                          }`}
+                        >
+                          <Check size={12} className={isChecked ? 'opacity-100' : 'opacity-0'} />
+                          <span>{evt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Ação de Teste de Webhook */}
+              <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={handleTestWebhook}
+                  disabled={testingWebhook}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/40 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md"
+                >
+                  {testingWebhook ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
+                      <span>Simulando Ingestão de Webhook...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={15} className="text-sky-400" />
+                      <span>Simular Resposta &apos;SIM&apos; do Cliente (Teste Webhook)</span>
+                    </>
+                  )}
+                </button>
+
+                {webhookResult && (
+                  <div className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2.5 ${
+                    webhookResult.success
+                      ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+                      : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                  }`}>
+                    <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
+                    <div>
+                      <span className="block text-[11px] font-mono uppercase">
+                        Confirmação: {webhookResult.confirmation_status} · De: {webhookResult.sender}
+                      </span>
+                      <span className="text-[10px] opacity-90 font-normal">
+                        {webhookResult.message}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
 

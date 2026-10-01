@@ -858,6 +858,16 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
 
           {/* Atalhos para WhatsApp, Painel Admin e Botão de Sair */}
           <div className="pt-2 border-t border-slate-800 space-y-2">
+            {user?.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com' && (
+              <Link
+                href="/admin-master"
+                className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 border border-amber-500/50 text-amber-300 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.25)]"
+              >
+                <Crown size={18} className="text-amber-400" />
+                <span>Painel Admin Master (/admin-master)</span>
+              </Link>
+            )}
+
             <Link
               href="/whatsapp-config"
               className="w-full py-2.5 px-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"

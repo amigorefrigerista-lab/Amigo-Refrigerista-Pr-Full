@@ -29,6 +29,7 @@ export function useAuth() {
     signInWithGoogle: authContext.signInWithGoogle,
     signInWithEmail: authContext.signInWithEmail,
     signUpWithEmail: authContext.signUpWithEmail,
+    resetPasswordForEmail: authContext.resetPasswordForEmail,
     signOut: authContext.signOut,
     refreshProfile: authContext.refreshProfile,
     updateProfileData: authContext.updateProfileData,

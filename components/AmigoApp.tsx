@@ -135,6 +135,7 @@ export default function AmigoApp() {
     signInWithGoogle, 
     signInWithEmail, 
     signUpWithEmail, 
+    resetPasswordForEmail,
     signOut,
     updateProfileData,
     refreshProfile
@@ -285,7 +286,7 @@ export default function AmigoApp() {
   const [ocrData, setOcrData] = useState<any>(null);
 
   // Auth Form State
-  const [authMode, setAuthMode] = useState<'register' | 'login'>('register');
+  const [authMode, setAuthMode] = useState<'register' | 'login' | 'forgot-password'>('register');
   const [emailInput, setEmailInput] = useState('');
   const [passwordInput, setPasswordInput] = useState('');
   const [nameInput, setNameInput] = useState('');
@@ -615,6 +616,28 @@ export default function AmigoApp() {
       }
     } catch (err: any) {
       toast.error(err.message || 'Falha ao realizar login.');
+    } finally {
+      setAuthSubmitting(false);
+    }
+  };
+
+  const handleForgotPassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!emailInput.trim()) {
+      toast.error('Por favor, informe seu e-mail cadastrado.');
+      return;
+    }
+    setAuthSubmitting(true);
+    try {
+      const { error } = await resetPasswordForEmail(emailInput.trim());
+      if (error) {
+        toast.error(error.message || 'Erro ao enviar e-mail de redefinição de senha.');
+      } else {
+        toast.success('E-mail de redefinição de senha enviado com sucesso! Verifique sua caixa de entrada e spam.');
+        setAuthMode('login');
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Falha ao solicitar redefinição de senha.');
     } finally {
       setAuthSubmitting(false);
     }
@@ -1073,7 +1096,16 @@ export default function AmigoApp() {
               </div>
 
               <div>
-                <label className="text-slate-300 font-semibold block mb-1">Senha</label>
+                <div className="flex justify-between items-center mb-1">
+                  <label className="text-slate-300 font-semibold block">Senha</label>
+                  <button
+                    type="button"
+                    onClick={() => setAuthMode('forgot-password')}
+                    className="text-[11px] text-sky-400 hover:text-sky-300 hover:underline transition font-semibold cursor-pointer"
+                  >
+                    Esqueci minha senha?
+                  </button>
+                </div>
                 <div className="relative">
                   <Lock size={16} className="absolute left-3.5 top-3 text-slate-500" />
                   <input
@@ -1105,6 +1137,51 @@ export default function AmigoApp() {
                   <span>Entrar na Minha Conta</span>
                 )}
               </button>
+            </form>
+          )}
+
+          {/* Form de Esqueci Minha Senha */}
+          {authMode === 'forgot-password' && (
+            <form onSubmit={handleForgotPassword} className="space-y-3.5 text-left text-xs">
+              <div className="p-3 bg-sky-500/10 border border-sky-500/30 rounded-xl text-sky-300 text-xs font-medium leading-relaxed">
+                Informe o seu e-mail cadastrado. Enviaremos um link direto para redefinir sua senha com segurança.
+              </div>
+
+              <div>
+                <label className="text-slate-300 font-semibold block mb-1">E-mail Cadastrado</label>
+                <div className="relative">
+                  <Mail size={16} className="absolute left-3.5 top-3 text-slate-500" />
+                  <input
+                    type="email"
+                    required
+                    placeholder="seu@email.com"
+                    value={emailInput}
+                    onChange={(e) => setEmailInput(e.target.value)}
+                    className="w-full pl-10 pr-3.5 py-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition"
+                  />
+                </div>
+              </div>
+
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setAuthMode('login')}
+                  className="w-1/3 py-3 px-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition cursor-pointer"
+                >
+                  Voltar
+                </button>
+                <button
+                  type="submit"
+                  disabled={authSubmitting}
+                  className="w-2/3 py-3 px-4 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-500 hover:from-sky-600 hover:to-cyan-600 text-white font-bold text-xs transition flex items-center justify-center gap-2 shadow-lg disabled:opacity-50 cursor-pointer"
+                >
+                  {authSubmitting ? (
+                    <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>Enviar E-mail de Recuperação</span>
+                  )}
+                </button>
+              </div>
             </form>
           )}
 
@@ -1246,25 +1323,6 @@ export default function AmigoApp() {
                   <Gift size={15} />
                   <span>Resgatar Licença / Upgrade</span>
                 </button>
-
-                {(isAdmin || user?.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com') && (
-                  <Link
-                    href="/admin"
-                    className="px-4 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs transition flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.25)]"
-                  >
-                    <ShieldCheck size={16} className="text-amber-400" />
-                    <span>Painel Admin</span>
-                  </Link>
-                )}
-                {isSupportOrAdmin && (
-                  <Link
-                    href="/suporte-central"
-                    className="px-4 py-2 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 border border-indigo-500/30 text-indigo-300 font-bold text-xs transition flex items-center gap-2 cursor-pointer shadow-[0_0_15px_rgba(99,102,241,0.25)]"
-                  >
-                    <Headset size={16} className="text-indigo-400" />
-                    <span>Suporte</span>
-                  </Link>
-                )}
               </div>
             </div>
           </div>
