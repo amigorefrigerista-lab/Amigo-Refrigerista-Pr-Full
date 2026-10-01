@@ -556,7 +556,7 @@ export default function AdminPage() {
                 <span>Atalhos Administrativos & Módulos</span>
               </h3>
 
-              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-5 gap-3">
                 <Link
                   href="/admin-master"
                   className="p-4 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 transition flex items-center justify-between group cursor-pointer shadow-[0_0_15px_rgba(245,158,11,0.2)]"
@@ -568,6 +568,21 @@ export default function AdminPage() {
                     <div>
                       <strong className="text-xs font-black text-white block">Admin Master</strong>
                       <span className="text-[10px] text-amber-400 font-mono">/admin-master</span>
+                    </div>
+                  </div>
+                </Link>
+
+                <Link
+                  href="/admin/configuracoes"
+                  className="p-4 rounded-xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 transition flex items-center justify-between group cursor-pointer"
+                >
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-xs">
+                      ⚙️
+                    </div>
+                    <div>
+                      <strong className="text-xs font-bold text-white block">Configurações Master</strong>
+                      <span className="text-[10px] text-amber-400 font-mono">/admin/configuracoes</span>
                     </div>
                   </div>
                 </Link>
@@ -608,7 +623,7 @@ export default function AdminPage() {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-lg bg-amber-500/20 flex items-center justify-center text-amber-400 font-bold text-xs">
-                      👑
+                      💬
                     </div>
                     <div>
                       <strong className="text-xs font-bold text-white block">Suporte Admin Chat</strong>

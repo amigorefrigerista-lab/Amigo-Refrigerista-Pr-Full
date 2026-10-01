@@ -269,11 +269,18 @@ export default function AdminMasterPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => { fetchLicenses(); fetchSubscribers(); toast.success('Dados atualizados!'); }}
-            className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 transition"
+            className="p-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 transition cursor-pointer"
             title="Recarregar Dados"
           >
             <RefreshCw size={18} />
           </button>
+          <Link
+            href="/admin/configuracoes"
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.3)]"
+          >
+            <Sliders size={16} />
+            <span>Configurações Master</span>
+          </Link>
           <Link
             href="/admin"
             className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-xs transition flex items-center gap-2"
@@ -285,6 +292,31 @@ export default function AdminMasterPage() {
       </div>
 
       <div className="max-w-6xl mx-auto space-y-8">
+
+        {/* ⚙️ BANNER COMPONENTE DE CONFIGURAÇÕES MASTER */}
+        <div className="bg-gradient-to-r from-amber-950/60 via-slate-900 to-slate-900 border border-amber-500/40 rounded-3xl p-5 shadow-xl flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-center gap-3.5">
+            <div className="p-3 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 shrink-0">
+              <Sliders size={24} />
+            </div>
+            <div>
+              <h3 className="text-base font-bold text-white flex items-center gap-2">
+                <span>⚙️ Componente de Configurações Master</span>
+              </h3>
+              <p className="text-xs text-slate-300">
+                Gerencie Mercado Pago, chaves de API, preço do plano VIP (R$) e prazos de automação.
+              </p>
+            </div>
+          </div>
+
+          <Link
+            href="/admin/configuracoes"
+            className="px-5 py-3 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.3)] whitespace-nowrap cursor-pointer shrink-0"
+          >
+            <Sliders size={16} />
+            <span>Abrir Painel de Configurações</span>
+          </Link>
+        </div>
 
         {/* 📊 MÓDULO 1: Resumo Executivo e Métricas Financeiras */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
