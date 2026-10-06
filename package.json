@@ -3,10 +3,11 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3000",
-    "build": "next build",
+    "dev": "next dev -H 0.0.0.0 -p 3000",
+    "build": "NODE_ENV=production next build",
     "start": "node server.ts",
-    "lint": "next lint"
+    "lint": "next lint",
+    "postinstall": "node lib/patch-next.js || true"
   },
   "dependencies": {
     "@google/genai": "^2.24.0",
@@ -24,7 +25,7 @@
     "jspdf-autotable": "^3.8.4",
     "lucide-react": "^0.475.0",
     "motion": "^12.4.7",
-    "next": "^15.1.9",
+    "next": "15.5.26",
     "nodemailer": "^10.0.13",
     "pg": "^8.23.0",
     "qrcode": "^1.5.4",

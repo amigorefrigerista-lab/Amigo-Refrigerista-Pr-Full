@@ -2,6 +2,7 @@
 
 import React from 'react';
 import { Calculator, Gauge, Thermometer, Wind, Sparkles } from 'lucide-react';
+import PtTableTab from './PtTableTab';
 
 interface CalcTabProps {
   calcSubTab: 'sh_sub' | 'thermal' | 'pt_table';
@@ -263,6 +264,8 @@ export default function CalcTab({
           </div>
         </div>
       )}
+
+      {calcSubTab === 'pt_table' && <PtTableTab />}
 
       {calcSubTab === 'thermal' && (
         <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-4 sm:p-6 space-y-6 shadow-xl">

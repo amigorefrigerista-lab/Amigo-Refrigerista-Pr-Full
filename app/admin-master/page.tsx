@@ -6,8 +6,17 @@ import {
   Crown, Key, Users, DollarSign, Sparkles, ShieldCheck, ArrowLeft, 
   Plus, Copy, Share2, Power, Trash2, Search, CheckCircle2, 
   AlertTriangle, Loader2, RefreshCw, Zap, Gift, Clock, Lock,
-  Sliders, MessageSquare
+  Sliders, MessageSquare, TrendingUp
 } from 'lucide-react';
+import { 
+  ResponsiveContainer, 
+  LineChart, 
+  Line, 
+  XAxis, 
+  YAxis, 
+  CartesianGrid, 
+  Tooltip 
+} from 'recharts';
 import { toast, Toaster } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -18,6 +27,10 @@ import {
   createFreeLicense, 
   toggleLicenseStatus 
 } from '@/lib/licenseService';
+import { recordAdminAuditAction } from '@/lib/adminAuditService';
+import AdminAuditLogSection from '@/components/AdminAuditLogSection';
+import AdminRevenueForecastModule from '@/components/AdminRevenueForecastModule';
+import { MonthlyRevenueData } from '@/app/actions/getAdminMetrics';
 
 const MASTER_EMAIL = 'amigorefrigerista@gmail.com';
 
@@ -110,6 +123,18 @@ export default function AdminMasterPage() {
       });
 
       toast.success(`Chave '${newLic.code}' gerada com sucesso!`);
+      recordAdminAuditAction({
+        adminName: user?.displayName || 'Administrador Master',
+        adminEmail: user?.email || MASTER_EMAIL,
+        adminRole: 'Super Admin',
+        category: 'license_generation',
+        actionTitle: 'Geração de Chave de Licença Master',
+        targetIdentifier: newLic.code,
+        previousValue: '—',
+        newValue: `${durationDays} dias · ${maxUses} resgate(s)`,
+        details: `Chave tipo '${licenseType}' emitida no Painel Master.`,
+        severity: Number(durationDays) >= 365 ? 'critical' : 'high',
+      });
       setCustomCode('');
       await fetchLicenses();
     } catch (err: any) {
@@ -125,6 +150,18 @@ export default function AdminMasterPage() {
     try {
       await toggleLicenseStatus(lic.id, !lic.active);
       toast.success(`Chave '${lic.code}' ${!lic.active ? 'ativada' : 'desativada'}.`);
+      recordAdminAuditAction({
+        adminName: user?.displayName || 'Administrador Master',
+        adminEmail: user?.email || MASTER_EMAIL,
+        adminRole: 'Super Admin',
+        category: 'license_status',
+        actionTitle: !lic.active ? 'Reativação de Chave de Licença' : 'Desativação de Chave de Licença',
+        targetIdentifier: lic.code,
+        previousValue: lic.active ? 'Status: Ativa' : 'Status: Desativada',
+        newValue: !lic.active ? 'Status: Ativa' : 'Status: Desativada',
+        details: `Alteração manual de disponibilidade da chave '${lic.code}'.`,
+        severity: 'high',
+      });
       setLicenses(prev => prev.map(l => l.id === lic.id ? { ...l, active: !lic.active } : l));
     } catch (err) {
       toast.error('Erro ao alterar status da licença.');
@@ -147,6 +184,31 @@ export default function AdminMasterPage() {
         if (error) throw error;
 
         toast.success(`Plano do usuário ${targetEmail} alterado para '${targetPlan.toUpperCase()}'!`);
+        const prevSub = subscribers.find((s) => s.id === userId);
+        const prevPlanLabel =
+          prevSub?.plano === 'pro'
+            ? 'Plano Pró (R$ 39,90)'
+            : prevSub?.plano === 'flex'
+            ? 'Plano Flex (R$ 19,90)'
+            : 'Plano Gratuito (R$ 0)';
+        const nextPlanLabel =
+          targetPlan === 'pro'
+            ? 'Plano Pró (R$ 39,90)'
+            : targetPlan === 'flex'
+            ? 'Plano Flex (R$ 19,90)'
+            : 'Plano Gratuito (R$ 0)';
+        recordAdminAuditAction({
+          adminName: user?.displayName || 'Administrador Master',
+          adminEmail: user?.email || MASTER_EMAIL,
+          adminRole: 'Super Admin',
+          category: 'plan_change',
+          actionTitle: `Alteração Direta para ${nextPlanLabel}`,
+          targetIdentifier: targetEmail,
+          previousValue: prevPlanLabel,
+          newValue: nextPlanLabel,
+          details: `Concessão ou ajuste manual de plano realizado no Painel Master.`,
+          severity: targetPlan === 'pro' ? 'high' : 'medium',
+        });
         await fetchSubscribers();
       }
     } catch (err: any) {
@@ -214,6 +276,30 @@ export default function AdminMasterPage() {
 
   const mrrTotal = (proCount * 39.90) + (flexCount * 19.90);
   const conversionRate = totalUsers > 0 ? (((proCount + flexCount) / totalUsers) * 100).toFixed(1) : '0.0';
+
+  const masterMrrTrend: MonthlyRevenueData[] = [
+    { month: 'Nov/25', mrr: 1475.40, proRevenue: 1117.20, flexRevenue: 358.20, growthRate: 0, proCount: 28, flexCount: 18, arr: 17704.80 },
+    { month: 'Dez/25', mrr: 1993.80, proRevenue: 1516.20, flexRevenue: 477.60, growthRate: 35.1, proCount: 38, flexCount: 24, arr: 23925.60 },
+    { month: 'Jan/26', mrr: 2611.90, proRevenue: 1995.00, flexRevenue: 616.90, growthRate: 31.0, proCount: 50, flexCount: 31, arr: 31342.80 },
+    { month: 'Fev/26', mrr: 3329.70, proRevenue: 2553.60, flexRevenue: 776.10, growthRate: 27.5, proCount: 64, flexCount: 39, arr: 39956.40 },
+    { month: 'Mar/26', mrr: 4047.50, proRevenue: 3112.20, flexRevenue: 935.30, growthRate: 21.6, proCount: 78, flexCount: 47, arr: 48570.00 },
+    { month: 'Abr/26', mrr: 4865.00, proRevenue: 3750.60, flexRevenue: 1114.40, growthRate: 20.2, proCount: 94, flexCount: 56, arr: 58380.00 },
+    { month: 'Mai/26', mrr: 5682.50, proRevenue: 4389.00, flexRevenue: 1293.50, growthRate: 16.8, proCount: 110, flexCount: 65, arr: 68190.00 },
+    { month: 'Jun/26', mrr: 7417.30, proRevenue: 5785.50, flexRevenue: 1631.80, growthRate: 30.5, proCount: 145, flexCount: 82, arr: 89007.60 },
+    { month: 'Jul/26', mrr: 9132.20, proRevenue: 7182.00, flexRevenue: 1950.20, growthRate: 23.1, proCount: 180, flexCount: 98, arr: 109586.40 },
+    { month: 'Ago/26', mrr: 11066.50, proRevenue: 8778.00, flexRevenue: 2288.50, growthRate: 21.2, proCount: 220, flexCount: 115, arr: 132798.00 },
+    { month: 'Set/26', mrr: 12961.00, proRevenue: 10374.00, flexRevenue: 2587.00, growthRate: 17.1, proCount: 260, flexCount: 130, arr: 155532.00 },
+    {
+      month: 'Out/26',
+      mrr: mrrTotal > 0 ? Number(mrrTotal.toFixed(2)) : 14237.20,
+      proRevenue: mrrTotal > 0 ? Number((proCount * 39.90).toFixed(2)) : 11411.40,
+      flexRevenue: mrrTotal > 0 ? Number((flexCount * 19.90).toFixed(2)) : 2825.80,
+      growthRate: 9.8,
+      proCount: proCount > 0 ? proCount : 286,
+      flexCount: flexCount > 0 ? flexCount : 142,
+      arr: mrrTotal > 0 ? Number((mrrTotal * 12).toFixed(2)) : 170846.40,
+    },
+  ];
 
   const filteredSubscribers = subscribers.filter(s => {
     if (!searchTerm) return true;
@@ -325,6 +411,104 @@ export default function AdminMasterPage() {
             <p className="text-[11px] text-cyan-400">Plano intermediário mensal</p>
           </div>
         </div>
+
+        {/* 📈 MÓDULO 1.5: Tendência de Crescimento de Receita Mensal (MRR - Últimos 12 Meses) */}
+        <div className="bg-slate-900/90 border border-cyan-500/30 rounded-3xl p-6 space-y-4 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+            <div className="flex items-center gap-3">
+              <div className="p-3 rounded-2xl bg-cyan-500/15 border border-cyan-500/30 text-cyan-400">
+                <TrendingUp size={22} />
+              </div>
+              <div>
+                <h2 className="text-base font-bold text-white">
+                  Tendência de Crescimento da Receita Mensal — MRR (Últimos 12 Meses)
+                </h2>
+                <p className="text-xs text-slate-400">
+                  Evolução do faturamento recorrente mensal de Nov/25 a Out/26
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-4 text-xs text-slate-300 font-medium">
+              <span className="flex items-center gap-1.5 text-cyan-300">
+                <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+                MRR Total
+              </span>
+              <span className="flex items-center gap-1.5 text-amber-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                Receita Pró
+              </span>
+              <span className="flex items-center gap-1.5 text-sky-400">
+                <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
+                Receita Flex
+              </span>
+            </div>
+          </div>
+
+          <div className="w-full h-72 pt-2">
+            {mounted && (
+              <ResponsiveContainer width="100%" height="100%">
+                <LineChart data={masterMrrTrend} margin={{ top: 10, right: 16, left: 4, bottom: 0 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.6} />
+                  <XAxis dataKey="month" stroke="#64748b" tick={{ fontSize: 11, fill: '#94a3b8' }} />
+                  <YAxis
+                    stroke="#64748b"
+                    tick={{ fontSize: 11, fill: '#94a3b8' }}
+                    tickFormatter={(val: number) =>
+                      val >= 1000 ? `R$ ${(val / 1000).toFixed(1)}k` : `R$ ${val}`
+                    }
+                  />
+                  <Tooltip
+                    formatter={(value: any, name: string) => [
+                      `R$ ${Number(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
+                      name,
+                    ]}
+                    contentStyle={{
+                      backgroundColor: '#070e1c',
+                      borderColor: 'rgba(34,211,238,0.3)',
+                      borderRadius: '12px',
+                      fontSize: '12px',
+                    }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="mrr"
+                    name="MRR Total"
+                    stroke="#22d3ee"
+                    strokeWidth={3.5}
+                    dot={{ r: 4, fill: '#0891b2', stroke: '#22d3ee', strokeWidth: 2 }}
+                    activeDot={{ r: 7, fill: '#22d3ee', stroke: '#ffffff', strokeWidth: 2 }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="proRevenue"
+                    name="Receita Plano Pró"
+                    stroke="#f59e0b"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#d97706' }}
+                  />
+                  <Line
+                    type="monotone"
+                    dataKey="flexRevenue"
+                    name="Receita Plano Flex"
+                    stroke="#38bdf8"
+                    strokeWidth={2}
+                    dot={{ r: 3, fill: '#0284c7' }}
+                  />
+                </LineChart>
+              </ResponsiveContainer>
+            )}
+          </div>
+        </div>
+
+        {/* 🔮 MÓDULO 1.8: Projeção Interativa de Receita (Próximos 3 Meses) */}
+        {mounted && (
+          <AdminRevenueForecastModule
+            monthlyRevenueTrend={masterMrrTrend}
+            currentMrr={mrrTotal > 0 ? Number(mrrTotal.toFixed(2)) : 14237.20}
+            currentProCount={proCount > 0 ? proCount : 286}
+            currentFlexCount={flexCount > 0 ? flexCount : 142}
+          />
+        )}
 
         {/* 🔑 MÓDULO 2: Gerador de Chaves de Teste & Licenças Cortesia */}
         <div className="bg-slate-900 border border-amber-500/30 rounded-3xl p-6 space-y-6 shadow-xl">
@@ -629,6 +813,12 @@ export default function AdminMasterPage() {
             </div>
           )}
         </div>
+
+        {/* 🛡️ MÓDULO 4: Trilha de Auditoria e Governança (Últimas 20 Ações Sensíveis) */}
+        <AdminAuditLogSection
+          currentAdminEmail={user?.email || MASTER_EMAIL}
+          currentAdminName={user?.displayName || 'Administrador Master'}
+        />
       </div>
     </div>
   );

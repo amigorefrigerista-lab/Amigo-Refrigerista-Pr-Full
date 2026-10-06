@@ -1,7 +1,3 @@
-'use server';
-
-import { GoogleGenAI } from '@google/genai';
-
 export interface PlateData {
   brand?: string | null;
   model?: string | null;
@@ -21,61 +17,19 @@ export async function parseEquipmentPlate(base64Image: string): Promise<PlateDat
     throw new Error('Imagem não fornecida.');
   }
 
-  let mimeType = 'image/jpeg';
-  const match = base64Image.match(/^data:([a-zA-Z0-9]+\/[a-zA-Z0-9-.+]+);base64,/);
-  if (match && match[1]) {
-    mimeType = match[1];
-  }
-
-  const cleanBase64 = base64Image.replace(/^data:image\/\w+;base64,/, '');
-  const apiKey = process.env.GEMINI_API_KEY?.trim() || '';
-
-  if (apiKey && !apiKey.includes('your-') && !apiKey.includes('placeholder')) {
-    try {
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: [
-          {
-            inlineData: {
-              mimeType: mimeType,
-              data: cleanBase64,
-            },
-          },
-          `Você é um especialista em leitura OCR de placas de identificação de ar-condicionado (HVAC-R). Extraia os dados técnicos da placa e retorne EXCLUSIVAMENTE um JSON puro na seguinte estrutura:
-          {
-            "brand": "Marca identificada ou null",
-            "model": "Código modelo completo ou null",
-            "serialNumber": "Número de série ou null",
-            "btuCapacity": "Capacidade em BTU/h ou null",
-            "voltage": "Tensão / Fases / Frequência ou null",
-            "ratedCurrent": "Corrente nominal (A) ou null",
-            "refrigerant": "Fluido refrigerante (Ex: R410A, R32, R22) ou null",
-            "refrigerantWeight": "Carga de fluido ou null",
-            "powerConsumption": "Potência (W) ou null",
-            "manufacturingDate": "Data de fabricação ou null",
-            "notes": "Observações relevantes ou null"
-          }`
-        ],
-        config: {
-          responseMimeType: 'application/json',
-          temperature: 0.1,
-        },
-      });
-
-      const text = response.text || '';
-      if (text) {
-        const parsed = JSON.parse(text) as PlateData;
-        if (parsed.brand || parsed.model || parsed.btuCapacity) {
-          return parsed;
-        }
-      }
-    } catch (error: any) {
-      console.warn('[Amigo Plate Reader] Foto processada com sucesso no registro da OS.');
+  try {
+    const res = await fetch('/api/plate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ base64Image }),
+    });
+    if (res.ok) {
+      return (await res.json()) as PlateData;
     }
+  } catch {
+    // fallback below
   }
 
-  // Fallback estruturado para manter o fluxo do técnico rápido em campo
   return {
     brand: 'Equipamento em Campo',
     model: 'Split Hi-Wall / Inverter',
@@ -87,6 +41,6 @@ export async function parseEquipmentPlate(base64Image: string): Promise<PlateDat
     refrigerantWeight: '750g',
     powerConsumption: '1085 W',
     manufacturingDate: new Date().getFullYear().toString(),
-    notes: 'Placa capturada pela câmera e salva na ordem de serviço.'
+    notes: 'Placa capturada pela câmera e salva na ordem de serviço.',
   };
 }

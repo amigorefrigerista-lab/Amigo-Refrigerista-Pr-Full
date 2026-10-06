@@ -4,6 +4,9 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/useAuth';
 import { getAdminMetrics, AdminMetrics } from '@/app/actions/getAdminMetrics';
+import AdminAuditLogSection from '@/components/AdminAuditLogSection';
+import AdminRevenueForecastModule from '@/components/AdminRevenueForecastModule';
+import { ThemeToggle } from '@/components/ThemeToggle';
 import { 
   DollarSign, 
   Users, 
@@ -31,10 +34,48 @@ import {
   XAxis, 
   YAxis, 
   CartesianGrid, 
-  Tooltip 
+  Tooltip,
+  ReferenceLine
 } from 'recharts';
 
 const ADMIN_EMAIL = 'amigorefrigerista@gmail.com';
+
+const CustomMrrRevenueTooltip = ({ active, payload, label }: any) => {
+  if (active && payload && payload.length) {
+    const data = payload[0].payload;
+    return (
+      <div className="bg-[#070e1c]/95 border border-cyan-500/30 p-3.5 rounded-xl shadow-[0_10px_25px_rgba(0,0,0,0.55)] backdrop-blur-md text-xs space-y-1.5 font-mono">
+        <div className="font-bold text-white text-xs border-b border-slate-800 pb-1.5 flex items-center justify-between gap-4">
+          <span>Competência: {label}</span>
+          {data.growthRate > 0 && (
+            <span className="text-[11px] text-emerald-400 font-semibold">
+              +{data.growthRate.toFixed(1)}% MoM
+            </span>
+          )}
+        </div>
+        <div className="space-y-1 text-[11px] pt-0.5 tabular-nums">
+          <p className="text-cyan-300 font-extrabold flex items-center justify-between gap-5">
+            <span>Receita Recorrente (MRR):</span>
+            <span>R$ {data.mrr?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </p>
+          <p className="text-amber-400 font-semibold flex items-center justify-between gap-5">
+            <span>Receita Plano Pró ({data.proCount}):</span>
+            <span>R$ {data.proRevenue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </p>
+          <p className="text-sky-400 font-semibold flex items-center justify-between gap-5">
+            <span>Receita Plano Flex ({data.flexCount}):</span>
+            <span>R$ {data.flexRevenue?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </p>
+          <p className="text-slate-300 font-semibold flex items-center justify-between gap-5 border-t border-slate-800 pt-1">
+            <span>ARR Projetado (12x):</span>
+            <span>R$ {data.arr?.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}</span>
+          </p>
+        </div>
+      </div>
+    );
+  }
+  return null;
+};
 
 const CustomSubscriptionTooltip = ({ active, payload, label }: any) => {
   if (active && payload && payload.length) {
@@ -84,6 +125,8 @@ export default function AdminPage() {
   const [adminPassInput, setAdminPassInput] = useState<string>('');
   const [copiedDomain, setCopiedDomain] = useState<boolean>(false);
   const [showDomainHelper, setShowDomainHelper] = useState<boolean>(false);
+  const [revenueViewMode, setRevenueViewMode] = useState<'all' | 'mrr_only'>('all');
+  const [revenueRange, setRevenueRange] = useState<'12m' | '6m'>('12m');
 
   useEffect(() => {
     setMounted(true);
@@ -279,6 +322,27 @@ export default function AdminPage() {
     ? ((totalPaidUsers / metrics.totalUsers) * 100).toFixed(1)
     : '0';
 
+  const fullTwelveMonthRevenue = metrics?.monthlyRevenueTrend || [];
+  const displayedRevenueTrend = revenueRange === '6m'
+    ? fullTwelveMonthRevenue.slice(-6)
+    : fullTwelveMonthRevenue;
+
+  const firstMonthMrr = fullTwelveMonthRevenue.length > 0 ? fullTwelveMonthRevenue[0].mrr : 0;
+  const latestMonthMrr = fullTwelveMonthRevenue.length > 0
+    ? fullTwelveMonthRevenue[fullTwelveMonthRevenue.length - 1].mrr
+    : (metrics?.mrr || 0);
+  const latestMoMGrowth = fullTwelveMonthRevenue.length > 0
+    ? fullTwelveMonthRevenue[fullTwelveMonthRevenue.length - 1].growthRate
+    : 0;
+  const twelveMonthGrowthPct = firstMonthMrr > 0
+    ? (((latestMonthMrr - firstMonthMrr) / firstMonthMrr) * 100).toFixed(1)
+    : '0.0';
+  const cumulativeRevenue12m = fullTwelveMonthRevenue.reduce((acc, item) => acc + item.mrr, 0);
+  const averageMrr12m = fullTwelveMonthRevenue.length > 0
+    ? Number((cumulativeRevenue12m / fullTwelveMonthRevenue.length).toFixed(2))
+    : 0;
+  const projectedArr = Number((latestMonthMrr * 12).toFixed(2));
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 p-4 sm:p-8">
       <div className="max-w-7xl mx-auto space-y-8">
@@ -320,6 +384,7 @@ export default function AdminPage() {
           </div>
 
           <div className="flex items-center gap-2 self-start sm:self-auto">
+            <ThemeToggle />
             <button
               onClick={handleRefresh}
               disabled={refreshing}
@@ -402,6 +467,220 @@ export default function AdminPage() {
                 </p>
               </div>
             </div>
+
+            {/* Nova Seção: Tendência de Crescimento de Receita Mensal (MRR - Últimos 12 Meses) */}
+            <div className="bg-slate-900/90 border border-cyan-500/30 rounded-2xl p-5 sm:p-6 space-y-5 shadow-xl relative overflow-hidden">
+              <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-800 pb-4">
+                <div>
+                  <div className="flex items-center gap-2.5">
+                    <div className="p-2 rounded-xl bg-cyan-500/10 border border-cyan-500/20 text-cyan-400">
+                      <DollarSign className="w-5 h-5" />
+                    </div>
+                    <div>
+                      <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+                        Tendência de Crescimento da Receita Mensal — MRR (Últimos 12 Meses)
+                      </h2>
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        Desempenho financeiro recorrente mensal de Nov/25 a Out/26 com decomposição por plano
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 self-start lg:self-auto">
+                  <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setRevenueRange('12m')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                        revenueRange === '12m'
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      12 Meses
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRevenueRange('6m')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                        revenueRange === '6m'
+                          ? 'bg-cyan-500/20 text-cyan-300 border border-cyan-500/30'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Últimos 6M
+                    </button>
+                  </div>
+
+                  <div className="flex items-center gap-1 p-1 bg-slate-950 rounded-xl border border-slate-800">
+                    <button
+                      type="button"
+                      onClick={() => setRevenueViewMode('all')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                        revenueViewMode === 'all'
+                          ? 'bg-slate-800 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      MRR + Planos
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setRevenueViewMode('mrr_only')}
+                      className={`px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
+                        revenueViewMode === 'mrr_only'
+                          ? 'bg-slate-800 text-white'
+                          : 'text-slate-400 hover:text-slate-200'
+                      }`}
+                    >
+                      Apenas MRR Total
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Faixa de Indicadores de Performance do MRR em 12 Meses */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 pt-1">
+                <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3.5">
+                  <span className="text-[11px] text-slate-400 block">MRR Atual (Out/26)</span>
+                  <div className="text-lg sm:text-xl font-bold text-cyan-300 font-mono tabular-nums mt-0.5">
+                    R$ {latestMonthMrr.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[11px] text-emerald-400 mt-1 flex items-center gap-1 font-mono tabular-nums">
+                    <span>+{latestMoMGrowth.toFixed(1)}% vs. mês anterior</span>
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3.5">
+                  <span className="text-[11px] text-slate-400 block">Expansão de Receita (12M)</span>
+                  <div className="text-lg sm:text-xl font-bold text-emerald-400 font-mono tabular-nums mt-0.5">
+                    +{twelveMonthGrowthPct}%
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1 font-mono tabular-nums">
+                    Nov/25: R$ {firstMonthMrr.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3.5">
+                  <span className="text-[11px] text-slate-400 block">Run Rate Anualizado (ARR)</span>
+                  <div className="text-lg sm:text-xl font-bold text-white font-mono tabular-nums mt-0.5">
+                    R$ {projectedArr.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1">
+                    Projeção anual baseada no MRR atual
+                  </div>
+                </div>
+
+                <div className="bg-slate-950/70 border border-slate-800/90 rounded-xl p-3.5">
+                  <span className="text-[11px] text-slate-400 block">Faturamento Acumulado (12M)</span>
+                  <div className="text-lg sm:text-xl font-bold text-amber-300 font-mono tabular-nums mt-0.5">
+                    R$ {cumulativeRevenue12m.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}
+                  </div>
+                  <div className="text-[11px] text-slate-400 mt-1 font-mono tabular-nums">
+                    Média: R$ {averageMrr12m.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}/mês
+                  </div>
+                </div>
+              </div>
+
+              {/* Legenda das Séries */}
+              <div className="flex flex-wrap items-center justify-between gap-3 text-xs text-slate-400 pt-1">
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="flex items-center gap-1.5 text-cyan-300 font-medium">
+                    <span className="w-2.5 h-2.5 rounded-full bg-cyan-400" />
+                    <span>MRR Total (R$)</span>
+                  </div>
+                  {revenueViewMode === 'all' && (
+                    <>
+                      <div className="flex items-center gap-1.5 text-amber-400 font-medium">
+                        <span className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                        <span>Receita Plano Pró (R$ 39,90)</span>
+                      </div>
+                      <div className="flex items-center gap-1.5 text-sky-400 font-medium">
+                        <span className="w-2.5 h-2.5 rounded-full bg-sky-400" />
+                        <span>Receita Plano Flex (R$ 19,90)</span>
+                      </div>
+                    </>
+                  )}
+                </div>
+                <span className="text-[11px] text-slate-400 font-mono tabular-nums">
+                  Linha tracejada: Média 12M (R$ {averageMrr12m.toLocaleString('pt-BR', { minimumFractionDigits: 2 })})
+                </span>
+              </div>
+
+              {/* Gráfico de Linha Recharts - MRR 12 Meses */}
+              <div className="w-full h-80 pt-2">
+                {mounted && (
+                  <ResponsiveContainer width="100%" height="100%">
+                    <LineChart
+                      data={displayedRevenueTrend}
+                      margin={{ top: 12, right: 16, left: 4, bottom: 4 }}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" opacity={0.65} />
+                      <XAxis
+                        dataKey="month"
+                        stroke="#64748b"
+                        tick={{ fontSize: 11, fill: '#94a3b8' }}
+                      />
+                      <YAxis
+                        stroke="#64748b"
+                        tick={{ fontSize: 11, fill: '#94a3b8' }}
+                        tickFormatter={(val: number) =>
+                          val >= 1000 ? `R$ ${(val / 1000).toFixed(1)}k` : `R$ ${val}`
+                        }
+                      />
+                      <Tooltip content={<CustomMrrRevenueTooltip />} />
+                      <ReferenceLine
+                        y={averageMrr12m}
+                        stroke="#475569"
+                        strokeDasharray="4 4"
+                      />
+                      <Line
+                        type="monotone"
+                        dataKey="mrr"
+                        name="MRR Total"
+                        stroke="#22d3ee"
+                        strokeWidth={3.5}
+                        dot={{ r: 4.5, fill: '#0891b2', stroke: '#22d3ee', strokeWidth: 2 }}
+                        activeDot={{ r: 7, fill: '#22d3ee', stroke: '#ffffff', strokeWidth: 2 }}
+                      />
+                      {revenueViewMode === 'all' && (
+                        <>
+                          <Line
+                            type="monotone"
+                            dataKey="proRevenue"
+                            name="Receita Plano Pró"
+                            stroke="#f59e0b"
+                            strokeWidth={2.2}
+                            dot={{ r: 3.5, fill: '#d97706' }}
+                            activeDot={{ r: 6, fill: '#f59e0b', stroke: '#ffffff', strokeWidth: 1.5 }}
+                          />
+                          <Line
+                            type="monotone"
+                            dataKey="flexRevenue"
+                            name="Receita Plano Flex"
+                            stroke="#38bdf8"
+                            strokeWidth={2.2}
+                            dot={{ r: 3.5, fill: '#0284c7' }}
+                            activeDot={{ r: 6, fill: '#38bdf8', stroke: '#ffffff', strokeWidth: 1.5 }}
+                          />
+                        </>
+                      )}
+                    </LineChart>
+                  </ResponsiveContainer>
+                )}
+              </div>
+            </div>
+
+            {/* Módulo Interativo de Projeção de Receita (Próximos 3 Meses) */}
+            {mounted && (
+              <AdminRevenueForecastModule
+                monthlyRevenueTrend={metrics.monthlyRevenueTrend}
+                currentMrr={metrics.mrr}
+                currentProCount={metrics.proCount}
+                currentFlexCount={metrics.flexCount}
+              />
+            )}
 
             <div className="bg-slate-900/90 border border-emerald-500/30 rounded-2xl p-5 sm:p-6 space-y-4 shadow-xl relative overflow-hidden">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
@@ -548,6 +827,12 @@ export default function AdminPage() {
                 </div>
               </div>
             </div>
+
+            {/* Trilha de Auditoria de Ações Sensíveis de Administradores */}
+            <AdminAuditLogSection
+              currentAdminEmail={currentUser?.email || ADMIN_EMAIL}
+              currentAdminName={currentUser?.displayName || 'Administrador Master'}
+            />
 
             {/* Menu de Atalhos do Administrador */}
             <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-6 space-y-4">

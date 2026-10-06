@@ -1,9 +1,23 @@
 @import "tailwindcss";
 
+@custom-variant dark (&:where(.dark, .dark *));
+
 @layer base {
   :root {
+    --background: 210 40% 98%;
+    --foreground: 222.2 84% 4.9%;
+  }
+
+  html.dark {
     --background: 222.2 84% 4.9%;
     --foreground: 210 40% 98%;
+    color-scheme: dark;
+  }
+
+  html.light {
+    --background: 210 40% 98%;
+    --foreground: 222.2 84% 4.9%;
+    color-scheme: light;
   }
 
   body {
@@ -15,6 +29,81 @@
     user-select: none;
     -webkit-tap-highlight-color: transparent;
   }
+
+  html.light body {
+    background-color: #f8fafc;
+    color: #0f172a;
+  }
+}
+
+/* Harmonização automática de componentes em Modo Claro (html.light) */
+html.light [class*="bg-[#070e1c]"] {
+  background-color: #f8fafc !important;
+}
+
+html.light .bg-slate-950,
+html.light [class*="bg-slate-950/"] {
+  background-color: #f1f5f9 !important;
+}
+
+html.light .bg-slate-900,
+html.light [class*="bg-slate-900/"] {
+  background-color: #ffffff !important;
+}
+
+html.light .bg-slate-800,
+html.light [class*="bg-slate-800/"] {
+  background-color: #e2e8f0 !important;
+}
+
+html.light .border-slate-800,
+html.light [class*="border-slate-800/"],
+html.light .border-slate-700,
+html.light [class*="border-slate-700/"] {
+  border-color: #cbd5e1 !important;
+}
+
+html.light .divide-slate-800 > :not(:last-child),
+html.light [class*="divide-slate-800/"] > :not(:last-child) {
+  border-color: #e2e8f0 !important;
+}
+
+html.light .text-white:not([class*="bg-sky-"]):not([class*="bg-emerald-"]):not([class*="bg-amber-"]):not([class*="bg-rose-"]):not([class*="bg-indigo-"]):not([class*="from-sky-"]):not([class*="from-cyan-"]),
+html.light .text-slate-100 {
+  color: #0f172a !important;
+}
+
+html.light .text-slate-200,
+html.light .text-slate-300 {
+  color: #334155 !important;
+}
+
+html.light .text-slate-400 {
+  color: #475569 !important;
+}
+
+html.light .text-slate-500 {
+  color: #64748b !important;
+}
+
+html.light .text-sky-300 {
+  color: #0369a1 !important;
+}
+
+html.light .text-cyan-300 {
+  color: #0e7490 !important;
+}
+
+html.light .text-emerald-300 {
+  color: #047857 !important;
+}
+
+html.light .text-amber-300 {
+  color: #b45309 !important;
+}
+
+html.light .text-rose-300 {
+  color: #be123c !important;
 }
 
 .pb-safe {

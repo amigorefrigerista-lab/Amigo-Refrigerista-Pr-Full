@@ -1,8 +1,9 @@
 'use client';
 
 import React from 'react';
-import { Crown, Sparkles, User, ShieldCheck, Snowflake } from 'lucide-react';
+import { Crown, Sparkles, ShieldCheck, Snowflake } from 'lucide-react';
 import Image from 'next/image';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 export interface HeaderUserProps {
   name: string;
@@ -16,7 +17,7 @@ export interface HeaderProps {
   onOpenSettings?: () => void;
 }
 
-export function AppHeader({ user, onOpenSettings }: HeaderProps) {
+export function AppHeader({ user }: HeaderProps) {
   const initials = user.name
     ? user.name
         .split(' ')
@@ -27,12 +28,12 @@ export function AppHeader({ user, onOpenSettings }: HeaderProps) {
     : 'AR';
 
   return (
-    <header className="w-full bg-slate-900/90 backdrop-blur-xl border-b border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between shadow-lg">
+    <header className="w-full bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800 px-4 sm:px-6 py-3 flex items-center justify-between shadow-sm dark:shadow-lg transition-colors duration-200">
       <div className="flex items-center gap-3">
         {/* Avatar do Usuário */}
         <div className="relative">
           {user.photoUrl ? (
-            <div className="w-10 h-10 rounded-2xl overflow-hidden border border-slate-700 relative shrink-0">
+            <div className="w-10 h-10 rounded-2xl overflow-hidden border border-slate-200 dark:border-slate-700 relative shrink-0">
               <Image
                 src={user.photoUrl}
                 alt={user.name}
@@ -49,7 +50,7 @@ export function AppHeader({ user, onOpenSettings }: HeaderProps) {
 
           {user.isVip && (
             <div
-              className="absolute -top-1 -right-1 p-0.5 bg-amber-500 text-slate-950 rounded-full border border-slate-900 shadow-[0_0_10px_rgba(245,158,11,0.6)]"
+              className="absolute -top-1 -right-1 p-0.5 bg-amber-500 text-slate-950 rounded-full border border-white dark:border-slate-900 shadow-[0_0_10px_rgba(245,158,11,0.6)]"
               title="Parceiro VIP Ativo"
             >
               <Crown size={11} className="fill-slate-950" />
@@ -60,7 +61,7 @@ export function AppHeader({ user, onOpenSettings }: HeaderProps) {
         {/* Informações do Técnico / Empresa */}
         <div className="space-y-0.5">
           <div className="flex items-center gap-2">
-            <h2 className="text-xs font-bold text-white tracking-tight leading-none">
+            <h2 className="text-xs font-bold text-slate-900 dark:text-white tracking-tight leading-none">
               {user.name}
             </h2>
 
@@ -73,27 +74,28 @@ export function AppHeader({ user, onOpenSettings }: HeaderProps) {
           </div>
 
           {user.companyName ? (
-            <p className="text-[11px] font-medium text-sky-400 flex items-center gap-1">
-              <ShieldCheck size={12} className="text-sky-400 shrink-0" />
+            <p className="text-[11px] font-medium text-sky-600 dark:text-sky-400 flex items-center gap-1">
+              <ShieldCheck size={12} className="text-sky-600 dark:text-sky-400 shrink-0" />
               <span>{user.companyName}</span>
             </p>
           ) : (
-            <p className="text-[11px] text-slate-400">Técnico em Refrigeração</p>
+            <p className="text-[11px] text-slate-500 dark:text-slate-400">Técnico em Refrigeração</p>
           )}
         </div>
       </div>
 
-      {/* Marca d'água / App Title */}
-      <div className="flex items-center gap-2">
+      {/* Alternador de Tema & Marca d'água / App Title */}
+      <div className="flex items-center gap-2.5">
+        <ThemeToggle />
         <div className="text-right hidden sm:block">
-          <span className="text-xs font-black text-white block leading-none">
+          <span className="text-xs font-black text-slate-900 dark:text-white block leading-none">
             Amigo Refrigerista
           </span>
-          <span className="text-[9px] font-bold text-sky-400 uppercase tracking-wider block">
+          <span className="text-[9px] font-bold text-sky-600 dark:text-sky-400 uppercase tracking-wider block">
             PRO
           </span>
         </div>
-        <div className="w-8 h-8 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 flex items-center justify-center shrink-0">
+        <div className="w-8 h-8 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-600 dark:text-sky-400 flex items-center justify-center shrink-0">
           <Snowflake size={18} />
         </div>
       </div>

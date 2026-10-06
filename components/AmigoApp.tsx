@@ -79,6 +79,7 @@ import { RecurringRevenueCard } from '@/components/RecurringRevenueCard';
 import { PlanCarousel } from '@/components/PlanCarousel';
 import { UpgradeModal } from '@/components/UpgradeModal';
 import { InstallPrompt } from '@/components/InstallPrompt';
+import { MobileInstallBanner } from '@/components/MobileInstallBanner';
 import { ClientSupportModal } from '@/components/ClientSupportModal';
 import { Footer } from '@/components/Footer';
 import { AdminSupportChatView } from '@/components/AdminSupportChatView';
@@ -111,7 +112,10 @@ import {
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
+import { ThemeToggle } from '@/components/ThemeToggle';
+import { useTheme } from '@/contexts/ThemeContext';
 import SettingsTab from '@/components/tabs/SettingsTab';
+import StockTab from '@/components/tabs/StockTab';
 import { sendOrderEmailAction, SmtpConfig } from '@/app/actions/smtpActions';
 import { diagnoseErrorCode } from '@/app/actions/diagnoseErrorCode';
 import { parseEquipmentPlate } from '@/app/actions/parsePlateImage';
@@ -130,6 +134,7 @@ import {
 
 export default function AmigoApp() {
   const router = useRouter();
+  const { isDark } = useTheme();
   const { 
     user, 
     profile, 
@@ -624,22 +629,44 @@ export default function AmigoApp() {
 
   // Superheating Calculation
   const shCalculations = useMemo(() => {
-    // Estimativas de temperatura de saturação para R410A e R22
+    // Tabela simplificada de Pressão (psig) vs Temp Saturação (°C)
+    // Valores aproximados para R410A e R22 para fins didáticos.
+    const ptTable: any = {
+      'R410A': {
+        suction: { 100: -8.8, 110: -6.7, 120: -4.7, 130: -2.8, 140: -1.0 },
+        liquid: { 300: 48.7, 320: 51.5, 340: 54.2, 360: 56.8, 380: 59.3 }
+      },
+      'R22': {
+        suction: { 50: -5.4, 60: -1.6, 70: 1.8, 80: 4.8, 90: 7.5 },
+        liquid: { 200: 33.3, 220: 37.0, 240: 40.4, 260: 43.6, 280: 46.5 }
+      }
+    };
+
     const pSuction = parseFloat(suctionPressure) || 0;
     const tSuction = parseFloat(suctionTemp) || 0;
     const pLiquid = parseFloat(liquidPressure) || 0;
     const tLiquid = parseFloat(liquidTemp) || 0;
 
-    let evapSatTemp = 0;
-    let condSatTemp = 0;
+    // Função de busca simples ou interpolação linear básica
+    const getSatTemp = (gas: string, type: 'suction' | 'liquid', pressure: number) => {
+      const data = ptTable[gas]?.[type] || {};
+      const pressures = Object.keys(data).map(Number).sort((a, b) => a - b);
+      
+      if (pressure <= pressures[0]) return data[pressures[0]];
+      if (pressure >= pressures[pressures.length - 1]) return data[pressures[pressures.length - 1]];
 
-    if (selectedGas === 'R410A') {
-      evapSatTemp = (pSuction * 0.1) - 6.5;
-      condSatTemp = (pLiquid * 0.08) + 21;
-    } else {
-      evapSatTemp = (pSuction * 0.16) - 9;
-      condSatTemp = (pLiquid * 0.11) + 18;
-    }
+      for (let i = 0; i < pressures.length - 1; i++) {
+        if (pressure >= pressures[i] && pressure <= pressures[i+1]) {
+          const p1 = pressures[i]; const p2 = pressures[i+1];
+          const t1 = data[p1]; const t2 = data[p2];
+          return t1 + (t2 - t1) * (pressure - p1) / (p2 - p1);
+        }
+      }
+      return 0;
+    };
+
+    const evapSatTemp = getSatTemp(selectedGas, 'suction', pSuction);
+    const condSatTemp = getSatTemp(selectedGas, 'liquid', pLiquid);
 
     const superheat = tSuction - evapSatTemp;
     const subcooling = condSatTemp - tLiquid;
@@ -649,8 +676,8 @@ export default function AmigoApp() {
       condSatTemp: condSatTemp.toFixed(1),
       superheat: superheat.toFixed(1),
       subcooling: subcooling.toFixed(1),
-      shStatus: superheat >= 4 && superheat <= 8 ? 'Ideal (4°C a 8°C)' : superheat < 4 ? 'Baixo (Risco de Golpe de Líquido)' : 'Alto (Falta de fluido ou restrição)',
-      scStatus: subcooling >= 5 && subcooling <= 10 ? 'Ideal (5°C a 10°C)' : subcooling < 5 ? 'Baixo (Falta de refrigerante)' : 'Alto (Excesso de refrigerante)'
+      shStatus: superheat >= 4 && superheat <= 8 ? 'Ideal (4°C a 8°C)' : superheat < 4 ? 'Baixo' : 'Alto',
+      scStatus: subcooling >= 5 && subcooling <= 10 ? 'Ideal (5°C a 10°C)' : subcooling < 5 ? 'Baixo' : 'Alto'
     };
   }, [suctionPressure, suctionTemp, liquidPressure, liquidTemp, selectedGas]);
 
@@ -659,11 +686,23 @@ export default function AmigoApp() {
     const area = parseFloat(areaM2) || 0;
     const people = parseFloat(peopleCount) || 1;
     const watts = parseFloat(electronicWatts) || 0;
-    const basePerM2 = sunExposure === 'afternoon' ? 800 : 600;
-    const loadPeople = (people - 1) * 600;
-    const loadElectronics = (watts / 100) * 340;
-    const total = (area * basePerM2) + Math.max(0, loadPeople) + loadElectronics;
-    return Math.ceil(total / 1000) * 1000;
+    
+    // Fatores padrão residencial (Normas técnicas simplificadas):
+    // 600 BTU/m2 (base), +200 BTU/m2 se exposição solar vespertina.
+    // 600 BTU/pessoa (carga sensível + latente).
+    // 3.41 BTU/Watt para equipamentos elétricos.
+    const baseLoad = area * 600;
+    const sunLoad = sunExposure === 'afternoon' ? (area * 200) : 0;
+    const loadPeople = people * 600;
+    const loadElectronics = watts * 3.41;
+    
+    const total = baseLoad + sunLoad + loadPeople + loadElectronics;
+    
+    // Arredondamento para potências comerciais de mercado (mínimo 9000 BTUs)
+    const commercialSizes = [9000, 12000, 18000, 24000, 30000, 36000, 48000, 60000];
+    const btu = commercialSizes.find(size => size >= total) || commercialSizes[commercialSizes.length - 1];
+    
+    return btu;
   }, [areaM2, peopleCount, sunExposure, electronicWatts]);
 
   const handleDiagnose = async (e: React.FormEvent) => {
@@ -992,9 +1031,15 @@ export default function AmigoApp() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-[#070e1c] text-white flex items-center justify-center p-4 py-8">
-        <Toaster position="top-center" richColors theme="dark" />
-        <div className="max-w-md w-full bg-slate-900/90 border border-sky-500/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl backdrop-blur-xl relative overflow-hidden">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-white flex flex-col items-center justify-center p-4 py-8 relative transition-colors duration-200">
+        <Toaster position="top-center" richColors theme={isDark ? 'dark' : 'light'} />
+        <div className="fixed top-4 right-4 z-50">
+          <ThemeToggle showLabel />
+        </div>
+        <div className="max-w-md w-full">
+          <MobileInstallBanner />
+        </div>
+        <div className="max-w-md w-full bg-white dark:bg-slate-900/90 border border-sky-500/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl backdrop-blur-xl relative overflow-hidden">
           <div className="text-center space-y-3">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-500 to-cyan-500 flex items-center justify-center text-white mx-auto shadow-[0_0_25px_rgba(14,165,233,0.4)]">
               <Snowflake size={36} />
@@ -1381,8 +1426,8 @@ export default function AmigoApp() {
   }
 
   return (
-    <div className="min-h-screen bg-[#070e1c] text-white pb-28 pt-16">
-      <Toaster position="top-center" richColors theme="dark" />
+    <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-white pb-28 pt-16 transition-colors duration-200">
+      <Toaster position="top-center" richColors theme={isDark ? 'dark' : 'light'} />
       
       {/* Header com os botões de Suporte e Admin */}
       <Header 
@@ -1391,6 +1436,9 @@ export default function AmigoApp() {
       />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {/* Banner de Instalação Mobile no topo da página inicial (standalone: false & iOS/Android) */}
+        <MobileInstallBanner />
+
         {/* Alerta de Perfil Incompleto no Banco */}
         {isProfileIncomplete && (
           <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/10 animate-pulse">
@@ -1422,21 +1470,21 @@ export default function AmigoApp() {
         <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
           <button
             onClick={() => setActiveTab('dash')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'dash' ? 'bg-sky-500 text-white' : 'text-slate-400 hover:text-white bg-slate-900 border border-slate-800' }`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'dash' ? 'bg-sky-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
           >
             Dashboard
           </button>
 
           <button
             onClick={() => setActiveTab('estoque')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'estoque' ? 'bg-sky-500 text-white' : 'text-slate-400 hover:text-white bg-slate-900 border border-slate-800' }`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'estoque' ? 'bg-sky-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
           >
             Estoque do Técnico
           </button>
 
           <button
             onClick={() => setActiveTab('precos')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'precos' ? 'bg-sky-500 text-white' : 'text-slate-400 hover:text-white bg-slate-900 border border-slate-800' }`}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'precos' ? 'bg-sky-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
           >
             Tabela de Preços / Orçamentos
           </button>
@@ -1893,6 +1941,15 @@ export default function AmigoApp() {
                 }`}
               >
                 Cálculo de BTU/h
+              </button>
+              <button
+                type="button"
+                onClick={() => setCalcSubTab('pt_table')}
+                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                  calcSubTab === 'pt_table' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Tabela PxT
               </button>
               <button
                 type="button"
@@ -2728,79 +2785,12 @@ export default function AmigoApp() {
         )}
         {/* ABA DE ESTOQUE DO INSTALADOR */}
         {activeTab === 'estoque' && (
-          <div className="space-y-6 bg-slate-900 border border-slate-800 rounded-3xl p-6">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <h3 className="text-base font-bold text-white flex items-center gap-2">
-                  <Package className="w-5 h-5 text-sky-400" />
-                  <span>Controle de Estoque & Materiais</span>
-                </h3>
-                <p className="text-xs text-slate-400 mt-0.5">Gerencie fluidos refrigerantes, tubulações, peças e insumos</p>
-              </div>
-              <button
-                onClick={() => {
-                  const name = prompt('Nome do Material (ex: Fluido R410A 1kg):');
-                  const qty = prompt('Quantidade atual:');
-                  if (name && qty) {
-                    handleSaveStockItem({
-                      name,
-                      quantity: parseFloat(qty) || 0,
-                      category: 'fluido',
-                      unit: 'kg',
-                      unitCost: 0,
-                    });
-                  }
-                }}
-                className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs transition flex items-center gap-1.5"
-              >
-                <Plus size={14} />
-                Novo Item
-              </button>
-            </div>
-
-            {stockItems.length === 0 ? (
-              <div className="p-8 text-center bg-slate-950/60 border border-slate-800 rounded-2xl space-y-2">
-                <Package className="w-8 h-8 text-slate-600 mx-auto" />
-                <p className="text-xs font-semibold text-slate-300">Nenhum item cadastrado no estoque ainda.</p>
-                <p className="text-[11px] text-slate-500">Clique em + Novo Item para cadastrar seu primeiro material no Supabase!</p>
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {stockItems.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between p-3 bg-slate-950 border border-slate-800 rounded-xl">
-                    <div>
-                      <p className="text-sm font-bold text-white">{item.name}</p>
-                      <p className="text-[10px] text-slate-500 uppercase">{item.category || 'Geral'}</p>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <p className="text-xs text-slate-400">Quantidade:</p>
-                      <div className="flex items-center gap-2">
-                        <button
-                          onClick={() => handleUpdateStockQuantity(item.id, Math.max(0, item.quantity - 1))}
-                          className="w-6 h-6 rounded bg-slate-800 text-slate-300 flex items-center justify-center hover:bg-slate-700"
-                        >
-                          <Minus size={12} />
-                        </button>
-                        <span className="text-sm font-bold text-white w-12 text-center">{item.quantity} {item.unit || 'un'}</span>
-                        <button
-                          onClick={() => handleUpdateStockQuantity(item.id, item.quantity + 1)}
-                          className="w-6 h-6 rounded bg-slate-800 text-slate-300 flex items-center justify-center hover:bg-slate-700"
-                        >
-                          <Plus size={12} />
-                        </button>
-                      </div>
-                      <button
-                        onClick={() => handleDeleteStockItem(item.id)}
-                        className="text-rose-400 hover:text-rose-300 text-xs font-bold p-2"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
+          <StockTab
+            dbStockItems={stockItems}
+            onSaveToDb={handleSaveStockItem}
+            onUpdateQtyInDb={handleUpdateStockQuantity}
+            onDeleteFromDb={handleDeleteStockItem}
+          />
         )}
 
         {/* ABA DE TABELA DE PREÇOS / ORÇAMENTOS */}

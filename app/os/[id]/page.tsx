@@ -2,17 +2,14 @@ import React from 'react';
 import Link from 'next/link';
 import { 
   CheckCircle2, 
-  FileText, 
   Wrench, 
-  Calendar, 
   ShieldCheck, 
   MapPin, 
-  Phone, 
   ArrowLeft,
-  Printer,
   Sparkles
 } from 'lucide-react';
 import { getPublicInstallationAction } from '@/app/actions/dbActions';
+import ServiceOrderPdfExporter, { ServiceOrderData } from '@/components/ServiceOrderPdfExporter';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -34,6 +31,28 @@ export default async function PublicServiceOrderPage({ params }: PageProps) {
   const warranty = installation?.warrantyMonths || 12;
   const address = installation?.address;
   const notes = installation?.notes || 'Higienização completa da serpentina, turbina e bandeja de condensado; verificação de pressão do fluido e aperto de bornes elétricos.';
+  const checklistItems = [
+    'Higienização bactericida e fungicida com desincrustante biodegradável',
+    'Teste de superaquecimento e vazamentos na linha frigorígena',
+    'Checagem de consumo elétrico e estanqueidade do dreno',
+  ];
+
+  const orderData: ServiceOrderData = {
+    orderNumber: displayOrderNumber,
+    clientName,
+    clientPhone: installation?.clientPhone || null,
+    address: address || null,
+    equipment,
+    brand,
+    btus,
+    serviceType: installation?.type || 'instalacao',
+    status: installation?.status || 'concluido',
+    dateStr,
+    warrantyMonths: warranty,
+    value: installation?.value || null,
+    notes,
+    checklistItems,
+  };
 
   return (
     <div className="min-h-screen bg-[#070e1c] text-slate-100 flex flex-col justify-between p-4 sm:p-8 font-sans">
@@ -135,9 +154,9 @@ export default async function PublicServiceOrderPage({ params }: PageProps) {
             <div className="p-4 rounded-2xl bg-slate-950/50 border border-slate-800 text-xs text-slate-300 leading-relaxed space-y-2">
               <p>{notes}</p>
               <ul className="list-disc list-inside space-y-1 text-slate-400 text-[11px] pt-2 border-t border-slate-800/60">
-                <li>Higienização bactericida e fungicida com desincrustante biodegradável</li>
-                <li>Teste de superaquecimento e vazamentos na linha frigorígena</li>
-                <li>Checagem de consumo elétrico e estanqueidade do dreno</li>
+                {checklistItems.map((item, idx) => (
+                  <li key={idx}>{item}</li>
+                ))}
               </ul>
             </div>
           </div>
@@ -153,30 +172,8 @@ export default async function PublicServiceOrderPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Ações */}
-          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
-            {installation?.clientPhone ? (
-              <a
-                href={`https://wa.me/55${installation.clientPhone.replace(/\D/g, '')}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full sm:w-auto px-5 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-lg"
-              >
-                <Phone size={15} />
-                <span>Falar com o Técnico no WhatsApp</span>
-              </a>
-            ) : (
-              <div />
-            )}
-
-            <button
-              type="button"
-              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold text-xs transition flex items-center justify-center gap-2 border border-slate-700 cursor-pointer"
-            >
-              <Printer size={15} />
-              <span>Imprimir / Salvar PDF</span>
-            </button>
-          </div>
+          {/* Exportador de PDF com Dados da Empresa e QR Code */}
+          <ServiceOrderPdfExporter order={orderData} />
         </div>
 
         {/* Rodapé institucional */}

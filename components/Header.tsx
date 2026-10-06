@@ -3,9 +3,10 @@
 import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Headset, ShieldCheck, Snowflake, Bell, Settings, LogOut } from 'lucide-react';
+import { Snowflake, Bell, Settings, LogOut } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { toast } from 'sonner';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface HeaderProps {
   onOpenNotifications?: () => void;
@@ -14,9 +15,9 @@ interface HeaderProps {
   unreadCount?: number;
 }
 
-export function Header({ onOpenNotifications, onOpenSettings, onOpenSupportModal, unreadCount = 0 }: HeaderProps) {
+export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }: HeaderProps) {
   const router = useRouter();
-  const { user, profile, isSupportOrAdmin, isAdmin, signOut } = useAuth();
+  const { user, profile, signOut } = useAuth();
 
   const handleSignOut = async () => {
     try {
@@ -36,7 +37,7 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenSupportModal
   const avatarUrl = user?.photoURL || (displayName ? `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=0284c7&color=fff&size=80&bold=true` : null);
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 bg-[#070e1c]/85 backdrop-blur-xl border-b border-slate-800/80 px-4 md:px-8 py-3 flex items-center justify-between shadow-[0_4px_30px_rgba(0,0,0,0.4)]">
+    <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#070e1c]/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/80 px-4 md:px-8 py-3 flex items-center justify-between shadow-sm dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)] transition-colors duration-200">
       {/* Lado Esquerdo: Marca & Logo */}
       <div className="flex items-center gap-3">
         <Link href="/" className="flex items-center gap-2.5 group">
@@ -45,27 +46,29 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenSupportModal
           </div>
           <div className="flex flex-col">
             <div className="flex items-center gap-2">
-              <span className="text-white font-black tracking-tight text-sm sm:text-base font-sans leading-none">
-                Amigo <span className="bg-gradient-to-r from-sky-400 to-cyan-300 bg-clip-text text-transparent">Refrigerista</span>
+              <span className="text-slate-900 dark:text-white font-black tracking-tight text-sm sm:text-base font-sans leading-none">
+                Amigo <span className="bg-gradient-to-r from-sky-500 to-cyan-500 dark:from-sky-400 dark:to-cyan-300 bg-clip-text text-transparent">Refrigerista</span>
               </span>
-              <span className="px-1.5 py-0.5 rounded-md bg-sky-500/20 text-sky-300 border border-sky-400/30 text-[9px] font-black tracking-widest uppercase">
+              <span className="px-1.5 py-0.5 rounded-md bg-sky-500/15 dark:bg-sky-500/20 text-sky-700 dark:text-sky-300 border border-sky-500/30 dark:border-sky-400/30 text-[9px] font-black tracking-widest uppercase">
                 PRO
               </span>
             </div>
-            <span className="text-[10px] text-slate-400 font-medium hidden sm:inline-block leading-tight mt-0.5">
+            <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium hidden sm:inline-block leading-tight mt-0.5">
               Solução Inteligente para HVAC-R
             </span>
           </div>
         </Link>
       </div>
 
-      {/* Lado Direito: Notificações, Configurações & Perfil */}
+      {/* Lado Direito: Alternador de Tema, Notificações, Configurações & Perfil */}
       <div className="flex items-center gap-2 sm:gap-2.5">
+        <ThemeToggle />
+
         {onOpenNotifications && (
           <button
             type="button"
             onClick={onOpenNotifications}
-            className="p-2 sm:p-2.5 rounded-xl bg-slate-900/90 border border-slate-800 text-slate-300 hover:text-white hover:border-slate-700 transition relative cursor-pointer"
+            className="p-2 sm:p-2.5 rounded-xl bg-white dark:bg-slate-900/90 border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white hover:border-slate-300 dark:hover:border-slate-700 transition relative cursor-pointer"
             title="Notificações"
           >
             <Bell size={17} />
@@ -79,7 +82,7 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenSupportModal
           <button
             type="button"
             onClick={onOpenSettings}
-            className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 sm:py-1.5 rounded-xl bg-slate-900/90 hover:bg-slate-800 border border-slate-800 hover:border-sky-500/40 text-slate-200 transition-all cursor-pointer group shadow-sm"
+            className="flex items-center gap-2 pl-2 pr-2.5 py-1.5 sm:py-1.5 rounded-xl bg-white dark:bg-slate-900/90 hover:bg-slate-100 dark:hover:bg-slate-800 border border-slate-200 dark:border-slate-800 hover:border-sky-500/40 text-slate-700 dark:text-slate-200 transition-all cursor-pointer group shadow-xs"
             title="Configurações e Perfil do Técnico"
           >
             <div className="w-7 h-7 rounded-lg overflow-hidden border border-sky-400/40 shrink-0 bg-sky-950 flex items-center justify-center">
@@ -90,10 +93,10 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenSupportModal
                 <Settings size={15} className="text-sky-400" />
               )}
             </div>
-            <span className="hidden md:inline text-xs font-bold text-slate-200 max-w-[120px] truncate">
+            <span className="hidden md:inline text-xs font-bold text-slate-700 dark:text-slate-200 max-w-[120px] truncate">
               {displayName}
             </span>
-            <Settings size={14} className="text-slate-400 group-hover:text-sky-400 group-hover:rotate-45 transition-all" />
+            <Settings size={14} className="text-slate-500 dark:text-slate-400 group-hover:text-sky-500 dark:group-hover:text-sky-400 group-hover:rotate-45 transition-all" />
           </button>
         )}
 
@@ -101,10 +104,10 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenSupportModal
         <button
           type="button"
           onClick={handleSignOut}
-          className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-300 hover:text-rose-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(244,63,94,0.15)] active:scale-95 cursor-pointer select-none"
+          className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-600 dark:text-rose-300 hover:text-rose-700 dark:hover:text-rose-200 font-bold text-xs transition-all flex items-center gap-1.5 shadow-[0_0_12px_rgba(244,63,94,0.15)] active:scale-95 cursor-pointer select-none"
           title="Encerrar Sessão e Sair do Aplicativo"
         >
-          <LogOut size={16} className="text-rose-400 shrink-0" />
+          <LogOut size={16} className="text-rose-500 dark:text-rose-400 shrink-0" />
           <span className="hidden sm:inline font-bold">Sair</span>
         </button>
       </div>
