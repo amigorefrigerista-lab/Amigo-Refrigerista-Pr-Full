@@ -13,6 +13,9 @@ import {
   ShieldCheck,
   ChevronDown,
   ChevronUp,
+  Share2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
@@ -59,6 +62,7 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
   const [verificationUrl, setVerificationUrl] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [exportedSuccess, setExportedSuccess] = useState<boolean>(false);
+  const [sharedCopied, setSharedCopied] = useState<boolean>(false);
   const [showCompanyEditor, setShowCompanyEditor] = useState<boolean>(false);
   const [company, setCompany] = useState<CompanyProfile>(DEFAULT_COMPANY_PROFILE);
 
@@ -481,6 +485,40 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
     }
   };
 
+  const handleShareOrder = async () => {
+    const shareUrl =
+      verificationUrl ||
+      (typeof window !== 'undefined'
+        ? `${window.location.origin}/os/${encodeURIComponent(order.orderNumber)}`
+        : '');
+
+    const shareData = {
+      title: `Ordem de Serviço #${order.orderNumber} — ${order.clientName}`,
+      text: `Confira o comprovante e certificado de garantia da Ordem de Serviço #${order.orderNumber} (${order.equipment}) para ${order.clientName}.`,
+      url: shareUrl,
+    };
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share(shareData);
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+        // Fallback para cópia de link caso o compartilhamento nativo falhe em iframe
+      }
+    }
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard && shareUrl) {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setSharedCopied(true);
+        setTimeout(() => setSharedCopied(false), 3500);
+      } catch (clipErr) {
+        console.error('Erro ao copiar link da OS:', clipErr);
+      }
+    }
+  };
+
   return (
     <div className="space-y-5 pt-2">
       {/* Bloco Visual de Dados da Empresa + QR Code de Validação na Página */}
@@ -647,6 +685,21 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
         </div>
       )}
 
+      {/* Feedback de Link Copiado / Compartilhado */}
+      {sharedCopied && (
+        <div className="p-3 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-300 text-xs flex items-center justify-between gap-2 animate-in fade-in duration-200">
+          <div className="flex items-center gap-2">
+            <Check className="w-4 h-4 text-sky-400 shrink-0" />
+            <span>
+              Link direto da Ordem de Serviço <strong>#{order.orderNumber}</strong> copiado para a área de transferência!
+            </span>
+          </div>
+          <span className="font-mono text-[10px] text-sky-400 truncate max-w-[200px] hidden sm:inline">
+            {verificationUrl}
+          </span>
+        </div>
+      )}
+
       {/* Barra de Botões de Ação */}
       <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
         {order.clientPhone ? (
@@ -663,7 +716,26 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
           <div />
         )}
 
-        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5">
+        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 flex-wrap">
+          <button
+            type="button"
+            onClick={handleShareOrder}
+            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-300 hover:text-white border border-indigo-500/40 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
+            title="Compartilhar Ordem de Serviço ou copiar link direto"
+          >
+            {sharedCopied ? (
+              <>
+                <Check size={15} className="text-emerald-400" />
+                <span>Link Copiado!</span>
+              </>
+            ) : (
+              <>
+                <Share2 size={15} className="text-indigo-400" />
+                <span>Compartilhar OS</span>
+              </>
+            )}
+          </button>
+
           <button
             type="button"
             onClick={handleExportPdf}

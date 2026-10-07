@@ -75,7 +75,10 @@ export default async function PublicServiceOrderPage({ params }: PageProps) {
         </div>
 
         {/* Card Principal da OS */}
-        <div className="bg-slate-900/90 border border-sky-500/30 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.6)] space-y-6 relative overflow-hidden backdrop-blur-md">
+        <div
+          id="service-order-container"
+          className="bg-slate-900/90 border border-sky-500/30 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.6)] space-y-6 relative overflow-hidden backdrop-blur-md"
+        >
           <div className="absolute top-0 right-0 w-64 h-64 bg-sky-500/5 rounded-full blur-3xl pointer-events-none" />
 
           {/* Cabeçalho da OS */}

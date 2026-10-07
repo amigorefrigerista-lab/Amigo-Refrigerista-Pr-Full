@@ -2604,7 +2604,10 @@ export default function AmigoApp() {
             </div>
 
             {/* Histórico de Ordens de Serviço (OS) */}
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+            <div
+              id="service-order-container"
+              className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl"
+            >
               <div className="flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400">
@@ -2671,35 +2674,52 @@ export default function AmigoApp() {
 
                           <div className="flex flex-wrap items-center gap-2">
                             <button
-                              onClick={() => {
-                                const url = `${window.location.origin}/os/${os.id}`;
+                              type="button"
+                              onClick={async () => {
+                                const orderSlug = encodeURIComponent(os.orderNumber || os.id);
+                                const url = `${window.location.origin}/os/${orderSlug}`;
                                 if (navigator.share) {
-                                  navigator.share({
-                                    title: `Ordem de Serviço #${os.orderNumber}`,
-                                    text: `Confira os detalhes da OS #${os.orderNumber} para ${os.clientName}.`,
-                                    url: url,
-                                  }).catch(console.error);
-                                } else {
-                                  navigator.clipboard.writeText(url);
-                                  toast.success("Link copiado!");
+                                  try {
+                                    await navigator.share({
+                                      title: `Ordem de Serviço #${os.orderNumber || os.id}`,
+                                      text: `Confira os detalhes da OS #${os.orderNumber || os.id} (${os.equipment}) para ${os.clientName}.`,
+                                      url,
+                                    });
+                                    return;
+                                  } catch (err) {
+                                    if ((err as Error)?.name === 'AbortError') return;
+                                  }
                                 }
+                                await navigator.clipboard.writeText(url);
+                                toast.success(`Link da OS #${os.orderNumber || os.id} copiado!`);
                               }}
-                              className="p-1.5 rounded-lg bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 border border-sky-500/30 transition"
-                              title="Compartilhar"
+                              className="px-2.5 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition flex items-center gap-1.5 font-bold text-[11px] cursor-pointer"
+                              title="Compartilhar Ordem de Serviço"
                             >
-                              <Share2 size={14} />
+                              <Share2 size={13} />
+                              <span>Compartilhar</span>
                             </button>
                             <button
+                              type="button"
                               onClick={() => {
-                                const url = `${window.location.origin}/os/${os.id}`;
+                                const orderSlug = encodeURIComponent(os.orderNumber || os.id);
+                                const url = `${window.location.origin}/os/${orderSlug}`;
                                 navigator.clipboard.writeText(url);
-                                toast.success("Link copiado para a área de transferência!");
+                                toast.success('Link direto da OS copiado para a área de transferência!');
                               }}
-                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition"
-                              title="Copiar Link"
+                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer"
+                              title="Copiar Link Direto"
                             >
                               <Copy size={14} />
                             </button>
+                            <Link
+                              href={`/os/${encodeURIComponent(os.orderNumber || os.id)}`}
+                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1 font-bold text-[11px]"
+                              title="Abrir Visualização Detalhada da OS"
+                            >
+                              <ExternalLink size={12} />
+                              <span>Ver OS</span>
+                            </Link>
                             {os.autoScheduleReminder ? (
                               <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
