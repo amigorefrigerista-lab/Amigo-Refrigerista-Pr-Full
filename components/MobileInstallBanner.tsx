@@ -15,7 +15,7 @@ interface BeforeInstallPromptEvent extends Event {
 export function MobileInstallBanner() {
   const [mounted, setMounted] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
+  const [isMobileOrInstallable, setIsMobileOrInstallable] = useState(true);
   const [isIOS, setIsIOS] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
@@ -37,20 +37,30 @@ export function MobileInstallBanner() {
     const currentStandalone = checkStandalone();
     setIsStandalone(currentStandalone);
 
-    // 2. Detecta se está em um dispositivo móvel (iOS ou Android)
-    const ua = window.navigator?.userAgent?.toLowerCase() || '';
-    const iosDevice = /iphone|ipad|ipod/.test(ua) || (window.navigator?.platform === 'MacIntel' && window.navigator?.maxTouchPoints > 1);
-    const androidDevice = /android/.test(ua);
-    const mobileDevice = iosDevice || androidDevice;
+    // 2. Detecta se está em um dispositivo móvel (iOS ou Android), tela mobile ou navegador com suporte a instalação
+    const detectEnvironment = () => {
+      const ua = window.navigator?.userAgent?.toLowerCase() || '';
+      const iosDevice =
+        /iphone|ipad|ipod/.test(ua) ||
+        (window.navigator?.platform === 'MacIntel' && window.navigator?.maxTouchPoints > 1);
+      const androidDevice = /android/.test(ua);
+      const mobileUA = /mobile|tablet|android|iphone|ipad|ipod|webos|blackberry|iemobile|opera mini/.test(ua);
+      const smallViewport = window.innerWidth <= 1024;
+      const hasTouch = (window.navigator?.maxTouchPoints ?? 0) > 0;
 
-    setIsIOS(iosDevice);
-    setIsAndroid(androidDevice);
-    setIsMobile(mobileDevice);
+      setIsIOS(iosDevice);
+      setIsAndroid(androidDevice);
+      // Permite exibir em dispositivos móveis reais (iOS/Android), viewports mobile/touch ou no preview web quando standalone === false
+      setIsMobileOrInstallable(iosDevice || androidDevice || mobileUA || smallViewport || hasTouch || !currentStandalone);
+    };
+
+    detectEnvironment();
 
     // 3. Escuta o evento 'beforeinstallprompt' para dispositivos Android / Chromium
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e as BeforeInstallPromptEvent);
+      setIsMobileOrInstallable(true);
     };
 
     // 4. Escuta quando o app é instalado com sucesso
@@ -60,7 +70,7 @@ export function MobileInstallBanner() {
       setShowGuideModal(false);
     };
 
-    // Escuta mudanças no display-mode
+    // Escuta mudanças no display-mode e redimensionamento de tela
     const mediaQuery = window.matchMedia?.('(display-mode: standalone)');
     const handleDisplayModeChange = (e: MediaQueryListEvent) => {
       if (e.matches) {
@@ -70,17 +80,19 @@ export function MobileInstallBanner() {
 
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
     window.addEventListener('appinstalled', handleAppInstalled);
+    window.addEventListener('resize', detectEnvironment);
     mediaQuery?.addEventListener?.('change', handleDisplayModeChange);
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
       window.removeEventListener('appinstalled', handleAppInstalled);
+      window.removeEventListener('resize', detectEnvironment);
       mediaQuery?.removeEventListener?.('change', handleDisplayModeChange);
     };
   }, []);
 
   const handleInstallAction = async () => {
-    // Se for Android e tivermos o evento nativo 'beforeinstallprompt' capturado, dispara o prompt nativo
+    // Se for Android / Chromium e tivermos o evento nativo 'beforeinstallprompt' capturado, dispara o prompt nativo
     if (deferredPrompt) {
       try {
         await deferredPrompt.prompt();
@@ -96,12 +108,12 @@ export function MobileInstallBanner() {
       return;
     }
 
-    // Caso seja iOS ou o navegador Android ainda não tenha emitido o beforeinstallprompt, abre o guia passo a passo
+    // Caso seja iOS ou o navegador Android/Web ainda não tenha emitido o beforeinstallprompt, abre o guia passo a passo
     setShowGuideModal(true);
   };
 
-  // Exibe apenas quando montado, standalone === false, e estiver em um dispositivo móvel (iOS ou Android)
-  if (!mounted || isStandalone || !isMobile || dismissed) {
+  // Exibe apenas quando montado, standalone === false, e não dispensado pelo usuário
+  if (!mounted || isStandalone || !isMobileOrInstallable || dismissed) {
     return null;
   }
 
@@ -121,10 +133,10 @@ export function MobileInstallBanner() {
             <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
                 <span className="text-xs sm:text-sm font-black text-white truncate">
-                  Baixar Amigo Refrigerista
+                  Baixar Amigo Refrigerista no Celular
                 </span>
                 <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-sky-500/20 text-sky-300 border border-sky-400/30">
-                  {isIOS ? 'iOS' : isAndroid ? 'Android' : 'App'}
+                  {isIOS ? 'iPhone / iOS' : isAndroid ? 'Android' : 'App Mobile'}
                 </span>
               </div>
               <p className="text-[11px] text-slate-300 leading-snug line-clamp-2 mt-0.5">
@@ -132,7 +144,7 @@ export function MobileInstallBanner() {
                   ? 'Instale o aplicativo oficial no seu celular com 1 toque para acesso rápido em campo.'
                   : isIOS
                   ? 'Adicione o aplicativo à Tela de Início do seu iPhone para usar em tela cheia.'
-                  : 'Instale o aplicativo na tela inicial do seu Android para acesso rápido em campo.'}
+                  : 'Baixe e adicione o aplicativo na tela inicial do seu celular para acesso rápido em campo.'}
               </p>
             </div>
           </div>
