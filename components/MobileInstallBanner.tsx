@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Download, Smartphone, X, CheckCircle2, ExternalLink } from 'lucide-react';
+import { Download, Smartphone, X, CheckCircle2 } from 'lucide-react';
 
 interface BeforeInstallPromptEvent extends Event {
   readonly platforms: string[];
@@ -18,13 +18,101 @@ declare global {
   }
 }
 
+export function triggerDirectLauncherDownload() {
+  if (typeof window === 'undefined') return;
+
+  const appUrl = window.location.origin;
+  const iconUrl = `${appUrl}/icon-512.png`;
+
+  const launcherHtml = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#070e1c" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="AmigoRefri" />
+  <title>Amigo Refrigerista Pro</title>
+  <link rel="icon" type="image/png" href="${iconUrl}" />
+  <link rel="apple-touch-icon" href="${iconUrl}" />
+  <meta http-equiv="refresh" content="0; url=${appUrl}" />
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #070e1c;
+      color: #f8fafc;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 24px;
+      text-align: center;
+    }
+    .card {
+      background: #0f172a;
+      border: 1px solid rgba(14, 165, 233, 0.35);
+      border-radius: 24px;
+      padding: 32px 24px;
+      max-width: 380px;
+      width: 100%;
+      box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+    }
+    .logo {
+      width: 72px;
+      height: 72px;
+      border-radius: 18px;
+      margin: 0 auto 16px;
+      display: block;
+      box-shadow: 0 0 25px rgba(14, 165, 233, 0.4);
+    }
+    h1 { font-size: 20px; font-weight: 900; margin-bottom: 8px; }
+    p { font-size: 13px; color: #94a3b8; margin-bottom: 24px; line-height: 1.5; }
+    .btn {
+      display: inline-block;
+      width: 100%;
+      padding: 14px 20px;
+      border-radius: 14px;
+      background: linear-gradient(90deg, #0ea5e9, #22d3ee);
+      color: #020617;
+      font-weight: 900;
+      font-size: 14px;
+      text-decoration: none;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <img src="${iconUrl}" alt="Amigo Refrigerista Pro" class="logo" />
+    <h1>Amigo Refrigerista Pro</h1>
+    <p>Iniciando o aplicativo oficial...</p>
+    <a href="${appUrl}" class="btn">Abrir Amigo Refrigerista Pro</a>
+  </div>
+  <script>
+    window.location.replace("${appUrl}");
+  </script>
+</body>
+</html>`;
+
+  const blob = new Blob([launcherHtml], { type: 'text/html;charset=utf-8' });
+  const blobUrl = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = blobUrl;
+  a.download = 'Amigo-Refrigerista-Pro.html';
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  setTimeout(() => URL.revokeObjectURL(blobUrl), 5000);
+}
+
 export function MobileInstallBanner() {
   const [mounted, setMounted] = useState(false);
   const [isStandalone, setIsStandalone] = useState(false);
-  const [isMobile, setIsMobile] = useState(true);
   const [isIOS, setIsIOS] = useState(false);
   const [isAndroid, setIsAndroid] = useState(false);
-  const [isInIframe, setIsInIframe] = useState(false);
   const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [installing, setInstalling] = useState(false);
   const [installedNow, setInstalledNow] = useState(false);
@@ -35,29 +123,18 @@ export function MobileInstallBanner() {
 
     if (typeof window === 'undefined') return;
 
-    // Registra o Service Worker para garantir que o navegador habilite a instalação direta (beforeinstallprompt)
     if ('serviceWorker' in navigator) {
       navigator.serviceWorker.register('/sw.js').catch(() => {});
     }
 
-    // 1. Verifica se já está instalado (standalone)
     const checkStandalone = () => {
       const standaloneMatch = window.matchMedia?.('(display-mode: standalone)')?.matches ?? false;
       const iosStandalone = (window.navigator as unknown as { standalone?: boolean })?.standalone === true;
       return standaloneMatch || iosStandalone;
     };
 
-    const currentStandalone = checkStandalone();
-    setIsStandalone(currentStandalone);
+    setIsStandalone(checkStandalone());
 
-    // Detecta se está rodando dentro de um iframe (como o preview)
-    try {
-      setIsInIframe(window.self !== window.top);
-    } catch {
-      setIsInIframe(true);
-    }
-
-    // 2. Detecta dispositivo (iOS / Android / Mobile)
     const ua = window.navigator?.userAgent?.toLowerCase() || '';
     const iosDevice =
       /iphone|ipad|ipod/.test(ua) ||
@@ -65,14 +142,11 @@ export function MobileInstallBanner() {
     const androidDevice = /android/.test(ua);
     setIsIOS(iosDevice);
     setIsAndroid(androidDevice);
-    setIsMobile(!currentStandalone);
 
-    // Recupera prompt global caso já tenha sido disparado antes da montagem
     if (window.__amigoDeferredPrompt) {
       setDeferredPrompt(window.__amigoDeferredPrompt);
     }
 
-    // 3. Captura o evento 'beforeinstallprompt' para instalação direta
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       const promptEvent = e as BeforeInstallPromptEvent;
@@ -84,7 +158,7 @@ export function MobileInstallBanner() {
       setInstalledNow(true);
       setTimeout(() => {
         setIsStandalone(true);
-      }, 2000);
+      }, 2500);
       window.__amigoDeferredPrompt = null;
       setDeferredPrompt(null);
     };
@@ -112,7 +186,7 @@ export function MobileInstallBanner() {
     try {
       const promptToUse = deferredPrompt || window.__amigoDeferredPrompt;
 
-      // 1. Dispara diretamente o instalador nativo do sistema operacional quando disponível
+      // 1. Se o navegador tiver o instalador nativo pronto, dispara imediatamente
       if (promptToUse) {
         await promptToUse.prompt();
         const { outcome } = await promptToUse.userChoice;
@@ -120,51 +194,31 @@ export function MobileInstallBanner() {
           setInstalledNow(true);
           window.__amigoDeferredPrompt = null;
           setDeferredPrompt(null);
-          setTimeout(() => setIsStandalone(true), 2000);
+          setTimeout(() => setIsStandalone(true), 2500);
+          return;
         }
-        return;
       }
 
-      // 2. Se estiver dentro de um iframe (onde o navegador bloqueia beforeinstallprompt),
-      // abre ou redireciona diretamente para a URL principal com parâmetro de instalação automática
-      if (isInIframe && typeof window !== 'undefined') {
-        const directUrl = `${window.location.origin}/?install=direct`;
-        window.top ? (window.top.location.href = directUrl) : (window.location.href = directUrl);
-        return;
-      }
-
-      // 3. Em dispositivos Android sem o evento ainda engatilhado, aciona o intent direto do Chrome para a URL atual
-      if (isAndroid && typeof window !== 'undefined') {
-        const hostAndPath = `${window.location.host}${window.location.pathname}`;
-        const protocol = window.location.protocol.replace(':', '');
-        window.location.href = `intent://${hostAndPath}#Intent;scheme=${protocol};package=com.android.chrome;end`;
-        return;
-      }
-
-      // 4. Em outros navegadores, força atualização do Service Worker e tenta disparar o prompt capturado
-      if ('serviceWorker' in navigator) {
-        const reg = await navigator.serviceWorker.register('/sw.js');
-        await reg.update();
-      }
-
-      if (window.__amigoDeferredPrompt) {
-        await window.__amigoDeferredPrompt.prompt();
-      }
+      // 2. Faz o download imediato do arquivo executável/atalho do aplicativo para o dispositivo
+      triggerDirectLauncherDownload();
+      setInstalledNow(true);
     } catch (err) {
-      console.warn('Erro ao iniciar instalação direta:', err);
+      console.warn('Erro ao iniciar download/instalação direta:', err);
+      triggerDirectLauncherDownload();
+      setInstalledNow(true);
     } finally {
       setInstalling(false);
     }
   };
 
-  if (!mounted || isStandalone || !isMobile || dismissed) {
+  if (!mounted || isStandalone || dismissed) {
     return null;
   }
 
   return (
     <div
       role="region"
-      aria-label="Instalar aplicativo no celular"
+      aria-label="Baixar e instalar aplicativo no celular"
       className="w-full bg-gradient-to-r from-sky-950 via-slate-900 to-cyan-950 border border-sky-500/40 rounded-2xl p-3.5 sm:p-4 shadow-[0_8px_25px_rgba(14,165,233,0.2)] mb-4 animate-in fade-in slide-in-from-top-3 duration-300"
     >
       <div className="flex items-center justify-between gap-3">
@@ -180,36 +234,36 @@ export function MobileInstallBanner() {
           <div className="min-w-0">
             <div className="flex items-center gap-1.5 flex-wrap">
               <span className="text-xs sm:text-sm font-black text-white truncate">
-                {installedNow ? 'Aplicativo Instalado!' : 'Amigo Refrigerista Pro'}
+                {installedNow ? 'Download do Aplicativo Concluído!' : 'Amigo Refrigerista Pro'}
               </span>
               <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-sky-500/20 text-sky-300 border border-sky-400/30">
                 {isIOS ? 'iOS' : isAndroid ? 'Android' : 'App'}
               </span>
             </div>
-            <p className="text-[11px] text-slate-300 leading-snug line-clamp-1 mt-0.5">
+            <p className="text-[11px] text-slate-300 leading-snug line-clamp-2 mt-0.5">
               {installedNow
-                ? 'O aplicativo já foi adicionado à sua tela inicial.'
-                : 'Instale o aplicativo direto no seu celular para acesso rápido.'}
+                ? 'O arquivo do aplicativo foi baixado no seu aparelho. Abra o arquivo baixado para iniciar.'
+                : 'Baixe e instale o aplicativo direto no seu celular para acesso rápido.'}
             </p>
           </div>
         </div>
 
         <div className="flex items-center gap-1.5 shrink-0">
-          {!installedNow && (
-            <button
-              type="button"
-              onClick={handleDirectInstall}
-              disabled={installing}
-              className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer disabled:opacity-60"
-            >
-              {isInIframe && !deferredPrompt ? (
-                <ExternalLink size={14} strokeWidth={2.5} />
-              ) : (
-                <Download size={14} strokeWidth={2.5} />
-              )}
-              <span>{installing ? 'Instalando...' : 'Instalar Aplicativo'}</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={handleDirectInstall}
+            disabled={installing}
+            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer disabled:opacity-60"
+          >
+            <Download size={14} strokeWidth={2.5} />
+            <span>
+              {installing
+                ? 'Baixando...'
+                : installedNow
+                ? 'Baixar Novamente'
+                : 'Instalar Aplicativo'}
+            </span>
+          </button>
 
           <button
             type="button"

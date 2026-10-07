@@ -2639,30 +2639,45 @@ export default function AmigoApp() {
                     const formattedDate = new Date(os.serviceDate + 'T12:00:00').toLocaleDateString('pt-BR');
 
                     return (
-                      <div key={os.id} className="p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 hover:border-slate-700 transition">
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
-                          <div>
-                            <div className="flex items-center gap-2 flex-wrap">
+                      <div key={os.id} className="p-3.5 min-[400px]:p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 hover:border-slate-700 transition">
+                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-[1fr_auto] gap-3">
+                          {/* Dados do Cliente */}
+                          <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-1 min-w-0">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">
+                              Dados do Cliente
+                            </span>
+                            <div className="flex items-center gap-1.5 flex-wrap">
                               <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                                 #{os.orderNumber || os.id}
                               </span>
-                              <h4 className="text-sm font-bold text-white">{os.clientName}</h4>
+                              <h4 className="text-sm font-bold text-white break-words">{os.clientName}</h4>
                               <span className="px-2 py-0.5 rounded-md text-[9px] font-mono bg-sky-500/10 text-sky-400 border border-sky-500/20">
                                 OS CONCLUÍDA
                               </span>
                             </div>
-                            <p className="text-xs text-slate-400 mt-0.5">{os.equipment}</p>
                             {os.clientAddress && (
-                              <p className="text-[11px] text-slate-500 flex items-center gap-1 mt-0.5">
-                                <MapPin size={11} className="text-slate-500" />
+                              <p className="text-[11px] text-slate-400 flex items-start gap-1 mt-1 break-words">
+                                <MapPin size={11} className="text-sky-400 shrink-0 mt-0.5" />
                                 <span>{os.clientAddress}</span>
                               </p>
                             )}
                           </div>
 
-                          <div className="text-left sm:text-right text-xs">
-                            <span className="text-[10px] font-bold text-slate-500 uppercase block">Data do Serviço:</span>
-                            <span className="font-mono font-bold text-slate-300">{formattedDate}</span>
+                          {/* Equipamento & Data */}
+                          <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 flex flex-col justify-between gap-2 min-w-0">
+                            <div>
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">
+                                Equipamento
+                              </span>
+                              <p className="text-xs font-semibold text-white flex items-center gap-1.5 mt-0.5 break-words">
+                                <Wrench size={12} className="text-sky-400 shrink-0" />
+                                <span>{os.equipment}</span>
+                              </p>
+                            </div>
+                            <div className="text-left sm:text-right text-xs pt-1 border-t border-slate-800/60">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase mr-1.5">Data:</span>
+                              <span className="font-mono font-bold text-slate-300">{formattedDate}</span>
+                            </div>
                           </div>
                         </div>
 

@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { Download, Smartphone, X, CheckCircle2 } from 'lucide-react';
+import { Download, Smartphone, X } from 'lucide-react';
+import { triggerDirectLauncherDownload } from '@/components/MobileInstallBanner';
 
 export function InstallPrompt() {
   const [mounted, setMounted] = useState(false);
@@ -53,15 +54,19 @@ export function InstallPrompt() {
 
   const handleInstallClick = async () => {
     const promptEvent = deferredPrompt || (window as any).__amigoDeferredPrompt;
-    if (!promptEvent) return;
-
-    await promptEvent.prompt();
-    const { outcome } = await promptEvent.userChoice;
-    if (outcome === 'accepted') {
-      setIsInstalled(true);
+    if (promptEvent) {
+      await promptEvent.prompt();
+      const { outcome } = await promptEvent.userChoice;
+      if (outcome === 'accepted') {
+        setIsInstalled(true);
+      }
+      (window as any).__amigoDeferredPrompt = null;
+      setDeferredPrompt(null);
+      return;
     }
-    (window as any).__amigoDeferredPrompt = null;
-    setDeferredPrompt(null);
+
+    triggerDirectLauncherDownload();
+    setIsInstalled(true);
   };
 
   if (!mounted || isInstalled || dismissed || !deferredPrompt) return null;

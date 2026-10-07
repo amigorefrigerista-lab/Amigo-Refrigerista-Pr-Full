@@ -77,17 +77,17 @@ export default async function PublicServiceOrderPage({ params }: PageProps) {
         {/* Card Principal da OS */}
         <div
           id="service-order-container"
-          className="bg-slate-900/90 border border-sky-500/30 rounded-3xl p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.6)] space-y-6 relative overflow-hidden backdrop-blur-md"
+          className="bg-slate-900/90 border border-sky-500/30 rounded-3xl p-4 min-[400px]:p-6 sm:p-8 shadow-[0_20px_50px_rgba(0,0,0,0.6)] space-y-6 relative overflow-hidden backdrop-blur-md"
         >
           <div className="absolute top-0 right-0 w-64 h-64 bg-sky-500/5 rounded-full blur-3xl pointer-events-none" />
 
           {/* Cabeçalho da OS */}
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-6">
+          <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] items-start sm:items-center gap-4 border-b border-slate-800 pb-6">
             <div>
               <span className="text-[10px] font-black tracking-widest text-sky-400 uppercase font-mono block">
                 Comprovante de Serviço Técnico
               </span>
-              <h1 className="text-xl sm:text-2xl font-black text-white mt-1 flex items-center gap-2">
+              <h1 className="text-lg min-[400px]:text-xl sm:text-2xl font-black text-white mt-1 flex flex-wrap items-center gap-2">
                 <span>Ordem de Serviço</span>
                 <span className="text-sky-400 font-mono">#{displayOrderNumber}</span>
               </h1>
@@ -105,46 +105,52 @@ export default async function PublicServiceOrderPage({ params }: PageProps) {
             </div>
           </div>
 
-          {/* Dados do Cliente */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1">
+          {/* Grid Flexível: Dados do Cliente, Garantia & Equipamento (1 coluna abaixo de 400px) */}
+          <div className="grid grid-cols-1 min-[400px]:grid-cols-2 gap-3.5 sm:gap-4">
+            {/* Dados do Cliente */}
+            <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1.5 min-w-0">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-                Cliente Atendido
+                Dados do Cliente
               </span>
-              <p className="text-sm font-bold text-white">{clientName}</p>
+              <p className="text-sm font-bold text-white break-words">{clientName}</p>
               {address && (
-                <p className="text-xs text-slate-400 flex items-center gap-1 mt-1">
-                  <MapPin size={12} className="text-sky-400 shrink-0" />
+                <p className="text-xs text-slate-400 flex items-start gap-1.5 mt-1 break-words">
+                  <MapPin size={12} className="text-sky-400 shrink-0 mt-0.5" />
                   <span>{address}</span>
                 </p>
               )}
             </div>
 
-            <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1">
+            {/* Garantia do Serviço */}
+            <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-1.5 min-w-0">
               <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
                 Garantia do Serviço
               </span>
               <p className="text-sm font-bold text-emerald-400 flex items-center gap-1.5">
-                <ShieldCheck size={16} />
+                <ShieldCheck size={16} className="shrink-0" />
                 <span>{warranty} Meses de Garantia</span>
               </p>
               <p className="text-[11px] text-slate-400">Suporte e cobertura técnica garantidos</p>
             </div>
-          </div>
 
-          {/* Equipamento */}
-          <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2">
-            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
-              Equipamento & Manutenção
-            </span>
-            <div className="flex items-center justify-between flex-wrap gap-2">
-              <div className="flex items-center gap-2">
-                <Wrench size={16} className="text-sky-400" />
-                <span className="text-sm font-bold text-white">{equipment}</span>
-              </div>
-              <div className="flex items-center gap-2 text-xs font-mono">
-                <span className="px-2 py-0.5 rounded bg-slate-800 text-slate-300">{brand}</span>
-                <span className="px-2 py-0.5 rounded bg-sky-950 text-sky-300 border border-sky-800/40">{btus}</span>
+            {/* Equipamento */}
+            <div className="col-span-1 min-[400px]:col-span-2 p-4 rounded-2xl bg-slate-950/70 border border-slate-800 space-y-2.5 min-w-0">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block">
+                Equipamento & Manutenção
+              </span>
+              <div className="grid grid-cols-1 min-[400px]:grid-cols-[1fr_auto] items-start min-[400px]:items-center gap-2.5">
+                <div className="flex items-center gap-2 min-w-0">
+                  <Wrench size={16} className="text-sky-400 shrink-0" />
+                  <span className="text-sm font-bold text-white break-words">{equipment}</span>
+                </div>
+                <div className="grid grid-cols-1 min-[400px]:flex items-center gap-2 text-xs font-mono w-full min-[400px]:w-auto">
+                  <span className="px-2.5 py-1 rounded-lg bg-slate-800 text-slate-300 text-center truncate">
+                    {brand}
+                  </span>
+                  <span className="px-2.5 py-1 rounded-lg bg-sky-950 text-sky-300 border border-sky-800/40 text-center truncate">
+                    {btus}
+                  </span>
+                </div>
               </div>
             </div>
           </div>
