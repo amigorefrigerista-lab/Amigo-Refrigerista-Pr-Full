@@ -1,14 +1,15 @@
 import type { Metadata, Viewport } from "next";
+import { headers } from "next/headers";
 import "./globals.css";
 import { SupabaseAuthProvider } from "@/contexts/SupabaseAuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 
 export const metadata: Metadata = {
   title: "Amigo Refrigerista Full",
-  description: "Ferramenta de aministração para técnicos de Refrigeração e Climatização.",
+  description: "Ferramenta de administração para técnicos de Refrigeração e Climatização.",
   openGraph: {
     title: "Amigo Refrigerista Full",
-    description: "Ferramenta de aministração para técnicos de Refrigeração e Climatização.",
+    description: "Ferramenta de administração para técnicos de Refrigeração e Climatização.",
     type: "website",
   },
   appleWebApp: {
@@ -35,13 +36,41 @@ export const viewport: Viewport = {
   themeColor: "#070e1c",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const headerList = await headers();
+  const nonce = headerList.get("x-nonce") || undefined;
+
   return (
     <html lang="pt-BR" className="dark" suppressHydrationWarning>
+      <head>
+        <script
+          nonce={nonce}
+          dangerouslySetInnerHTML={{
+            __html: `
+              (function() {
+                window.addEventListener('beforeinstallprompt', function(e) {
+                  e.preventDefault();
+                  window.__amigoDeferredPrompt = e;
+                  window.dispatchEvent(new CustomEvent('amigo-pwa-ready'));
+                });
+                window.addEventListener('appinstalled', function() {
+                  window.__amigoDeferredPrompt = null;
+                  window.dispatchEvent(new CustomEvent('amigo-pwa-installed'));
+                });
+                if ('serviceWorker' in navigator) {
+                  window.addEventListener('load', function() {
+                    navigator.serviceWorker.register('/sw.js').catch(function() {});
+                  });
+                }
+              })();
+            `,
+          }}
+        />
+      </head>
       <body className="bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-slate-100 min-h-screen overflow-x-hidden transition-colors duration-200">
         <ThemeProvider>
           <SupabaseAuthProvider>

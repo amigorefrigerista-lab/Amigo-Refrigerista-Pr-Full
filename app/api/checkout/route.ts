@@ -1,50 +1,172 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings } from '@/lib/getAppSettings';
+import {
+  authenticateRequest,
+  getSupabaseServiceClient,
+  checkRateLimitAsync,
+  getClientIp,
+  sanitizeReturnUrl,
+  buildValidPixBrCode,
+} from '@/lib/security';
+import { db, isSqlAvailable } from '@/src/db';
+import { users } from '@/src/db/schema';
+import { eq } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { userEmail, userName, planType = 'pro', returnUrl } = body;
+    const clientIp = getClientIp(req);
+    const rate = await checkRateLimitAsync(`checkout:${clientIp}`, 15, 60_000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { success: false, error: 'Muitas tentativas de checkout. Aguarde um minuto.' },
+        { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
+    }
 
-    // 1. Busca as credenciais dinâmicas salvas no banco pelo Admin Master
+    // CORREÇÃO DE SEGURANÇA CRÍTICA: Exige sessão autenticada e usa exclusivamente auth.uid e auth.email (ignora userEmail do body)
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated || !auth.uid || !auth.email) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Sessão não autenticada. Faça login na sua conta para iniciar o checkout.',
+        },
+        { status: 401 }
+      );
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const {
+      userName,
+      planType = 'pro',
+      billingCycle = 'recurring', // 'recurring' (preapproval mensal) ou 'single_30d' (ciclo de 30 dias)
+      returnUrl,
+    } = body || {};
+
+    const payerEmail = auth.email.trim().toLowerCase();
+    const payerUid = auth.uid.trim();
+    const payerName = String(userName || 'Técnico Refrigerista').trim().slice(0, 100);
+
+    const normalizedPlan = planType === 'flex' ? 'flex' : 'pro';
+
+    const safeOrigin = req.nextUrl.origin;
+    const safeReturnSuccess = sanitizeReturnUrl(returnUrl, safeOrigin);
+    const safeReturnFailure = `${safeOrigin}/?payment=failure`;
+    const safeReturnPending = `${safeOrigin}/?payment=pending`;
+
     const settings = await getAppSettings();
 
     const accessToken = settings.mercadopago_access_token;
-    const planPrice = settings.pro_plan_price || 39.90;
-    const planTitle = planType === 'flex' ? 'Plano Flex VIP' : 'Plano Amigo Refrigerista PRO';
+    const proPrice = Number(settings.pro_plan_price) > 0 ? Number(settings.pro_plan_price) : 39.9;
+    const flexPrice = 19.9;
+    const planPrice = normalizedPlan === 'flex' ? flexPrice : proPrice;
+    const planTitle =
+      normalizedPlan === 'flex'
+        ? 'Plano Flex VIP - Ciclo 30 Dias'
+        : 'Plano Amigo Refrigerista PRO - Ciclo 30 Dias';
 
-    // 2. Se houver Access Token do Mercado Pago configurado no Painel Admin Master
+    const externalReference = JSON.stringify({
+      uid: payerUid,
+      email: payerEmail,
+      plan: normalizedPlan,
+      expectedAmount: planPrice,
+      cycleDays: 30,
+    });
+
     if (accessToken && accessToken.startsWith('APP_USR')) {
       try {
+        // 1. Tenta criar Assinatura Recorrente Mensal Real no Mercado Pago (/preapproval) quando billingCycle === 'recurring'
+        if (billingCycle === 'recurring') {
+          const preapprovalRes = await fetch('https://api.mercadopago.com/preapproval', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken.trim()}`,
+            },
+            body: JSON.stringify({
+              reason: `Assinatura Mensal Recorrente - ${
+                normalizedPlan === 'flex' ? 'Plano Flex VIP' : 'Plano Amigo Refrigerista PRO'
+              }`,
+              external_reference: externalReference,
+              payer_email: payerEmail,
+              auto_recurring: {
+                frequency: 1,
+                frequency_type: 'months',
+                transaction_amount: Number(planPrice),
+                currency_id: 'BRL',
+              },
+              back_url: safeReturnSuccess,
+              status: 'pending',
+            }),
+          });
+
+          if (preapprovalRes.ok) {
+            const preapprovalData = await preapprovalRes.json();
+            if (preapprovalData.init_point || preapprovalData.sandbox_init_point) {
+              const preapprovalId = preapprovalData.id ? String(preapprovalData.id).trim() : null;
+              if (preapprovalId) {
+                const serviceSb = getSupabaseServiceClient();
+                if (serviceSb) {
+                  await serviceSb
+                    .from('profiles')
+                    .update({
+                      active_preapproval_id: preapprovalId,
+                      updated_at: new Date().toISOString(),
+                    })
+                    .eq('id', payerUid);
+                }
+                if (isSqlAvailable()) {
+                  await db
+                    .update(users)
+                    .set({ activePreapprovalId: preapprovalId })
+                    .where(eq(users.uid, payerUid))
+                    .catch(() => {});
+                }
+              }
+
+              return NextResponse.json({
+                success: true,
+                init_point: preapprovalData.init_point || preapprovalData.sandbox_init_point,
+                preapproval_id: preapprovalId,
+                amount: planPrice,
+                billing_model: 'recurring_subscription',
+                provider: 'mercadopago',
+              });
+            }
+          }
+        }
+
+        // 2. Fallback para Checkout de Ciclo de 30 Dias (com expiração server-side plan_expires_at = +30 dias)
         const mpResponse = await fetch('https://api.mercadopago.com/checkout/preferences', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${accessToken.trim()}`,
+            Authorization: `Bearer ${accessToken.trim()}`,
           },
           body: JSON.stringify({
             items: [
               {
-                id: `plan-${planType}`,
+                id: `plan-${normalizedPlan}-30d`,
                 title: planTitle,
-                description: 'Assinatura Mensal - Ferramenta de Refrigeração e PMOC Pro',
+                description:
+                  'Acesso por 30 dias (renovável) - Ferramenta de Refrigeração e PMOC Pro',
                 quantity: 1,
                 currency_id: 'BRL',
                 unit_price: Number(planPrice),
               },
             ],
             payer: {
-              email: userEmail || 'tecnico@amigorefrigerista.com.br',
-              name: userName || 'Técnico Refrigerista',
+              email: payerEmail,
+              name: payerName,
             },
             back_urls: {
-              success: returnUrl || `${req.nextUrl.origin}/?payment=success`,
-              failure: returnUrl || `${req.nextUrl.origin}/?payment=failure`,
-              pending: returnUrl || `${req.nextUrl.origin}/?payment=pending`,
+              success: safeReturnSuccess,
+              failure: safeReturnFailure,
+              pending: safeReturnPending,
             },
             auto_return: 'approved',
-            notification_url: `${req.nextUrl.origin}/api/webhooks/mercadopago`,
-            external_reference: userEmail || 'user_anon',
+            notification_url: `${safeOrigin}/api/webhooks/mercadopago`,
+            external_reference: externalReference,
           }),
         });
 
@@ -55,6 +177,7 @@ export async function POST(req: NextRequest) {
             init_point: preferenceData.init_point || preferenceData.sandbox_init_point,
             preference_id: preferenceData.id,
             amount: planPrice,
+            billing_model: 'cycle_30_days',
             provider: 'mercadopago',
           });
         }
@@ -63,26 +186,35 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. Fallback Pix Direto em Modo Demo / Sem Chave Mercado Pago cadastrada
-    const pixCopyAndPaste = `00020126580014BR.GOV.BCB.PIX0136amigorefrigerista@gmail.com5204000053039865405${planPrice.toFixed(2)}5802BR5922AMIGO REFRIGERISTA PRO6009SAO PAULO62070503***6304C8A1`;
+    // 3. Fallback Pix Direto (Ciclo de 30 dias) com CRC16-CCITT dinâmico
+    const pixCopyAndPaste = buildValidPixBrCode({
+      pixKey: 'amigorefrigerista@gmail.com',
+      merchantName: 'AMIGO REFRIGERISTA PRO',
+      merchantCity: 'SAO PAULO',
+      amount: planPrice,
+      txid: `ARP${normalizedPlan.toUpperCase()}30D`,
+    });
 
     return NextResponse.json({
       success: true,
       init_point: null,
-      message: 'Checkout gerado com valor dinâmico do Painel Master',
+      message: 'Checkout de ciclo de 30 dias gerado com CRC16-CCITT dinâmico validado',
       amount: planPrice,
+      billing_model: 'cycle_30_days',
       pix: {
         copy_paste: pixCopyAndPaste,
-        qr_code_url: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(pixCopyAndPaste)}`,
+        qr_code_url: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
+          pixCopyAndPaste
+        )}`,
         receiver_name: 'Amigo Refrigerista PRO',
         key_email: 'amigorefrigerista@gmail.com',
       },
       provider: settings.payment_provider || 'manual',
     });
-  } catch (error: any) {
+  } catch (error) {
     console.error('Erro ao processar checkout:', error);
     return NextResponse.json(
-      { success: false, error: error.message || 'Falha ao processar checkout' },
+      { success: false, error: 'Não foi possível processar o checkout no momento.' },
       { status: 500 }
     );
   }

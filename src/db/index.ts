@@ -23,6 +23,32 @@ export const markSqlUnavailable = () => {
   global._sqlUnavailableUntil = Date.now() + 30000; // cooldown 30s
 };
 
+function resolvePostgresSslConfig() {
+  const host = (process.env.SQL_HOST || '').trim();
+  const sslMode = (process.env.SQL_SSL || '').toLowerCase().trim();
+
+  // Em sockets Unix do Cloud SQL Proxy (/cloudsql/...) ou loopback local sem TLS explícito
+  if (
+    sslMode === 'false' ||
+    sslMode === 'disable' ||
+    host.startsWith('/') ||
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host.startsWith('169.254.')
+  ) {
+    return false;
+  }
+
+  // Em conexões TCP externas ou quando SQL_SSL=true, habilita TLS
+  if (sslMode === 'true' || sslMode === 'require') {
+    return {
+      rejectUnauthorized: process.env.SQL_SSL_REJECT_UNAUTHORIZED !== 'false',
+    };
+  }
+
+  return false;
+}
+
 export const createPool = () => {
   if (!global._postgresPool) {
     global._postgresPool = new Pool({
@@ -30,7 +56,7 @@ export const createPool = () => {
       user: process.env.SQL_USER,
       password: process.env.SQL_PASSWORD,
       database: process.env.SQL_DB_NAME,
-      ssl: false,
+      ssl: resolvePostgresSslConfig(),
       max: 10,
       connectionTimeoutMillis: 10000,
       query_timeout: 10000,

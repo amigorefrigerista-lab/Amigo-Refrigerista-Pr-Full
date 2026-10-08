@@ -1,6 +1,12 @@
 'use server';
 
 import { GoogleGenAI } from '@google/genai';
+import { cookies } from 'next/headers';
+import {
+  verifySessionToken,
+  checkRateLimitAsync,
+  checkAndIncrementMonthlyQuotaAsync,
+} from '@/lib/security';
 
 export interface DiagnosisResult {
   code: string;
@@ -862,10 +868,32 @@ export async function diagnoseErrorCode(brand: string, query: string, equipmentT
     throw new Error('Informe o fabricante e o código de erro ou descrição do defeito.');
   }
 
-  const cleanBrand = brand.trim();
-  const rawQuery = query.trim();
+  const cleanBrand = brand.trim().slice(0, 80);
+  const rawQuery = query.trim().slice(0, 300);
   const lowerQuery = rawQuery.toLowerCase();
   const apiKey = process.env.GEMINI_API_KEY?.trim() || '';
+
+  // Validação de Rate Limit e Cota Mensal Server-Side para consultas de IA
+  let callerKey = 'local_caller';
+  let callerPlan = 'free';
+  let callerPlanExpiresAt: string | null = null;
+  try {
+    const cookieStore = await cookies();
+    const sessionToken = cookieStore.get('amigo_session')?.value;
+    const verified = verifySessionToken(sessionToken);
+    if (verified) {
+      callerKey = verified.uid;
+      callerPlan = verified.plan || 'free';
+      callerPlanExpiresAt = verified.planExpiresAt || null;
+    }
+  } catch {
+    // ignore cookie context errors
+  }
+
+  const rate = await checkRateLimitAsync(`diagnose_ai:${callerKey}`, 15, 60_000);
+  if (!rate.allowed) {
+    throw new Error(`Muitas consultas em sequência. Aguarde ${rate.retryAfterSeconds} segundos.`);
+  }
 
   // 1. VERIFICAÇÃO INSTANTÂNEA NA BASE DE DEFEITOS CLÍNICOS E SINTOMAS
   for (const symptom of SYMPTOM_DATABASE) {
@@ -888,6 +916,18 @@ export async function diagnoseErrorCode(brand: string, query: string, equipmentT
         testProcedures: symptom.testProcedures,
       };
     }
+  }
+
+  // Verifica cota mensal de 3 consultas de IA no servidor antes de chamar a API Gemini (aplicando expiração do plano)
+  const quota = await checkAndIncrementMonthlyQuotaAsync(
+    callerKey,
+    callerPlan,
+    'aiQueries',
+    3,
+    callerPlanExpiresAt
+  );
+  if (!quota.allowed) {
+    return buildFriendlyFallback(cleanBrand, rawQuery);
   }
 
   // 2. DIAGNÓSTICO COM IA: RETENTATIVA AUTOMÁTICA DE ATÉ 2 VEZES E FORÇAMENTO DE JSON VÁLIDO

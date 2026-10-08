@@ -3,8 +3,9 @@
 import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Snowflake, Bell, Settings, LogOut } from 'lucide-react';
+import { Snowflake, Bell, Settings, LogOut, Download } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
+import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { toast } from 'sonner';
 import { ThemeToggle } from '@/components/ThemeToggle';
 
@@ -18,6 +19,7 @@ interface HeaderProps {
 export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }: HeaderProps) {
   const router = useRouter();
   const { user, profile, signOut } = useAuth();
+  const { isInstalled, install } = usePWAInstall();
 
   const handleSignOut = async () => {
     try {
@@ -60,8 +62,22 @@ export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }:
         </Link>
       </div>
 
-      {/* Lado Direito: Alternador de Tema, Notificações, Configurações & Perfil */}
+      {/* Lado Direito: Instalar App, Alternador de Tema, Notificações, Configurações & Perfil */}
       <div className="flex items-center gap-2 sm:gap-2.5">
+        {!isInstalled && (
+          <button
+            type="button"
+            onClick={() => {
+              void install();
+            }}
+            className="px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs transition-all flex items-center gap-1.5 shadow-sm active:scale-95 cursor-pointer select-none"
+            title="Instalar Aplicativo no Dispositivo"
+          >
+            <Download size={14} strokeWidth={2.5} className="shrink-0" />
+            <span>Instalar App</span>
+          </button>
+        )}
+
         <ThemeToggle />
 
         {onOpenNotifications && (

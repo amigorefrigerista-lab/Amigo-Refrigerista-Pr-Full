@@ -54,32 +54,32 @@ export default function AdminSettingsPage() {
   useEffect(() => {
     async function loadSettings() {
       try {
-        if (isSupabaseConfigured) {
-          const { data, error } = await supabase
-            .from('app_settings')
-            .select('*')
-            .eq('id', 1)
-            .single();
-
-          if (data) {
+        const headers: Record<string, string> = {};
+        if (typeof window !== 'undefined') {
+          const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+          if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+          if (user?.id) headers['x-amigo-uid'] = user.id;
+          if (user?.email) headers['x-amigo-email'] = user.email;
+        }
+        const res = await fetch('/api/admin/settings', {
+          method: 'GET',
+          headers,
+          credentials: 'same-origin',
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json?.ok && json.settings) {
+            const data = json.settings;
             setForm((prev) => ({
               ...prev,
               ...data,
               pro_plan_price: data.pro_plan_price ? Number(data.pro_plan_price) : prev.pro_plan_price,
               flex_plan_price: data.flex_plan_price ? Number(data.flex_plan_price) : prev.flex_plan_price,
-              maintenance_interval_months: data.maintenance_interval_months ? Number(data.maintenance_interval_months) : prev.maintenance_interval_months,
+              maintenance_interval_months: data.maintenance_interval_months
+                ? Number(data.maintenance_interval_months)
+                : prev.maintenance_interval_months,
               free_trial_days: data.free_trial_days ? Number(data.free_trial_days) : prev.free_trial_days,
             }));
-          }
-        } else {
-          // Carrega do LocalStorage se disponível
-          if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('amigo_master_app_settings');
-            if (saved) {
-              try {
-                setForm(JSON.parse(saved));
-              } catch {}
-            }
           }
         }
       } catch (err) {
@@ -89,7 +89,7 @@ export default function AdminSettingsPage() {
       }
     }
     loadSettings();
-  }, []);
+  }, [user]);
 
   const handleEmailLoginAdmin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -130,32 +130,32 @@ export default function AdminSettingsPage() {
     setMessage('');
 
     try {
-      if (isSupabaseConfigured) {
-        const { error } = await supabase
-          .from('app_settings')
-          .upsert({
-            id: 1,
-            ...form,
-            updated_at: new Date().toISOString()
-          });
-
-        if (error) {
-          setMessageType('error');
-          setMessage('Erro ao salvar no banco Supabase: ' + error.message);
-        } else {
-          setMessageType('success');
-          setMessage('Configurações salvas com sucesso no banco de dados!');
-        }
-      } else {
-        if (typeof window !== 'undefined') {
-          localStorage.setItem('amigo_master_app_settings', JSON.stringify(form));
-        }
-        setMessageType('success');
-        setMessage('Configurações salvas com sucesso no armazenamento local (Modo Demo/Local)!');
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+        if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+        if (user?.id) headers['x-amigo-uid'] = user.id;
+        if (user?.email) headers['x-amigo-email'] = user.email;
       }
-    } catch (err: any) {
+
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify(form),
+      });
+
+      const json = await res.json();
+      if (!res.ok || !json?.ok) {
+        setMessageType('error');
+        setMessage(json?.error || 'Erro ao salvar as configurações no servidor.');
+      } else {
+        setMessageType('success');
+        setMessage(json.message || 'Configurações salvas com segurança no servidor!');
+      }
+    } catch {
       setMessageType('error');
-      setMessage('Erro ao salvar as configurações: ' + (err.message || 'Falha inesperada.'));
+      setMessage('Erro ao salvar as configurações no servidor.');
     } finally {
       setSaving(false);
     }

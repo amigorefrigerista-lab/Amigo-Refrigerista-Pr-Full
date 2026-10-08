@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import {
   Download,
   Printer,
@@ -16,6 +16,7 @@ import {
   Share2,
   Copy,
   Check,
+  MessageSquare,
 } from 'lucide-react';
 import { jsPDF } from 'jspdf';
 import QRCode from 'qrcode';
@@ -34,7 +35,13 @@ export interface ServiceOrderData {
   warrantyMonths: number;
   value?: number | null;
   notes: string;
+  customerNotes?: string | null;
   checklistItems: string[];
+  customerSignature?: string | null;
+}
+
+export interface ServiceOrderPdfExporterRef {
+  exportPdf: () => Promise<void>;
 }
 
 interface CompanyProfile {
@@ -57,7 +64,10 @@ const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
 
 const COMPANY_STORAGE_KEY = 'amigo_os_pdf_company_profile_v1';
 
-export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrderData }) {
+export const ServiceOrderPdfExporter = forwardRef<
+  ServiceOrderPdfExporterRef,
+  { order: ServiceOrderData }
+>(function ServiceOrderPdfExporter({ order }, ref) {
   const [qrDataUrl, setQrDataUrl] = useState<string>('');
   const [verificationUrl, setVerificationUrl] = useState<string>('');
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
@@ -332,7 +342,37 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
         checkY += 5.8;
       });
 
-      cursorY += totalBoxHeight + 7;
+      cursorY += totalBoxHeight + 6;
+
+      // ---------------------------------------------------------
+      // 4.1 OBSERVAÇÕES DO CLIENTE & CONDIÇÃO DO EQUIPAMENTO (CUSTOMER NOTES)
+      // ---------------------------------------------------------
+      const customerNotesText = (order.customerNotes || '').trim();
+      if (customerNotesText) {
+        doc.setTextColor(15, 23, 42);
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8.5);
+        doc.text(
+          'CUSTOMER NOTES — OBSERVAÇÕES DO CLIENTE E CONDIÇÃO DO EQUIPAMENTO',
+          margin,
+          cursorY
+        );
+        cursorY += 2.5;
+
+        const splitCustNotes = doc.splitTextToSize(customerNotesText, contentWidth - 10);
+        const custNotesBoxHeight = Math.min(24, Math.max(13, splitCustNotes.length * 4.5 + 6));
+
+        doc.setDrawColor(203, 213, 225);
+        doc.setFillColor(254, 252, 232);
+        doc.roundedRect(margin, cursorY, contentWidth, custNotesBoxHeight, 2, 2, 'FD');
+
+        doc.setTextColor(30, 41, 59);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.2);
+        doc.text(splitCustNotes.slice(0, 4), margin + 5, cursorY + 6);
+
+        cursorY += custNotesBoxHeight + 5;
+      }
 
       // ---------------------------------------------------------
       // 5. RECOMENDAÇÃO DE MANUTENÇÃO PREVENTIVA (PMOC)
@@ -390,6 +430,21 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
       // Linhas de assinatura
       const sigLineY = cursorY + 34;
       const halfSig = (sigBoxWidth - 16) / 2;
+
+      if (order.customerSignature) {
+        try {
+          doc.addImage(
+            order.customerSignature,
+            'PNG',
+            margin + 13 + halfSig,
+            sigLineY - 15,
+            Math.min(halfSig - 4, 46),
+            14
+          );
+        } catch {
+          // ignore invalid image data
+        }
+      }
 
       doc.setDrawColor(148, 163, 184);
       doc.line(margin + 5, sigLineY, margin + 5 + halfSig, sigLineY);
@@ -479,6 +534,14 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
     }
   }, [company, order, qrDataUrl, verificationUrl]);
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      exportPdf: handleExportPdf,
+    }),
+    [handleExportPdf]
+  );
+
   const handleNativePrint = () => {
     if (typeof window !== 'undefined') {
       window.print();
@@ -519,6 +582,58 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
     }
   };
 
+  const handleShareViaWhatsApp = async () => {
+    const shareUrl =
+      verificationUrl ||
+      (typeof window !== 'undefined'
+        ? `${window.location.origin}/os/${encodeURIComponent(order.orderNumber)}`
+        : '');
+
+    const shareMessage = `Olá, ${order.clientName}! Confira o comprovante e certificado de garantia da sua Ordem de Serviço #${order.orderNumber} (${order.equipment}): ${shareUrl}`;
+
+    if (typeof navigator !== 'undefined' && navigator.share) {
+      try {
+        await navigator.share({
+          title: `Ordem de Serviço #${order.orderNumber} — ${order.clientName}`,
+          text: `Olá, ${order.clientName}! Confira o comprovante e certificado de garantia da sua Ordem de Serviço #${order.orderNumber} (${order.equipment}):`,
+          url: shareUrl,
+        });
+        return;
+      } catch (err) {
+        if ((err as Error)?.name === 'AbortError') return;
+      }
+    }
+
+    let cleanPhone = (order.clientPhone || '').replace(/\D/g, '');
+    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+      cleanPhone = '55' + cleanPhone;
+    }
+
+    const waUrl = cleanPhone
+      ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(shareMessage)}`
+      : `https://wa.me/?text=${encodeURIComponent(shareMessage)}`;
+
+    if (typeof navigator !== 'undefined' && navigator.clipboard && shareUrl) {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        setSharedCopied(true);
+        setTimeout(() => setSharedCopied(false), 3500);
+      } catch {
+        // ignore
+      }
+    }
+
+    if (typeof window !== 'undefined') {
+      const a = document.createElement('a');
+      a.href = waUrl;
+      a.target = '_blank';
+      a.rel = 'noopener noreferrer';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+    }
+  };
+
   return (
     <div className="space-y-5 pt-2">
       {/* Bloco Visual de Dados da Empresa + QR Code de Validação na Página */}
@@ -551,8 +666,8 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
           </button>
         </div>
 
-        {/* QR Code Visual no Card da OS */}
-        <div className="flex items-center gap-3 bg-slate-900/90 border border-slate-800 p-3 rounded-xl self-stretch sm:self-auto">
+        {/* QR Code Visual no Card da OS + Botão Share via WhatsApp ao lado */}
+        <div className="flex flex-wrap items-center gap-3 bg-slate-900/90 border border-slate-800 p-3 rounded-xl self-stretch sm:self-auto">
           {qrDataUrl ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img
@@ -565,13 +680,23 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
               <QrCode className="w-7 h-7" />
             </div>
           )}
-          <div className="space-y-0.5 text-xs">
-            <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>QR Code Incluso no PDF</span>
-            </span>
-            <p className="text-white font-mono font-bold text-xs">#{order.orderNumber}</p>
-            <p className="text-[11px] text-slate-400">Validação digital instantânea</p>
+          <div className="space-y-1.5 text-xs">
+            <div>
+              <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
+                <ShieldCheck className="w-3.5 h-3.5" />
+                <span>QR Code Incluso no PDF</span>
+              </span>
+              <p className="text-white font-mono font-bold text-xs">#{order.orderNumber}</p>
+            </div>
+            <button
+              type="button"
+              onClick={handleShareViaWhatsApp}
+              className="px-3 py-1.5 rounded-lg bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-[11px] transition flex items-center gap-1.5 shadow-md cursor-pointer"
+              title="Compartilhar link da OS via Web Share API / WhatsApp para o celular do cliente"
+            >
+              <MessageSquare className="w-3.5 h-3.5" />
+              <span>Share via WhatsApp</span>
+            </button>
           </div>
         </div>
       </div>
@@ -762,4 +887,6 @@ export default function ServiceOrderPdfExporter({ order }: { order: ServiceOrder
       </div>
     </div>
   );
-}
+});
+
+export default ServiceOrderPdfExporter;

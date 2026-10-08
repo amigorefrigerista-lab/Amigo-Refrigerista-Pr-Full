@@ -18,7 +18,7 @@ import {
   Tooltip 
 } from 'recharts';
 import { toast, Toaster } from 'sonner';
-import { useAuth } from '@/hooks/useAuth';
+import { useAuth, ADMIN_EMAIL } from '@/hooks/useAuth';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { 
   FreeLicense, 
@@ -32,7 +32,7 @@ import AdminAuditLogSection from '@/components/AdminAuditLogSection';
 import AdminRevenueForecastModule from '@/components/AdminRevenueForecastModule';
 import { MonthlyRevenueData } from '@/app/actions/getAdminMetrics';
 
-const MASTER_EMAIL = 'amigorefrigerista@gmail.com';
+const MASTER_EMAIL = ADMIN_EMAIL;
 
 export default function AdminMasterPage() {
   const { user, profile, loading: authLoading } = useAuth();

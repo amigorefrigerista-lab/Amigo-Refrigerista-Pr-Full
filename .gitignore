@@ -6,6 +6,7 @@ node_modules/
 
 # Next.js build output and cache
 .next/
+.next-build/
 out/
 build/
 dist/

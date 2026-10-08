@@ -1,11 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { GoogleGenAI } from '@google/genai';
+import {
+  authenticateRequest,
+  checkRateLimitAsync,
+  getClientIp,
+  checkAndIncrementMonthlyQuotaAsync,
+} from '@/lib/security';
 
 export async function POST(req: NextRequest) {
   try {
-    const { base64Image } = await req.json();
-    if (!base64Image) {
+    const clientIp = getClientIp(req);
+    const rate = await checkRateLimitAsync(`api_plate:${clientIp}`, 10, 60_000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        { error: 'Limite de leituras de placa por minuto excedido. Aguarde alguns instantes.' },
+        { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
+    }
+
+    const auth = await authenticateRequest(req);
+    const body = await req.json().catch(() => ({}));
+    const { base64Image } = body || {};
+
+    if (!base64Image || typeof base64Image !== 'string') {
       return NextResponse.json({ error: 'Imagem não fornecida.' }, { status: 400 });
+    }
+
+    if (base64Image.length > 8 * 1024 * 1024) {
+      return NextResponse.json({ error: 'Imagem excede o tamanho máximo permitido.' }, { status: 413 });
+    }
+
+    // Validação Server-Side da cota mensal de 3 consultas de IA para o plano Free (respeitando expiração do plano)
+    const userKey = auth.uid || clientIp;
+    const quota = await checkAndIncrementMonthlyQuotaAsync(
+      userKey,
+      auth.plan,
+      'aiQueries',
+      3,
+      auth.planExpiresAt
+    );
+    if (!quota.allowed) {
+      return NextResponse.json(
+        {
+          error:
+            'Você atingiu o limite mensal de 3 consultas de IA do Plano Gratuito. Faça upgrade para o Plano Flex ou Pro.',
+        },
+        { status: 403 }
+      );
     }
 
     let mimeType = 'image/jpeg';
@@ -76,18 +117,9 @@ export async function POST(req: NextRequest) {
       notes: 'Placa capturada pela câmera e salva na ordem de serviço.',
     });
   } catch {
-    return NextResponse.json({
-      brand: 'Equipamento em Campo',
-      model: 'Split Hi-Wall / Inverter',
-      serialNumber: 'S/N ' + Date.now().toString().slice(-6),
-      btuCapacity: '12.000 BTU/h',
-      voltage: '220V / 1F / 60Hz',
-      ratedCurrent: '5.2 A',
-      refrigerant: 'R410A',
-      refrigerantWeight: '750g',
-      powerConsumption: '1085 W',
-      manufacturingDate: new Date().getFullYear().toString(),
-      notes: 'Placa capturada pela câmera e salva na ordem de serviço.',
-    });
+    return NextResponse.json(
+      { error: 'Não foi possível processar a imagem da placa.' },
+      { status: 500 }
+    );
   }
 }

@@ -1,13 +1,18 @@
-import { integer, pgTable, serial, text, timestamp } from 'drizzle-orm/pg-core';
+import { integer, pgTable, serial, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
 
 // Tabela de Usuários / Técnicos
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
-  uid: text('uid').notNull().unique(), // Firebase Auth UID
+  uid: text('uid').notNull().unique('users_uid_key'), // Supabase Auth UID
   email: text('email').notNull(),
   name: text('name'),
   photoURL: text('photo_url'),
-  role: text('role').default('tecnico'), // 'tecnico' | 'admin'
+  role: text('role').default('tecnico'), // 'tecnico' | 'support' | 'admin'
+  plan: text('plan').default('free'), // 'free' | 'flex' | 'pro' | 'pro_trial' | 'pro_paid'
+  subscriptionStatus: text('subscription_status').default('active'), // 'active' | 'cancelled' | 'expired' | 'refunded' | 'charged_back'
+  planExpiresAt: timestamp('plan_expires_at'),
+  activePaymentId: text('active_payment_id'),
+  activePreapprovalId: text('active_preapproval_id'),
   createdAt: timestamp('created_at').defaultNow(),
 });
 
@@ -55,6 +60,8 @@ export const installations = pgTable('installations', {
   address: text('address'),
   value: integer('value').default(0),
   notes: text('notes'),
+  customerNotes: text('customer_notes'),
+  customerSignature: text('customer_signature'),
   warrantyMonths: integer('warranty_months').default(12),
   qrCode: text('qr_code'),
   createdAt: timestamp('created_at').defaultNow(),
@@ -83,3 +90,64 @@ export const materialsStock = pgTable('materials_stock', {
   unitCost: integer('unit_cost').default(0),
   createdAt: timestamp('created_at').defaultNow(),
 });
+
+// Tabela de Rate Limiting Persistente no Banco de Dados
+export const rateLimits = pgTable('rate_limits', {
+  key: text('key').primaryKey(),
+  count: integer('count').notNull().default(1),
+  resetAt: timestamp('reset_at').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// Tabela de Controle de Cota Mensal Persistente no Banco de Dados
+export const monthlyQuotas = pgTable(
+  'monthly_quotas',
+  {
+    id: serial('id').primaryKey(),
+    userKey: text('user_key').notNull(),
+    monthKey: text('month_key').notNull(), // YYYY-MM
+    ordersUsed: integer('orders_used').notNull().default(0),
+    aiQueriesUsed: integer('ai_queries_used').notNull().default(0),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (table) => ({
+    userMonthUniqueIdx: uniqueIndex('monthly_quotas_user_key_month_key_idx').on(
+      table.userKey,
+      table.monthKey
+    ),
+  })
+);
+
+// Tabela de Pagamentos Processados (Idempotência de Webhook + Vínculo de Revogação por payment_id)
+export const processedPayments = pgTable('processed_payments', {
+  paymentId: text('payment_id').primaryKey(),
+  userUid: text('user_uid').notNull(),
+  userEmail: text('user_email'),
+  plan: text('plan').notNull(),
+  status: text('status').notNull(), // 'approved' | 'refunded' | 'charged_back'
+  amount: integer('amount').default(0), // em centavos
+  approvedAt: timestamp('approved_at'),
+  expiresAt: timestamp('expires_at'),
+  processedAt: timestamp('processed_at').defaultNow(),
+});
+
+// Tabela de Confirmações de Clientes recebidas via Webhook do WhatsApp
+export const whatsappConfirmations = pgTable('whatsapp_confirmations', {
+  id: serial('id').primaryKey(),
+  senderPhone: text('sender_phone').notNull(),
+  messageText: text('message_text').notNull(),
+  confirmationStatus: text('confirmation_status').notNull(), // 'CONFIRMADO' | 'CANCELADO' | 'REMARCADO' | 'OUTROS'
+  installationId: integer('installation_id'),
+  processedAt: timestamp('processed_at').defaultNow(),
+});
+
+// Tabela de Resgates de Licenças por Usuário (impede resgate duplicado e condição de corrida)
+export const licenseRedemptions = pgTable('license_redemptions', {
+  id: serial('id').primaryKey(),
+  licenseCode: text('license_code').notNull(),
+  userUid: text('user_uid').notNull(),
+  redeemedAt: timestamp('redeemed_at').defaultNow(),
+  expiresAt: timestamp('expires_at').notNull(),
+});
+
+

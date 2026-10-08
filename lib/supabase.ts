@@ -25,13 +25,22 @@ export const isSupabaseConfigured = Boolean(
 const safeUrl = isSupabaseConfigured ? rawUrl : 'https://placeholder-amigorefrigerista.supabase.co';
 const safeKey = isSupabaseConfigured ? rawKey : 'dummy_key';
 
+// Armazenamento em memória para o cliente Supabase no navegador (sem expor tokens de sessão em cookies legíveis por JS nem em localStorage)
+const inMemoryAuthStorage: Record<string, string> = {};
+
 export const supabase: SupabaseClient = createClient(safeUrl, safeKey, {
   auth: {
-    persistSession: true,
-    autoRefreshToken: true,
-    detectSessionInUrl: true,
-    storageKey: 'amigo-refrigerista-auth-token',
-    storage: typeof window !== 'undefined' ? window.localStorage : undefined,
+    persistSession: typeof window !== 'undefined',
+    autoRefreshToken: typeof window !== 'undefined',
+    storage: {
+      getItem: (key: string) => inMemoryAuthStorage[key] ?? null,
+      setItem: (key: string, value: string) => {
+        inMemoryAuthStorage[key] = value;
+      },
+      removeItem: (key: string) => {
+        delete inMemoryAuthStorage[key];
+      },
+    },
   },
 });
 
@@ -123,10 +132,7 @@ export const supabaseService = {
         email: targetEmail,
         user_metadata: { full_name: targetName, avatar_url: avatarUrl, role: 'user', is_admin: false }
       };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('amigo_local_user', JSON.stringify(newUser));
-      }
-      return { data: { user: newUser, session: { access_token: 'local-user-token' } }, error: null };
+      return { data: { user: newUser, session: { access_token: '' } }, error: null };
     }
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
     return await supabase.auth.signInWithOAuth({
@@ -141,14 +147,11 @@ export const supabaseService = {
   async signInWithPassword(email: string, pass: string) {
     if (!isSupabaseConfigured) {
       const demoUser = {
-        id: 'local-demo-user-' + email.replace(/[^a-z0-9]/gi, ''),
+        id: 'usr-' + email.replace(/[^a-z0-9]/gi, ''),
         email: email.trim(),
-        user_metadata: { full_name: email.split('@')[0] }
+        user_metadata: { full_name: email.split('@')[0], role: 'user', is_admin: false }
       };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
-      }
-      return { data: { user: demoUser, session: { access_token: 'local-demo-token' } }, error: null };
+      return { data: { user: demoUser, session: { access_token: '' } }, error: null };
     }
     return await supabase.auth.signInWithPassword({
       email,
@@ -159,14 +162,11 @@ export const supabaseService = {
   async signUpWithPassword(email: string, pass: string, fullName?: string) {
     if (!isSupabaseConfigured) {
       const demoUser = {
-        id: 'local-demo-user-' + email.replace(/[^a-z0-9]/gi, ''),
+        id: 'usr-' + email.replace(/[^a-z0-9]/gi, ''),
         email: email.trim(),
-        user_metadata: { full_name: fullName || email.split('@')[0] }
+        user_metadata: { full_name: fullName || email.split('@')[0], role: 'user', is_admin: false }
       };
-      if (typeof window !== 'undefined') {
-        localStorage.setItem('amigo_local_user', JSON.stringify(demoUser));
-      }
-      return { data: { user: demoUser, session: { access_token: 'local-demo-token' } }, error: null };
+      return { data: { user: demoUser, session: { access_token: '' } }, error: null };
     }
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback` : undefined;
     return await supabase.auth.signUp({
@@ -183,7 +183,7 @@ export const supabaseService = {
 
   async resetPasswordForEmail(email: string) {
     if (!isSupabaseConfigured) {
-      return { data: { message: 'Link de redefinição enviado com sucesso (modo demo)' }, error: null };
+      return { data: { message: 'Link de redefinição enviado com sucesso' }, error: null };
     }
     const redirectTo = typeof window !== 'undefined' ? `${window.location.origin}/auth/callback?next=/redefinir-senha` : undefined;
     return await supabase.auth.resetPasswordForEmail(email.trim(), {
@@ -192,28 +192,12 @@ export const supabaseService = {
   },
 
   async signOut() {
-    if (typeof window !== 'undefined') {
-      localStorage.removeItem('amigo_local_user');
-    }
     if (!isSupabaseConfigured) return;
     return await supabase.auth.signOut();
   },
 
   async getCurrentUser() {
     if (!isSupabaseConfigured) {
-      if (typeof window !== 'undefined') {
-        const stored = localStorage.getItem('amigo_local_user');
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored);
-            if (parsed && parsed.id !== 'local-demo-admin') {
-              return parsed;
-            }
-          } catch {
-            return null;
-          }
-        }
-      }
       return null;
     }
     const { data: { user } } = await supabase.auth.getUser();
@@ -223,26 +207,13 @@ export const supabaseService = {
   // Perfil
   async getProfile(userId: string) {
     if (!isSupabaseConfigured) {
-      let email = '';
-      let nome = 'Técnico';
-      if (typeof window !== 'undefined') {
-        const stored = localStorage.getItem('amigo_local_user');
-        if (stored) {
-          try {
-            const parsed = JSON.parse(stored);
-            email = parsed.email || '';
-            nome = parsed.user_metadata?.full_name || 'Técnico';
-          } catch {}
-        }
-      }
-      const isRealAdmin = email.toLowerCase().trim() === 'amigorefrigerista@gmail.com';
       return {
         id: userId,
-        email,
-        nome,
-        is_admin: isRealAdmin,
-        role: isRealAdmin ? 'admin' : 'user',
-        plano: isRealAdmin ? 'pro' : 'free'
+        email: '',
+        nome: 'Técnico',
+        is_admin: false,
+        role: 'user',
+        plano: 'free'
       };
     }
     const { data, error } = await supabase

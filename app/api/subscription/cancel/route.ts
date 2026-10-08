@@ -1,62 +1,188 @@
-import { NextRequest, NextResponse } from "next/server";
-import { createClient } from '@supabase/supabase-js';
-
-const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-const supabase = createClient(supabaseUrl, supabaseServiceKey);
+import { NextRequest, NextResponse } from 'next/server';
+import { getAppSettings } from '@/lib/getAppSettings';
+import {
+  authenticateRequest,
+  getSupabaseServiceClient,
+  checkRateLimitAsync,
+  getClientIp,
+} from '@/lib/security';
+import { db, isSqlAvailable } from '@/src/db';
+import { users } from '@/src/db/schema';
+import { eq } from 'drizzle-orm';
 
 export async function POST(req: NextRequest) {
   try {
-    const body = await req.json();
-    const { userId } = body;
-
-    if (!userId) {
+    const clientIp = getClientIp(req);
+    const rate = await checkRateLimitAsync(`sub_cancel:${clientIp}`, 10, 60_000);
+    if (!rate.allowed) {
       return NextResponse.json(
-        { error: "ID do usuário não fornecido" },
-        { status: 400 }
+        { error: 'Muitas tentativas. Aguarde um minuto.' },
+        { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
       );
     }
 
-    const { data: profile, error: fetchErr } = await supabase
-      .from('profiles')
-      .select('*')
-      .eq('id', userId)
-      .maybeSingle();
-
-    if (fetchErr || !profile) {
+    // 1. Autentica o usuário requisitante
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated || !auth.uid) {
       return NextResponse.json(
-        { error: "Usuário não encontrado" },
-        { status: 404 }
+        { error: 'Não autorizado. Faça login para gerenciar sua assinatura.' },
+        { status: 401 }
       );
+    }
+
+    const body = await req.json().catch(() => ({}));
+    const requestedUserId = body?.userId ? String(body.userId).trim() : auth.uid;
+
+    // 2. Garante que o usuário só pode cancelar a própria assinatura (exceto Admin Master)
+    if (requestedUserId !== auth.uid && auth.role !== 'admin') {
+      return NextResponse.json(
+        { error: 'Acesso negado: você só pode cancelar a sua própria assinatura.' },
+        { status: 403 }
+      );
+    }
+
+    const serviceSb = getSupabaseServiceClient();
+    let currentPlan: string = auth.plan || 'pro';
+    let currentExpiresAt: string | null = auth.planExpiresAt || null;
+    let activePreapprovalId: string | null = body?.preapprovalId
+      ? String(body.preapprovalId).trim()
+      : null;
+
+    // 3. Busca dados atuais do perfil (plano, plan_expires_at e active_preapproval_id)
+    if (serviceSb) {
+      const { data: profile, error: fetchErr } = await serviceSb
+        .from('profiles')
+        .select('id, plano, plan_expires_at, active_preapproval_id, subscription_status')
+        .eq('id', requestedUserId)
+        .maybeSingle();
+
+      if (fetchErr) {
+        return NextResponse.json(
+          { error: `Erro ao consultar assinatura no banco: ${fetchErr.message}` },
+          { status: 500 }
+        );
+      }
+
+      if (!profile) {
+        return NextResponse.json(
+          { error: 'Perfil de assinatura não encontrado.' },
+          { status: 404 }
+        );
+      }
+
+      currentPlan = profile.plano || currentPlan;
+      currentExpiresAt = profile.plan_expires_at || currentExpiresAt;
+      if (!activePreapprovalId && (profile as any).active_preapproval_id) {
+        activePreapprovalId = String((profile as any).active_preapproval_id).trim();
+      }
+    } else if (isSqlAvailable()) {
+      const rows = await db
+        .select()
+        .from(users)
+        .where(eq(users.uid, requestedUserId))
+        .limit(1);
+
+      if (!rows || !rows[0]) {
+        return NextResponse.json(
+          { error: 'Perfil de assinatura não encontrado.' },
+          { status: 404 }
+        );
+      }
+
+      currentPlan = rows[0].plan || currentPlan;
+      currentExpiresAt = rows[0].planExpiresAt ? rows[0].planExpiresAt.toISOString() : currentExpiresAt;
+      if (!activePreapprovalId && rows[0].activePreapprovalId) {
+        activePreapprovalId = rows[0].activePreapprovalId;
+      }
+    }
+
+    // 4. Se houver assinatura recorrente no Mercado Pago (active_preapproval_id), chama PUT /preapproval/{id} com status: "cancelled"
+    const settings = await getAppSettings();
+    const accessToken = settings.mercadopago_access_token?.trim() || '';
+
+    if (activePreapprovalId && accessToken && accessToken.startsWith('APP_USR')) {
+      const mpCancelRes = await fetch(
+        `https://api.mercadopago.com/preapproval/${encodeURIComponent(activePreapprovalId)}`,
+        {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ status: 'cancelled' }),
+        }
+      );
+
+      if (!mpCancelRes.ok) {
+        const mpErrBody = await mpCancelRes.json().catch(() => ({}));
+        const mpMessage = String(mpErrBody?.message || '').toLowerCase();
+        // Se já estava cancelada no Mercado Pago, prossegue; caso contrário, retorna erro para não deixar cobrança ativa
+        if (!mpMessage.includes('already cancelled') && !mpMessage.includes('cancel')) {
+          return NextResponse.json(
+            {
+              error:
+                'Não foi possível confirmar o cancelamento da recorrência junto ao Mercado Pago. Tente novamente em instantes.',
+            },
+            { status: 502 }
+          );
+        }
+      }
+    }
+
+    // 5. Mantém o plano pago ativo até plan_expires_at (se ainda não houver data de expiração, define fim do ciclo atual +30d ou mantém vigente)
+    const effectiveExpiresAt =
+      currentExpiresAt || new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
+
+    // 6. Atualiza apenas subscription_status = 'cancelled' (sem rebaixar plano antes de plan_expires_at)
+    if (serviceSb) {
+      const { error: updateErr } = await serviceSb
+        .from('profiles')
+        .update({
+          subscription_status: 'cancelled',
+          plan_expires_at: effectiveExpiresAt,
+          active_preapproval_id: null,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', requestedUserId);
+
+      if (updateErr) {
+        return NextResponse.json(
+          { error: `Falha ao gravar cancelamento no banco: ${updateErr.message}` },
+          { status: 500 }
+        );
+      }
+    }
+
+    if (isSqlAvailable()) {
+      await db
+        .update(users)
+        .set({
+          subscriptionStatus: 'cancelled',
+          planExpiresAt: new Date(effectiveExpiresAt),
+          activePreapprovalId: null,
+        })
+        .where(eq(users.uid, requestedUserId));
     }
 
     const updatedSub = {
-      plan: profile.plano || "pro",
-      status: "cancelled",
+      plan: currentPlan,
+      status: 'cancelled',
       autoRenew: false,
+      planExpiresAt: effectiveExpiresAt,
       cancelledAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
-    const { error: updateErr } = await supabase
-      .from('profiles')
-      .update({
-        plano: 'free',
-        updated_at: new Date().toISOString()
-      })
-      .eq('id', userId);
-
-    if (updateErr) throw updateErr;
-
     return NextResponse.json({
       success: true,
-      message: "Sua assinatura foi cancelada e não haverá novas cobranças. Os benefícios permanecem ativos até o fim do ciclo atual.",
+      message:
+        'Sua assinatura recorrente foi cancelada e não haverá novas cobranças. Seus benefícios permanecem ativos até o fim do ciclo atual.',
       subscription: updatedSub,
     });
-  } catch (err: any) {
-    console.error("Erro ao cancelar assinatura:", err);
+  } catch (err) {
+    console.error('Erro ao cancelar assinatura:', err);
     return NextResponse.json(
-      { error: err.message || "Erro interno ao processar o cancelamento" },
+      { error: 'Não foi possível processar o cancelamento no momento.' },
       { status: 500 }
     );
   }

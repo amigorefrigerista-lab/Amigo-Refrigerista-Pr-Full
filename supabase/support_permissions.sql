@@ -23,17 +23,24 @@ SET role = 'admin', is_active = true, updated_at = NOW();
 ALTER TABLE public.support_permissions ENABLE ROW LEVEL SECURITY;
 
 -- 4. Função auxiliar para verificar permissão no suporte admin
+-- Segurança: SECURITY DEFINER com SET search_path = public e verificação na tabela profiles/support_permissions
 CREATE OR REPLACE FUNCTION public.has_support_permission()
-RETURNS BOOLEAN AS $$
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+AS $$
 BEGIN
   RETURN EXISTS (
     SELECT 1 
-    FROM public.support_permissions
-    WHERE lower(user_email) = lower(auth.jwt()->>'email')
-      AND is_active = true
-  ) OR (lower(auth.jwt()->>'email') = 'amigorefrigerista@gmail.com');
+    FROM public.support_permissions sp
+    JOIN auth.users u ON lower(u.email) = lower(sp.user_email)
+    WHERE u.id = auth.uid()
+      AND sp.is_active = true
+      AND u.email_confirmed_at IS NOT NULL
+  ) OR public.is_admin();
 END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+$$;
 
 -- 5. Políticas de RLS para support_permissions
 DROP POLICY IF EXISTS "Leitura de permissões de suporte" ON public.support_permissions;
@@ -46,8 +53,8 @@ DROP POLICY IF EXISTS "Apenas Master Admin gerencia permissões" ON public.suppo
 CREATE POLICY "Apenas Master Admin gerencia permissões"
 ON public.support_permissions
 FOR ALL
-USING (lower(auth.jwt()->>'email') = 'amigorefrigerista@gmail.com')
-WITH CHECK (lower(auth.jwt()->>'email') = 'amigorefrigerista@gmail.com');
+USING (public.is_admin())
+WITH CHECK (public.is_admin());
 
 -- 6. Tabela de Mensagens do Chat de Suporte Admin
 CREATE TABLE IF NOT EXISTS public.support_messages (

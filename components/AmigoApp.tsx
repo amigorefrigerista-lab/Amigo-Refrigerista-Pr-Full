@@ -16,6 +16,7 @@ import {
   Bot, 
   CheckCircle2, 
   Clock, 
+  Activity,
   Phone, 
   MapPin, 
   DollarSign, 
@@ -62,7 +63,10 @@ import {
   AlertTriangle,
   Package,
   Tag,
-  Minus
+  Minus,
+  Check,
+  X,
+  XCircle
 } from 'lucide-react';
 import { 
   MaintenanceReminder, 
@@ -81,6 +85,13 @@ import { UpgradeModal } from '@/components/UpgradeModal';
 import { InstallPrompt } from '@/components/InstallPrompt';
 import { MobileInstallBanner } from '@/components/MobileInstallBanner';
 import { ClientSupportModal } from '@/components/ClientSupportModal';
+import ServiceOrderPdfExporter, {
+  ServiceOrderData,
+  ServiceOrderPdfExporterRef,
+} from '@/components/ServiceOrderPdfExporter';
+import { CustomerSignatureModal } from '@/components/CustomerSignatureModal';
+import { ServiceOrderQrScannerModal } from '@/components/ServiceOrderQrScannerModal';
+import { ServiceOrderQrGeneratorModal } from '@/components/ServiceOrderQrGeneratorModal';
 import { Footer } from '@/components/Footer';
 import { AdminSupportChatView } from '@/components/AdminSupportChatView';
 import { motion, AnimatePresence } from 'motion/react';
@@ -101,6 +112,8 @@ import {
   getInstallationsAction,
   saveInstallationAction,
   updateInstallationStatusAction,
+  updateInstallationDetailsAction,
+  saveCustomerSignatureAction,
   deleteInstallationAction,
   getDiagnosesAction,
   saveDiagnosisAction,
@@ -251,6 +264,8 @@ export default function AmigoApp() {
             serviceDate: d.date,
             value: d.value || 0,
             notes: d.notes || '',
+            customerNotes: d.customerNotes || '',
+            customerSignature: d.customerSignature || null,
             warrantyMonths: d.warrantyMonths || 12,
             orderNumber: d.qrCode || `OS-${d.id}`,
             maintenanceIntervalMonths: 6,
@@ -366,6 +381,28 @@ export default function AmigoApp() {
   const [remServiceDate, setRemServiceDate] = useState(new Date().toISOString().split('T')[0]);
   const [autoScheduleReminder, setAutoScheduleReminder] = useState(true);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
+  const [defaultOrderStatus, setDefaultOrderStatus] = useState<'Pending' | 'In Progress' | 'Completed'>('Completed');
+  const [editingOsId, setEditingOsId] = useState<string | null>(null);
+  const [editOsClientName, setEditOsClientName] = useState('');
+  const [editOsAddress, setEditOsAddress] = useState('');
+  const [editOsEquipment, setEditOsEquipment] = useState('');
+  const [signingOsId, setSigningOsId] = useState<string | null>(null);
+  const [defaultCustomerSignature, setDefaultCustomerSignature] = useState<string | null>(null);
+  const [defaultCustomerNotes, setDefaultCustomerNotes] = useState<string>('');
+  const [headerSaving, setHeaderSaving] = useState(false);
+  const [headerSavedSuccess, setHeaderSavedSuccess] = useState(false);
+  const [osStatusTransitioning, setOsStatusTransitioning] = useState(false);
+  const [savingOsCardId, setSavingOsCardId] = useState<string | null>(null);
+  const [savedOsCardId, setSavedOsCardId] = useState<string | null>(null);
+  const [isOsQrScannerOpen, setIsOsQrScannerOpen] = useState(false);
+  const [qrGeneratorOrder, setQrGeneratorOrder] = useState<{
+    orderNumber: string;
+    clientName: string;
+    clientPhone?: string | null;
+    equipment: string;
+    status: string;
+  } | null>(null);
+  const osPdfExporterRef = useRef<ServiceOrderPdfExporterRef>(null);
 
   // Número sequencial automático de Ordem de Serviço
   const nextOrderNumber = useMemo(() => {
@@ -2604,30 +2641,672 @@ export default function AmigoApp() {
             </div>
 
             {/* Histórico de Ordens de Serviço (OS) */}
-            <div
-              id="service-order-container"
-              className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl"
-            >
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400">
-                    <FileText size={22} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-white">Histórico de Ordens de Serviço (OS)</h3>
-                    <p className="text-xs text-slate-400">Serviços executados com numeração automática e clientes vinculados</p>
-                  </div>
-                </div>
+            {(() => {
+              const currentOs = serviceOrders[0];
+              const activeContainerStatus = currentOs?.status || defaultOrderStatus;
+              const containerBorderClass =
+                activeContainerStatus === 'Pending'
+                  ? 'border-amber-500/60 shadow-[0_20px_50px_rgba(245,158,11,0.16)]'
+                  : activeContainerStatus === 'In Progress'
+                  ? 'border-blue-500/60 shadow-[0_20px_50px_rgba(59,130,246,0.16)]'
+                  : 'border-emerald-500/60 shadow-[0_20px_50px_rgba(16,185,129,0.16)]';
+              const containerPulseRingClass =
+                activeContainerStatus === 'Pending'
+                  ? 'ring-2 ring-amber-400/50 scale-[1.003]'
+                  : activeContainerStatus === 'In Progress'
+                  ? 'ring-2 ring-blue-400/50 scale-[1.003]'
+                  : 'ring-2 ring-emerald-400/50 scale-[1.003]';
+              const containerHeaderBg =
+                activeContainerStatus === 'Pending'
+                  ? 'bg-amber-950/90 border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.2)]'
+                  : activeContainerStatus === 'In Progress'
+                  ? 'bg-sky-950/90 border-sky-500/50 shadow-[0_0_30px_rgba(14,165,233,0.2)]'
+                  : 'bg-emerald-950/90 border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.2)]';
 
-                <button
-                  type="button"
-                  onClick={() => setShowOSModal(true)}
-                  className="px-3.5 py-2 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/30 text-sky-300 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+              const currentOsPdfData: ServiceOrderData = {
+                orderNumber: currentOs?.orderNumber || currentOs?.id || nextOrderNumber,
+                clientName: currentOs?.clientName || 'Cliente Amigo',
+                clientPhone: currentOs?.clientPhone || null,
+                address: currentOs?.clientAddress || null,
+                equipment: currentOs?.equipment || 'Equipamento de Ar-Condicionado',
+                brand: 'Inverter / Climatização',
+                btus: '12.000 BTU/h',
+                serviceType: 'instalacao',
+                status: activeContainerStatus,
+                dateStr: currentOs?.serviceDate
+                  ? new Date(currentOs.serviceDate + 'T12:00:00').toLocaleDateString('pt-BR')
+                  : new Date().toLocaleDateString('pt-BR'),
+                warrantyMonths: 12,
+                value: null,
+                notes:
+                  currentOs?.notes ||
+                  'Higienização completa da serpentina, turbina e bandeja de condensado; verificação de pressão do fluido e aperto de bornes elétricos.',
+                customerNotes:
+                  currentOs?.customerNotes ?? defaultCustomerNotes ?? '',
+                checklistItems: [
+                  'Higienização bactericida e fungicida com desincrustante biodegradável',
+                  'Teste de superaquecimento e vazamentos na linha frigorígena',
+                  'Checagem de consumo elétrico e estanqueidade do dreno',
+                ],
+                customerSignature:
+                  currentOs?.customerSignature || defaultCustomerSignature || null,
+              };
+
+              return (
+                <div
+                  id="service-order-container"
+                  data-status={activeContainerStatus}
+                  data-status-transitioning={osStatusTransitioning ? 'true' : 'false'}
+                  className={`relative bg-slate-900 border-2 rounded-3xl p-6 space-y-4 transition-colors transition-all duration-700 ease-in-out ${containerBorderClass} ${
+                    osStatusTransitioning ? containerPulseRingClass : 'ring-0 ring-transparent scale-100'
+                  }`}
                 >
-                  <Plus size={15} />
-                  <span>Nova OS</span>
-                </button>
-              </div>
+                  {/* Interactive Step-Progress Bar no topo de #service-order-container */}
+                  <div
+                    id="service-order-step-progress"
+                    role="group"
+                    aria-label="Service Order Status Step Progress"
+                    className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/85 border border-slate-800 space-y-2.5"
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+                        Step Progress · Status da OS
+                      </span>
+                      <span className="text-[10px] font-mono font-bold text-sky-400">
+                        Clique em uma etapa para atualizar o status
+                      </span>
+                    </div>
+
+                    <div className="relative">
+                      <div className="hidden sm:block absolute top-1/2 left-10 right-10 -translate-y-1/2 h-1 rounded-full bg-slate-800 overflow-hidden pointer-events-none">
+                        <div
+                          className={`h-full transition-all duration-700 ease-in-out ${
+                            activeContainerStatus === 'Pending'
+                              ? 'w-0 bg-amber-400'
+                              : activeContainerStatus === 'In Progress'
+                              ? 'w-1/2 bg-blue-400'
+                              : 'w-full bg-emerald-400'
+                          }`}
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-3 gap-2 sm:gap-3 relative z-10">
+                        {(
+                          [
+                            {
+                              key: 'Pending' as const,
+                              step: 1,
+                              label: 'Pending',
+                              sub: 'Pendente',
+                              Icon: Clock,
+                              activeClass:
+                                'bg-amber-950/95 border-amber-400 text-amber-200 shadow-[0_0_20px_rgba(245,158,11,0.28)] scale-[1.01]',
+                              passedClass:
+                                'bg-amber-950/40 border-amber-500/40 text-amber-300 hover:border-amber-400',
+                              badgeClass: 'bg-amber-400 text-slate-950',
+                            },
+                            {
+                              key: 'In Progress' as const,
+                              step: 2,
+                              label: 'In Progress',
+                              sub: 'Em Andamento',
+                              Icon: Activity,
+                              activeClass:
+                                'bg-blue-950/95 border-blue-400 text-blue-200 shadow-[0_0_20px_rgba(59,130,246,0.28)] scale-[1.01]',
+                              passedClass:
+                                'bg-blue-950/40 border-blue-500/40 text-blue-300 hover:border-blue-400',
+                              badgeClass: 'bg-blue-400 text-slate-950',
+                            },
+                            {
+                              key: 'Completed' as const,
+                              step: 3,
+                              label: 'Completed',
+                              sub: 'Concluída',
+                              Icon: CheckCircle2,
+                              activeClass:
+                                'bg-emerald-950/95 border-emerald-400 text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.28)] scale-[1.01]',
+                              passedClass:
+                                'bg-emerald-950/40 border-emerald-500/40 text-emerald-300 hover:border-emerald-400',
+                              badgeClass: 'bg-emerald-400 text-slate-950',
+                            },
+                          ] as const
+                        ).map((item) => {
+                          const statusOrder = {
+                            Pending: 1,
+                            'In Progress': 2,
+                            Completed: 3,
+                          };
+                          const currentRank = statusOrder[activeContainerStatus];
+                          const isCurrent = activeContainerStatus === item.key;
+                          const isPassed = currentRank > item.step;
+                          const StepIcon = item.Icon;
+
+                          return (
+                            <button
+                              key={item.key}
+                              type="button"
+                              aria-pressed={isCurrent}
+                              data-step={item.key}
+                              onClick={async () => {
+                                const newSt = item.key;
+                                setDefaultOrderStatus(newSt);
+                                setOsStatusTransitioning(true);
+                                setTimeout(() => setOsStatusTransitioning(false), 750);
+                                setServiceOrders((prev) =>
+                                  prev.length > 0
+                                    ? prev.map((osItem, idx) =>
+                                        idx === 0 ? { ...osItem, status: newSt } : osItem
+                                      )
+                                    : prev
+                                );
+                                if (currentOs?.id) {
+                                  const dbSt =
+                                    newSt === 'Pending'
+                                      ? 'pendente'
+                                      : newSt === 'In Progress'
+                                      ? 'em_andamento'
+                                      : 'concluido';
+                                  try {
+                                    await updateInstallationStatusAction(
+                                      String(currentOs.id),
+                                      dbSt
+                                    );
+                                  } catch {}
+                                }
+                                toast.success(`Status atualizado para: ${newSt}`);
+                              }}
+                              className={`flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-2 px-2.5 py-2.5 sm:px-3.5 sm:py-2.5 rounded-xl border text-left transition-all duration-500 cursor-pointer ${
+                                isCurrent
+                                  ? item.activeClass
+                                  : isPassed
+                                  ? item.passedClass
+                                  : 'bg-slate-900/90 border-slate-800 text-slate-400 hover:border-slate-700 hover:text-slate-200'
+                              }`}
+                            >
+                              <span
+                                className={`w-6 h-6 rounded-full flex items-center justify-center text-[11px] font-black shrink-0 transition-all duration-500 ${
+                                  isCurrent
+                                    ? item.badgeClass
+                                    : isPassed
+                                    ? 'bg-emerald-500/25 text-emerald-300 border border-emerald-500/50'
+                                    : 'bg-slate-800 text-slate-400 border border-slate-700'
+                                }`}
+                              >
+                                {isPassed ? (
+                                  <CheckCircle2 size={13} />
+                                ) : (
+                                  <StepIcon size={13} />
+                                )}
+                              </span>
+                              <div className="min-w-0 text-center sm:text-left">
+                                <span className="text-[11px] sm:text-xs font-black block leading-tight truncate">
+                                  {item.label}
+                                </span>
+                                <span className="text-[9px] opacity-75 hidden min-[420px]:block leading-tight truncate">
+                                  {item.sub}
+                                </span>
+                              </div>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  </div>
+
+                  <header
+                    id="service-order-header"
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border transition-colors transition-all duration-700 ease-in-out ${containerHeaderBg}`}
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-xl bg-slate-950/60 border border-white/10 text-sky-400 transition-colors duration-700 ease-in-out">
+                        <FileText size={22} />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-white">Histórico de Ordens de Serviço (OS)</h3>
+                        <p className="text-xs text-slate-300">Serviços executados com numeração automática e clientes vinculados</p>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                      <select
+                        aria-label="Status"
+                        value={activeContainerStatus}
+                        onChange={(e) => {
+                          const newSt = e.target.value as 'Pending' | 'In Progress' | 'Completed';
+                          setDefaultOrderStatus(newSt);
+                          setOsStatusTransitioning(true);
+                          setTimeout(() => setOsStatusTransitioning(false), 750);
+                          setServiceOrders((prev) =>
+                            prev.length > 0
+                              ? prev.map((item, idx) => (idx === 0 ? { ...item, status: newSt } : item))
+                              : prev
+                          );
+                          toast.success(`Status atualizado para: ${newSt}`);
+                        }}
+                          className="px-3 py-2 rounded-xl bg-slate-950/90 border border-white/20 text-white font-bold text-xs transition-colors transition-all duration-700 ease-in-out focus:outline-none focus:border-sky-400 cursor-pointer"
+                        >
+                          <option value="Pending">Pending</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Completed">Completed</option>
+                        </select>
+
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setQrGeneratorOrder({
+                              orderNumber: currentOs?.orderNumber || currentOs?.id || nextOrderNumber,
+                              clientName: currentOs?.clientName || 'Cliente Amigo',
+                              clientPhone: currentOs?.clientPhone || null,
+                              equipment: currentOs?.equipment || 'Equipamento de Ar-Condicionado',
+                              status: activeContainerStatus,
+                            })
+                          }
+                          className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                          title="Gerar QR Code exclusivo para a página pública desta OS"
+                        >
+                          <QrCode size={14} className="text-indigo-300" />
+                          <span>Generate QR Code</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            const orderNo = currentOs?.orderNumber || currentOs?.id || nextOrderNumber;
+                            const clientNm = currentOs?.clientName || 'Cliente Amigo';
+                            const equipNm = currentOs?.equipment || 'Equipamento de Ar-Condicionado';
+                            const url = `${window.location.origin}/os/${encodeURIComponent(orderNo)}`;
+                            const textMsg = `Olá, ${clientNm}! Confira o comprovante e certificado de garantia da sua Ordem de Serviço #${orderNo} (${equipNm}): ${url}`;
+
+                            if (navigator.share) {
+                              try {
+                                await navigator.share({
+                                  title: `Ordem de Serviço #${orderNo} — ${clientNm}`,
+                                  text: `Olá, ${clientNm}! Confira o comprovante e certificado de garantia da sua Ordem de Serviço #${orderNo} (${equipNm}):`,
+                                  url,
+                                });
+                                return;
+                              } catch (err) {
+                                if ((err as Error)?.name === 'AbortError') return;
+                              }
+                            }
+
+                            let cleanPhone = (currentOs?.clientPhone || '').replace(/\D/g, '');
+                            if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+                              cleanPhone = '55' + cleanPhone;
+                            }
+                            const waUrl = cleanPhone
+                              ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(textMsg)}`
+                              : `https://wa.me/?text=${encodeURIComponent(textMsg)}`;
+
+                            await navigator.clipboard.writeText(url).catch(() => {});
+                            const a = document.createElement('a');
+                            a.href = waUrl;
+                            a.target = '_blank';
+                            a.rel = 'noopener noreferrer';
+                            document.body.appendChild(a);
+                            a.click();
+                            document.body.removeChild(a);
+                          }}
+                          className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
+                          title="Compartilhar link da OS via Web Share API / WhatsApp para o celular do cliente"
+                        >
+                          <MessageSquare size={14} />
+                          <span>Share via WhatsApp</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setIsOsQrScannerOpen(true)}
+                          className="px-3.5 py-2 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-sky-400/40 text-sky-300 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                          title="Escanear QR Code da OS com a câmera para consultar status"
+                        >
+                          <QrCode size={14} className="text-sky-400" />
+                          <span>Scan QR Code</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setSigningOsId(currentOs?.id || '__default__')}
+                          className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                          title="Coletar assinatura do cliente"
+                        >
+                          <Edit size={14} />
+                          <span>Customer Signature</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          disabled={headerSaving}
+                          data-saved={headerSavedSuccess ? 'true' : 'false'}
+                          onClick={async () => {
+                            setHeaderSaving(true);
+                            try {
+                              const targetOs = serviceOrders[0];
+                              const nextClientName =
+                                editingOsId && targetOs && editingOsId === targetOs.id && editOsClientName.trim()
+                                  ? editOsClientName.trim()
+                                  : targetOs?.clientName || 'Cliente Amigo';
+                              const nextAddress =
+                                editingOsId && targetOs && editingOsId === targetOs.id
+                                  ? editOsAddress.trim()
+                                  : targetOs?.clientAddress || '';
+                              const nextEquipment =
+                                editingOsId && targetOs && editingOsId === targetOs.id && editOsEquipment.trim()
+                                  ? editOsEquipment.trim()
+                                  : targetOs?.equipment || 'Equipamento de Ar-Condicionado';
+                              const nextCustNotes = targetOs
+                                ? targetOs.customerNotes || ''
+                                : defaultCustomerNotes;
+
+                              if (targetOs) {
+                                setServiceOrders((prev) =>
+                                  prev.map((item, idx) =>
+                                    idx === 0
+                                      ? {
+                                          ...item,
+                                          clientName: nextClientName,
+                                          clientAddress: nextAddress,
+                                          equipment: nextEquipment,
+                                          customerNotes: nextCustNotes,
+                                          status: activeContainerStatus,
+                                        }
+                                      : item
+                                  )
+                                );
+                              }
+                              if (editingOsId) {
+                                setEditingOsId(null);
+                              }
+
+                              const dbStatus =
+                                activeContainerStatus === 'Pending'
+                                  ? 'pendente'
+                                  : activeContainerStatus === 'In Progress'
+                                  ? 'em_andamento'
+                                  : 'concluido';
+
+                              await updateInstallationDetailsAction({
+                                id: targetOs?.id || nextOrderNumber,
+                                orderNumber: targetOs?.orderNumber || nextOrderNumber,
+                                userUid: user?.uid || 'public',
+                                clientName: nextClientName,
+                                address: nextAddress,
+                                equipment: nextEquipment,
+                                status: dbStatus,
+                                notes: targetOs?.notes || '',
+                                customerNotes: nextCustNotes,
+                                customerSignature:
+                                  targetOs?.customerSignature || defaultCustomerSignature || null,
+                              });
+
+                              setHeaderSavedSuccess(true);
+                              setTimeout(() => setHeaderSavedSuccess(false), 3000);
+                              toast.success(
+                                'Alterações e Customer Notes salvos no banco de dados com sucesso!'
+                              );
+                            } finally {
+                              setHeaderSaving(false);
+                            }
+                          }}
+                          className={`px-3.5 py-2 rounded-xl font-black text-xs transition-all duration-300 flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                            headerSavedSuccess
+                              ? 'bg-emerald-400 text-slate-950 ring-2 ring-emerald-300/70 shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-[1.03]'
+                              : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md'
+                          } disabled:opacity-60`}
+                          title="Salvar Customer Notes e campos atualizados no banco de dados"
+                        >
+                          <AnimatePresence mode="wait" initial={false}>
+                            {headerSaving ? (
+                              <motion.span
+                                key="saving"
+                                initial={{ opacity: 0, scale: 0.6 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.6 }}
+                                transition={{ duration: 0.18 }}
+                                className="flex items-center gap-1.5"
+                              >
+                                <RefreshCw size={14} className="animate-spin" />
+                                <span>Saving...</span>
+                              </motion.span>
+                            ) : headerSavedSuccess ? (
+                              <motion.span
+                                key="saved"
+                                initial={{ opacity: 0, scale: 0.5, rotate: -20 }}
+                                animate={{ opacity: 1, scale: 1, rotate: 0 }}
+                                exit={{ opacity: 0, scale: 0.6 }}
+                                transition={{ type: 'spring', stiffness: 420, damping: 18 }}
+                                className="flex items-center gap-1.5"
+                              >
+                                <CheckCircle2 size={14} strokeWidth={2.8} />
+                                <span>Saved!</span>
+                              </motion.span>
+                            ) : (
+                              <motion.span
+                                key="save"
+                                initial={{ opacity: 0, scale: 0.8 }}
+                                animate={{ opacity: 1, scale: 1 }}
+                                exit={{ opacity: 0, scale: 0.8 }}
+                                transition={{ duration: 0.18 }}
+                                className="flex items-center gap-1.5"
+                              >
+                                <CheckCircle2 size={14} />
+                                <span>Save</span>
+                              </motion.span>
+                            )}
+                          </AnimatePresence>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => osPdfExporterRef.current?.exportPdf()}
+                          className="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
+                          title="Exportar Ordem de Serviço atual para PDF"
+                        >
+                          <Download size={14} />
+                          <span>Export to PDF</span>
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={() => setShowOSModal(true)}
+                          className="px-3.5 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                        >
+                          <Plus size={15} />
+                          <span>Nova OS</span>
+                        </button>
+                      </div>
+                    </header>
+
+                    <div className="hidden" aria-hidden="true">
+                      <ServiceOrderPdfExporter ref={osPdfExporterRef} order={currentOsPdfData} />
+                    </div>
+
+                    {/* Customer Notes Text Area no #service-order-container */}
+                    {(() => {
+                      const MIN_PROFESSIONAL_NOTE_LENGTH = 20;
+                      const currentNoteText = currentOs
+                        ? currentOs.customerNotes || ''
+                        : defaultCustomerNotes;
+                      const trimmedLength = currentNoteText.trim().length;
+                      const meetsMinRequirement = trimmedLength >= MIN_PROFESSIONAL_NOTE_LENGTH;
+
+                      return (
+                        <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
+                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                            <label
+                              htmlFor="service-order-customer-notes"
+                              className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block"
+                            >
+                              Customer Notes · Observações do Cliente e Condição do Equipamento
+                            </label>
+                            <div className="flex items-center gap-2">
+                              <span
+                                className={`text-[10px] font-mono font-bold transition-colors ${
+                                  meetsMinRequirement ? 'text-emerald-400' : 'text-rose-400'
+                                }`}
+                              >
+                                {trimmedLength}/{MIN_PROFESSIONAL_NOTE_LENGTH} mín. caracteres
+                              </span>
+                              <span className="text-[10px] font-mono text-sky-400">
+                                Incluso no PDF
+                              </span>
+                            </div>
+                          </div>
+
+                          <div className="relative">
+                            <textarea
+                              id="service-order-customer-notes"
+                              aria-label="Customer Notes"
+                              aria-invalid={!meetsMinRequirement}
+                              rows={3}
+                              value={currentNoteText}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setDefaultCustomerNotes(val);
+                                if (serviceOrders.length > 0) {
+                                  setServiceOrders((prev) =>
+                                    prev.map((item, idx) =>
+                                      idx === 0 ? { ...item, customerNotes: val } : item
+                                    )
+                                  );
+                                }
+                              }}
+                              placeholder="Registre solicitações específicas do cliente ou observações sobre a condição do equipamento (mín. 20 caracteres para nota técnica profissional)..."
+                              className={`w-full pl-3 pr-11 py-2.5 pb-7 rounded-xl bg-slate-900 border text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none transition resize-y ${
+                                meetsMinRequirement
+                                  ? 'border-emerald-500/60 focus:border-emerald-400'
+                                  : 'border-rose-500/50 focus:border-rose-400'
+                              }`}
+                            />
+
+                            {/* Visual validation icon (check/cross) inside the Customer Notes textarea */}
+                            <div
+                              data-testid="customer-notes-validation-icon"
+                              data-valid={meetsMinRequirement ? 'true' : 'false'}
+                              title={
+                                meetsMinRequirement
+                                  ? 'Nota técnica profissional válida (comprimento mínimo atingido)'
+                                  : `Comprimento insuficiente: mínimo de ${MIN_PROFESSIONAL_NOTE_LENGTH} caracteres necessários para uma nota profissional`
+                              }
+                              className={`pointer-events-none absolute top-2.5 right-2.5 w-6 h-6 rounded-full flex items-center justify-center border transition-all duration-300 ${
+                                meetsMinRequirement
+                                  ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.25)]'
+                                  : 'bg-rose-500/20 border-rose-500/50 text-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.2)]'
+                              }`}
+                            >
+                              {meetsMinRequirement ? (
+                                <Check
+                                  size={14}
+                                  strokeWidth={3}
+                                  aria-label="Valid professional note length"
+                                />
+                              ) : (
+                                <X
+                                  size={14}
+                                  strokeWidth={3}
+                                  aria-label="Insufficient professional note length"
+                                />
+                              )}
+                            </div>
+
+                            {/* Status indicator badge inside bottom-right of textarea */}
+                            <div
+                              className={`pointer-events-none absolute bottom-2 right-2.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold flex items-center gap-1 border transition-all duration-300 ${
+                                meetsMinRequirement
+                                  ? 'bg-emerald-950/90 border-emerald-500/40 text-emerald-300'
+                                  : 'bg-rose-950/90 border-rose-500/40 text-rose-300'
+                              }`}
+                            >
+                              {meetsMinRequirement ? (
+                                <>
+                                  <CheckCircle2 size={11} className="text-emerald-400 shrink-0" />
+                                  <span>Nota profissional válida</span>
+                                </>
+                              ) : (
+                                <>
+                                  <XCircle size={11} className="text-rose-400 shrink-0" />
+                                  <span>
+                                    Faltam {MIN_PROFESSIONAL_NOTE_LENGTH - trimmedLength} caracteres
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Customer Signature Section no #service-order-container */}
+                    <section
+                      id="customer-signature-section"
+                      aria-label="Customer Signature"
+                      className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3"
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                        <div>
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                            Customer Signature · Assinatura do Cliente
+                          </span>
+                          <p className="text-xs text-slate-400 mt-0.5">
+                            Abra o canvas para o cliente assinar o aceite do serviço e salvar o Base64 no banco de dados
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => setSigningOsId(currentOs?.id || '__default__')}
+                            className="px-3.5 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer"
+                          >
+                            <Edit size={14} className="text-sky-400" />
+                            <span>
+                              {currentOs?.customerSignature || defaultCustomerSignature
+                                ? 'Update Signature'
+                                : 'Open Signature Canvas'}
+                            </span>
+                          </button>
+                        </div>
+                      </div>
+
+                      <div
+                        onClick={() => setSigningOsId(currentOs?.id || '__default__')}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter' || e.key === ' ') {
+                            e.preventDefault();
+                            setSigningOsId(currentOs?.id || '__default__');
+                          }
+                        }}
+                        className="w-full rounded-xl border border-dashed border-slate-700 hover:border-sky-500/50 bg-slate-900/70 p-3 flex flex-col items-center justify-center min-h-[84px] cursor-pointer transition group"
+                      >
+                        {currentOs?.customerSignature || defaultCustomerSignature ? (
+                          <div className="flex flex-col items-center gap-1.5 w-full">
+                            <div className="bg-white rounded-lg px-4 py-2 max-w-xs w-full flex items-center justify-center shadow-sm">
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={currentOs?.customerSignature || defaultCustomerSignature || ''}
+                                alt="Customer Signature"
+                                className="max-h-14 object-contain"
+                              />
+                            </div>
+                            <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
+                              <CheckCircle2 size={12} />
+                              <span>
+                                Assinatura Base64 salva no banco de dados (Clique para atualizar)
+                              </span>
+                            </span>
+                          </div>
+                        ) : (
+                          <div className="flex flex-col items-center gap-1 text-slate-400 group-hover:text-sky-300 transition">
+                            <Edit size={16} className="text-sky-400/80" />
+                            <span className="text-xs font-semibold">
+                              Clique para abrir o canvas de assinatura do cliente (Customer Signature)
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </section>
 
               <div className="space-y-3 pt-2">
                 {serviceOrders.length === 0 ? (
@@ -2637,29 +3316,228 @@ export default function AmigoApp() {
                 ) : (
                   serviceOrders.map((os) => {
                     const formattedDate = new Date(os.serviceDate + 'T12:00:00').toLocaleDateString('pt-BR');
+                    const osStatus = os.status || 'Completed';
+                    const osHeaderBg =
+                      osStatus === 'Pending'
+                        ? 'bg-amber-950/85 border-amber-500/45 shadow-[0_0_20px_rgba(245,158,11,0.12)]'
+                        : osStatus === 'In Progress'
+                        ? 'bg-sky-950/85 border-sky-500/45 shadow-[0_0_20px_rgba(14,165,233,0.12)]'
+                        : 'bg-emerald-950/85 border-emerald-500/45 shadow-[0_0_20px_rgba(16,185,129,0.12)]';
+                    const osBadgeClass =
+                      osStatus === 'Pending'
+                        ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                        : osStatus === 'In Progress'
+                        ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                        : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
 
                     return (
-                      <div key={os.id} className="p-3.5 min-[400px]:p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 hover:border-slate-700 transition">
+                      <div
+                        key={os.id}
+                        data-order-number={os.orderNumber || os.id}
+                        className="p-3.5 min-[400px]:p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 hover:border-slate-700 transition"
+                      >
+                        {/* Cabeçalho do Card da OS com cor de fundo dinâmica e transição CSS suave baseada no Status */}
+                        <div
+                          className={`flex flex-col min-[400px]:flex-row min-[400px]:items-center justify-between gap-2.5 p-3 rounded-xl border transition-all duration-500 ease-in-out ${osHeaderBg}`}
+                        >
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-slate-950/70 text-white border border-white/15">
+                              #{os.orderNumber || os.id}
+                            </span>
+                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border ${osBadgeClass}`}>
+                              {osStatus}
+                            </span>
+                          </div>
+
+                          <div className="flex flex-wrap items-center gap-2">
+                            <label className="text-[10px] font-bold uppercase tracking-wider text-slate-300">
+                              Status:
+                            </label>
+                            <select
+                              aria-label={`Status da OS ${os.orderNumber || os.id}`}
+                              value={osStatus}
+                              onChange={async (e) => {
+                                const nextStatus = e.target.value as 'Pending' | 'In Progress' | 'Completed';
+                                setServiceOrders((prev) =>
+                                  prev.map((item) =>
+                                    item.id === os.id ? { ...item, status: nextStatus } : item
+                                  )
+                                );
+                                try {
+                                  const dbStatus =
+                                    nextStatus === 'Pending'
+                                      ? 'pendente'
+                                      : nextStatus === 'In Progress'
+                                      ? 'em_andamento'
+                                      : 'concluido';
+                                  await updateInstallationStatusAction(String(os.id), dbStatus);
+                                } catch {}
+                                toast.success(`Status da OS #${os.orderNumber || os.id} alterado para ${nextStatus}`);
+                              }}
+                              className="px-2.5 py-1 rounded-lg bg-slate-950/90 border border-white/20 text-white text-xs font-bold focus:outline-none focus:border-sky-400 cursor-pointer"
+                            >
+                              <option value="Pending">Pending</option>
+                              <option value="In Progress">In Progress</option>
+                              <option value="Completed">Completed</option>
+                            </select>
+
+                            {editingOsId === os.id ? (
+                              <button
+                                type="button"
+                                onClick={() => setEditingOsId(null)}
+                                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+                                title="Cancelar edição"
+                              >
+                                Cancel
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setEditingOsId(os.id);
+                                  setEditOsClientName(os.clientName);
+                                  setEditOsAddress(os.clientAddress || '');
+                                  setEditOsEquipment(os.equipment);
+                                }}
+                                className="px-2.5 py-1 rounded-lg bg-slate-950/90 hover:bg-slate-800 border border-white/20 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                title="Editar dados da OS"
+                              >
+                                <Edit size={12} className="text-sky-400" />
+                                <span>Edit</span>
+                              </button>
+                            )}
+
+                            <button
+                              type="button"
+                              disabled={savingOsCardId === os.id}
+                              data-saved={savedOsCardId === os.id ? 'true' : 'false'}
+                              onClick={async () => {
+                                setSavingOsCardId(os.id);
+                                try {
+                                  const nextClientName =
+                                    editingOsId === os.id && editOsClientName.trim()
+                                      ? editOsClientName.trim()
+                                      : os.clientName;
+                                  const nextAddress =
+                                    editingOsId === os.id
+                                      ? editOsAddress.trim()
+                                      : os.clientAddress || '';
+                                  const nextEquipment =
+                                    editingOsId === os.id && editOsEquipment.trim()
+                                      ? editOsEquipment.trim()
+                                      : os.equipment;
+
+                                  setServiceOrders((prev) =>
+                                    prev.map((item) =>
+                                      item.id === os.id
+                                        ? {
+                                            ...item,
+                                            clientName: nextClientName,
+                                            clientAddress: nextAddress,
+                                            equipment: nextEquipment,
+                                          }
+                                        : item
+                                    )
+                                  );
+                                  if (editingOsId === os.id) {
+                                    setEditingOsId(null);
+                                  }
+
+                                  const dbStatus =
+                                    osStatus === 'Pending'
+                                      ? 'pendente'
+                                      : osStatus === 'In Progress'
+                                      ? 'em_andamento'
+                                      : 'concluido';
+
+                                  await updateInstallationDetailsAction({
+                                    id: os.id,
+                                    orderNumber: os.orderNumber || os.id,
+                                    userUid: user?.uid || 'public',
+                                    clientName: nextClientName,
+                                    address: nextAddress,
+                                    equipment: nextEquipment,
+                                    status: dbStatus,
+                                    notes: os.notes || '',
+                                    customerNotes: os.customerNotes || '',
+                                    customerSignature: os.customerSignature || null,
+                                  });
+
+                                  setSavedOsCardId(os.id);
+                                  setTimeout(() => {
+                                    setSavedOsCardId((prev) => (prev === os.id ? null : prev));
+                                  }, 3000);
+
+                                  toast.success(
+                                    `OS #${os.orderNumber || os.id} e Customer Notes salvos no banco de dados!`
+                                  );
+                                } finally {
+                                  setSavingOsCardId(null);
+                                }
+                              }}
+                              className={`px-2.5 py-1 rounded-lg font-black text-xs transition-all duration-300 flex items-center gap-1 cursor-pointer ${
+                                savedOsCardId === os.id
+                                  ? 'bg-emerald-400 text-slate-950 ring-2 ring-emerald-300/70 shadow-[0_0_16px_rgba(16,185,129,0.45)] scale-[1.03]'
+                                  : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
+                              }`}
+                              title="Salvar Customer Notes e alterações no banco de dados"
+                            >
+                              <CheckCircle2
+                                size={13}
+                                className={
+                                  savedOsCardId === os.id
+                                    ? 'transition-transform duration-300 scale-110'
+                                    : ''
+                                }
+                              />
+                              <span>
+                                {savingOsCardId === os.id
+                                  ? 'Saving...'
+                                  : savedOsCardId === os.id
+                                  ? 'Saved!'
+                                  : 'Save'}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
+
                         <div className="grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-[1fr_auto] gap-3">
                           {/* Dados do Cliente */}
-                          <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-1 min-w-0">
+                          <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-1.5 min-w-0">
                             <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">
                               Dados do Cliente
                             </span>
-                            <div className="flex items-center gap-1.5 flex-wrap">
-                              <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
-                                #{os.orderNumber || os.id}
-                              </span>
-                              <h4 className="text-sm font-bold text-white break-words">{os.clientName}</h4>
-                              <span className="px-2 py-0.5 rounded-md text-[9px] font-mono bg-sky-500/10 text-sky-400 border border-sky-500/20">
-                                OS CONCLUÍDA
-                              </span>
-                            </div>
-                            {os.clientAddress && (
-                              <p className="text-[11px] text-slate-400 flex items-start gap-1 mt-1 break-words">
-                                <MapPin size={11} className="text-sky-400 shrink-0 mt-0.5" />
-                                <span>{os.clientAddress}</span>
-                              </p>
+                            {editingOsId === os.id ? (
+                              <div className="space-y-1.5">
+                                <input
+                                  type="text"
+                                  aria-label="Nome do Cliente"
+                                  value={editOsClientName}
+                                  onChange={(e) => setEditOsClientName(e.target.value)}
+                                  placeholder="Nome do Cliente"
+                                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-sky-500/50 text-xs font-bold text-white focus:outline-none focus:border-sky-400"
+                                />
+                                <input
+                                  type="text"
+                                  aria-label="Endereço do Cliente"
+                                  value={editOsAddress}
+                                  onChange={(e) => setEditOsAddress(e.target.value)}
+                                  placeholder="Endereço do Cliente"
+                                  className="w-full px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-[11px] text-slate-200 focus:outline-none focus:border-sky-400"
+                                />
+                              </div>
+                            ) : (
+                              <>
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  <h4 className="text-sm font-bold text-white break-words">{os.clientName}</h4>
+                                </div>
+                                {os.clientAddress && (
+                                  <p className="text-[11px] text-slate-400 flex items-start gap-1 mt-1 break-words">
+                                    <MapPin size={11} className="text-sky-400 shrink-0 mt-0.5" />
+                                    <span>{os.clientAddress}</span>
+                                  </p>
+                                )}
+                              </>
                             )}
                           </div>
 
@@ -2669,15 +3547,143 @@ export default function AmigoApp() {
                               <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">
                                 Equipamento
                               </span>
-                              <p className="text-xs font-semibold text-white flex items-center gap-1.5 mt-0.5 break-words">
-                                <Wrench size={12} className="text-sky-400 shrink-0" />
-                                <span>{os.equipment}</span>
-                              </p>
+                              {editingOsId === os.id ? (
+                                <input
+                                  type="text"
+                                  aria-label="Equipamento"
+                                  value={editOsEquipment}
+                                  onChange={(e) => setEditOsEquipment(e.target.value)}
+                                  placeholder="Equipamento"
+                                  className="w-full mt-1 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-sky-500/50 text-xs font-semibold text-white focus:outline-none focus:border-sky-400"
+                                />
+                              ) : (
+                                <p className="text-xs font-semibold text-white flex items-center gap-1.5 mt-0.5 break-words">
+                                  <Wrench size={12} className="text-sky-400 shrink-0" />
+                                  <span>{os.equipment}</span>
+                                </p>
+                              )}
                             </div>
                             <div className="text-left sm:text-right text-xs pt-1 border-t border-slate-800/60">
                               <span className="text-[10px] font-bold text-slate-500 uppercase mr-1.5">Data:</span>
                               <span className="font-mono font-bold text-slate-300">{formattedDate}</span>
                             </div>
+                          </div>
+                        </div>
+
+                        {/* Customer Notes Field dentro do Card da OS */}
+                        {(() => {
+                          const MIN_OS_NOTE_LENGTH = 20;
+                          const osNoteText = os.customerNotes || '';
+                          const osNoteTrimmedLen = osNoteText.trim().length;
+                          const isOsNoteValid = osNoteTrimmedLen >= MIN_OS_NOTE_LENGTH;
+
+                          return (
+                            <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-1.5">
+                              <div className="flex items-center justify-between gap-2 flex-wrap">
+                                <label
+                                  htmlFor={`customer-notes-${os.id}`}
+                                  className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block"
+                                >
+                                  Customer Notes · Observações do Cliente e Condição do Equipamento
+                                </label>
+                                <div className="flex items-center gap-2">
+                                  <span
+                                    className={`text-[9px] font-mono font-bold ${
+                                      isOsNoteValid ? 'text-emerald-400' : 'text-rose-400'
+                                    }`}
+                                  >
+                                    {osNoteTrimmedLen}/{MIN_OS_NOTE_LENGTH} mín.
+                                  </span>
+                                  <span className="text-[9px] font-mono text-sky-400">
+                                    Incluso no PDF
+                                  </span>
+                                </div>
+                              </div>
+                              <div className="relative">
+                                <textarea
+                                  id={`customer-notes-${os.id}`}
+                                  aria-label={`Customer Notes da OS ${os.orderNumber || os.id}`}
+                                  aria-invalid={!isOsNoteValid}
+                                  rows={2}
+                                  value={osNoteText}
+                                  onChange={(e) => {
+                                    const nextNotes = e.target.value;
+                                    setServiceOrders((prev) =>
+                                      prev.map((item) =>
+                                        item.id === os.id
+                                          ? { ...item, customerNotes: nextNotes }
+                                          : item
+                                      )
+                                    );
+                                  }}
+                                  placeholder="Registre solicitações do cliente ou observações sobre a condição do equipamento (mín. 20 caracteres)..."
+                                  className={`w-full pl-2.5 pr-9 py-1.5 pb-6 rounded-lg bg-slate-950 border text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none transition resize-y ${
+                                    isOsNoteValid
+                                      ? 'border-emerald-500/60 focus:border-emerald-400'
+                                      : 'border-rose-500/50 focus:border-rose-400'
+                                  }`}
+                                />
+                                <div
+                                  data-valid={isOsNoteValid ? 'true' : 'false'}
+                                  title={
+                                    isOsNoteValid
+                                      ? 'Nota técnica profissional válida'
+                                      : `Mínimo de ${MIN_OS_NOTE_LENGTH} caracteres para nota profissional`
+                                  }
+                                  className={`pointer-events-none absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center border transition-all duration-300 ${
+                                    isOsNoteValid
+                                      ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
+                                      : 'bg-rose-500/20 border-rose-500/50 text-rose-400'
+                                  }`}
+                                >
+                                  {isOsNoteValid ? (
+                                    <Check size={12} strokeWidth={3} />
+                                  ) : (
+                                    <X size={12} strokeWidth={3} />
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          );
+                        })()}
+
+                        {/* Customer Signature Field dentro do Card da OS */}
+                        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                          <div className="space-y-0.5">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">
+                              Customer Signature · Assinatura do Cliente
+                            </span>
+                            {os.customerSignature ? (
+                              <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
+                                <CheckCircle2 size={12} />
+                                <span>Assinatura registrada ({os.clientName})</span>
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-slate-400">
+                                Aguardando assinatura de conformidade do cliente
+                              </span>
+                            )}
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            {os.customerSignature && (
+                              <div className="bg-white rounded-md px-2.5 py-1 flex items-center justify-center">
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={os.customerSignature}
+                                  alt={`Assinatura de ${os.clientName}`}
+                                  className="h-7 object-contain"
+                                />
+                              </div>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => setSigningOsId(os.id)}
+                              className="px-3 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/35 text-sky-300 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                            >
+                              <Edit size={12} />
+                              <span>{os.customerSignature ? 'Update Signature' : 'Customer Signature'}</span>
+                            </button>
                           </div>
                         </div>
 
@@ -2688,6 +3694,63 @@ export default function AmigoApp() {
                           </div>
 
                           <div className="flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setQrGeneratorOrder({
+                                  orderNumber: os.orderNumber || os.id,
+                                  clientName: os.clientName,
+                                  clientPhone: os.clientPhone,
+                                  equipment: os.equipment,
+                                  status: osStatus,
+                                })
+                              }
+                              className="px-2.5 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition flex items-center gap-1.5 font-bold text-[11px] cursor-pointer"
+                              title="Gerar QR Code exclusivo desta OS"
+                            >
+                              <QrCode size={13} />
+                              <span>QR Code</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const orderSlug = encodeURIComponent(os.orderNumber || os.id);
+                                const url = `${window.location.origin}/os/${orderSlug}`;
+                                const textMsg = `Olá, ${os.clientName}! Confira os detalhes da OS #${os.orderNumber || os.id} (${os.equipment}): ${url}`;
+                                if (navigator.share) {
+                                  try {
+                                    await navigator.share({
+                                      title: `Ordem de Serviço #${os.orderNumber || os.id}`,
+                                      text: `Olá, ${os.clientName}! Confira os detalhes da OS #${os.orderNumber || os.id} (${os.equipment}):`,
+                                      url,
+                                    });
+                                    return;
+                                  } catch (err) {
+                                    if ((err as Error)?.name === 'AbortError') return;
+                                  }
+                                }
+                                let cleanPhone = (os.clientPhone || '').replace(/\D/g, '');
+                                if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+                                  cleanPhone = '55' + cleanPhone;
+                                }
+                                const waUrl = cleanPhone
+                                  ? `https://wa.me/${cleanPhone}?text=${encodeURIComponent(textMsg)}`
+                                  : `https://wa.me/?text=${encodeURIComponent(textMsg)}`;
+                                await navigator.clipboard.writeText(url).catch(() => {});
+                                const a = document.createElement('a');
+                                a.href = waUrl;
+                                a.target = '_blank';
+                                a.rel = 'noopener noreferrer';
+                                document.body.appendChild(a);
+                                a.click();
+                                document.body.removeChild(a);
+                              }}
+                              className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 transition flex items-center gap-1.5 font-bold text-[11px] cursor-pointer"
+                              title="Share via WhatsApp (Web Share API)"
+                            >
+                              <MessageSquare size={13} />
+                              <span>Share via WhatsApp</span>
+                            </button>
                             <button
                               type="button"
                               onClick={async () => {
@@ -2752,7 +3815,113 @@ export default function AmigoApp() {
                   })
                 )}
               </div>
+
+              <CustomerSignatureModal
+                isOpen={signingOsId !== null}
+                onClose={() => setSigningOsId(null)}
+                onSave={async (signatureDataUrl) => {
+                  const targetOrder =
+                    signingOsId === '__default__'
+                      ? serviceOrders[0]
+                      : serviceOrders.find((item) => item.id === signingOsId) || serviceOrders[0];
+
+                  setDefaultCustomerSignature(signatureDataUrl);
+                  if (serviceOrders.length > 0) {
+                    setServiceOrders((prev) =>
+                      prev.map((item, idx) =>
+                        (signingOsId === '__default__' && idx === 0) || item.id === signingOsId
+                          ? { ...item, customerSignature: signatureDataUrl }
+                          : item
+                      )
+                    );
+                  }
+
+                  try {
+                    await saveCustomerSignatureAction({
+                      id: targetOrder?.id || nextOrderNumber,
+                      orderNumber: targetOrder?.orderNumber || nextOrderNumber,
+                      userUid: user?.uid || 'public',
+                      clientName: targetOrder?.clientName || 'Cliente Amigo',
+                      equipment: targetOrder?.equipment || 'Equipamento de Ar-Condicionado',
+                      customerSignature: signatureDataUrl,
+                    });
+                    toast.success('Assinatura Base64 do cliente salva no banco de dados com sucesso!');
+                  } catch {
+                    toast.success('Assinatura do cliente registrada na Ordem de Serviço!');
+                  }
+                }}
+                clientName={
+                  serviceOrders.find((item) => item.id === signingOsId)?.clientName ||
+                  serviceOrders[0]?.clientName ||
+                  'Cliente'
+                }
+                orderNumber={
+                  serviceOrders.find((item) => item.id === signingOsId)?.orderNumber ||
+                  serviceOrders[0]?.orderNumber ||
+                  nextOrderNumber
+                }
+                initialSignature={
+                  signingOsId === '__default__'
+                    ? defaultCustomerSignature
+                    : serviceOrders.find((item) => item.id === signingOsId)?.customerSignature || null
+                }
+              />
+
+              <ServiceOrderQrScannerModal
+                isOpen={isOsQrScannerOpen}
+                onClose={() => setIsOsQrScannerOpen(false)}
+                localOrders={serviceOrders}
+                currentOrderFallback={{
+                  orderNumber: serviceOrders[0]?.orderNumber || nextOrderNumber,
+                  status: serviceOrders[0]?.status || defaultOrderStatus,
+                  clientName: serviceOrders[0]?.clientName || 'Cliente Amigo',
+                  equipment: serviceOrders[0]?.equipment || 'Equipamento de Ar-Condicionado',
+                  dateStr: serviceOrders[0]?.serviceDate
+                    ? new Date(serviceOrders[0].serviceDate + 'T12:00:00').toLocaleDateString('pt-BR')
+                    : new Date().toLocaleDateString('pt-BR'),
+                }}
+                onOrderResolved={(resolved) => {
+                  const matchedCard = document.querySelector(
+                    `[data-order-number="${resolved.orderNumber}"]`
+                  );
+                  if (matchedCard) {
+                    matchedCard.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                  }
+                  toast.success(
+                    `OS #${resolved.orderNumber} localizada — Status: ${resolved.status}`
+                  );
+                }}
+              />
+
+              {/* Floating Action Button (FAB) para QR Code Scanner dentro de #service-order-container */}
+              <div className="sticky bottom-4 z-30 flex justify-end pointer-events-none pt-2">
+                <button
+                  id="service-order-qr-fab"
+                  type="button"
+                  onClick={() => setIsOsQrScannerOpen(true)}
+                  aria-label="Scan Service Order QR Code"
+                  title="Escanear QR Code para localizar Ordem de Serviço existente rapidamente"
+                  className="pointer-events-auto group flex items-center gap-2.5 pl-4 pr-5 py-3.5 rounded-full bg-gradient-to-r from-sky-500 to-indigo-600 hover:from-sky-400 hover:to-indigo-500 text-white font-black text-xs shadow-[0_10px_30px_rgba(14,165,233,0.45)] hover:shadow-[0_12px_36px_rgba(14,165,233,0.65)] border border-white/25 transition-all duration-300 hover:scale-105 active:scale-95 cursor-pointer"
+                >
+                  <span className="p-1.5 rounded-full bg-slate-950/30 border border-white/20 flex items-center justify-center">
+                    <QrCode size={18} className="text-white group-hover:rotate-6 transition-transform" />
+                  </span>
+                  <span className="tracking-wide">Scan OS QR</span>
+                </button>
+              </div>
+
+              <ServiceOrderQrGeneratorModal
+                isOpen={qrGeneratorOrder !== null}
+                onClose={() => setQrGeneratorOrder(null)}
+                orderNumber={qrGeneratorOrder?.orderNumber || nextOrderNumber}
+                clientName={qrGeneratorOrder?.clientName}
+                clientPhone={qrGeneratorOrder?.clientPhone}
+                equipment={qrGeneratorOrder?.equipment}
+                status={qrGeneratorOrder?.status}
+              />
             </div>
+              );
+            })()}
 
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4">
               <div className="flex items-center justify-between">

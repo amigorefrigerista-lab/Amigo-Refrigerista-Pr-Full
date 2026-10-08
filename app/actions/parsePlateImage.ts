@@ -18,9 +18,15 @@ export async function parseEquipmentPlate(base64Image: string): Promise<PlateDat
   }
 
   try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (typeof window !== 'undefined') {
+      const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+      if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+    }
     const res = await fetch('/api/plate', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers,
+      credentials: 'same-origin',
       body: JSON.stringify({ base64Image }),
     });
     if (res.ok) {

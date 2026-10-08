@@ -130,6 +130,9 @@ export interface ServiceOrder {
   maintenanceIntervalMonths: number; // Ex: 6 meses
   autoScheduleReminder: boolean;
   reminderDaysBefore: number; // Quantos dias antes do vencimento avisar (ex: 3 dias)
+  status?: 'Pending' | 'In Progress' | 'Completed';
+  customerSignature?: string;
+  customerNotes?: string;
   notes?: string;
   createdAt?: string;
 }

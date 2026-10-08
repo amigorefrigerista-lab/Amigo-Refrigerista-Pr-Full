@@ -1,3 +1,25 @@
+function getClientAuthHeaders(): Record<string, string> {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (typeof window === 'undefined') return headers;
+  try {
+    const sbTokenRaw = localStorage.getItem('amigo-refrigerista-auth-token');
+    if (sbTokenRaw) {
+      const parsed = JSON.parse(sbTokenRaw);
+      const token = parsed?.access_token || parsed?.currentSession?.access_token;
+      if (token && typeof token === 'string') {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+    }
+    const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+    if (sessionToken && !headers['Authorization']) {
+      headers['Authorization'] = `Bearer ${sessionToken}`;
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return headers;
+}
+
 async function callDbApi<T>(action: string, payload: any, fallbackValue: T): Promise<T> {
   if (typeof window === 'undefined') {
     return fallbackValue;
@@ -5,7 +27,8 @@ async function callDbApi<T>(action: string, payload: any, fallbackValue: T): Pro
   try {
     const res = await fetch('/api/db', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: getClientAuthHeaders(),
+      credentials: 'same-origin',
       body: JSON.stringify({ action, payload }),
     });
     if (!res.ok) return fallbackValue;
@@ -276,20 +299,156 @@ export async function saveInstallationAction(instData: {
   return saved;
 }
 
-export async function updateInstallationStatusAction(id: number, status: string, userUid: string) {
+export async function updateInstallationStatusAction(
+  id: number | string,
+  status: string,
+  userUid: string = 'public'
+) {
+  const numericId = typeof id === 'number' ? id : Number(id);
+  const resolvedId = Number.isNaN(numericId) ? id : numericId;
   const localKey = `amigo_installations_${userUid}`;
   const current = readLocalList<any>(localKey);
-  const existing = current.find((i) => i.id === id) || { id, status, userUid };
+  const existing = current.find((i) => String(i.id) === String(resolvedId)) || {
+    id: resolvedId,
+    status,
+    userUid,
+  };
   const updatedFallback = { ...existing, status };
   const saved = await callDbApi(
     'updateInstallationStatus',
-    { id, status, userUid },
+    { id: resolvedId, status, userUid },
     updatedFallback
   );
   writeLocalList(
     localKey,
-    current.map((i) => (i.id === id ? saved : i))
+    current.map((i) => (String(i.id) === String(resolvedId) ? saved : i))
   );
+  return saved;
+}
+
+export async function updateInstallationDetailsAction(updateData: {
+  id: number | string;
+  orderNumber?: string;
+  userUid?: string;
+  clientName?: string;
+  address?: string;
+  equipment?: string;
+  brand?: string;
+  btus?: string;
+  status?: string;
+  notes?: string;
+  customerNotes?: string;
+  customerSignature?: string | null;
+}) {
+  const userUid = updateData.userUid || 'public';
+  const numericId = typeof updateData.id === 'number' ? updateData.id : Number(updateData.id);
+  const resolvedId = Number.isNaN(numericId) ? updateData.id : numericId;
+  const localKey = `amigo_installations_${userUid}`;
+  const current = readLocalList<any>(localKey);
+  const existing = current.find(
+    (i) =>
+      String(i.id) === String(resolvedId) ||
+      (updateData.orderNumber && i.qrCode === updateData.orderNumber)
+  ) || {
+    id: resolvedId,
+    qrCode: updateData.orderNumber || String(resolvedId),
+    userUid,
+  };
+
+  const combinedNotes = updateData.customerNotes
+    ? `${updateData.notes || existing.notes || ''}\n[Customer Notes]: ${updateData.customerNotes}`.trim()
+    : updateData.notes ?? existing.notes ?? null;
+
+  const updatedFallback = {
+    ...existing,
+    ...(updateData.clientName !== undefined ? { clientName: updateData.clientName } : {}),
+    ...(updateData.address !== undefined ? { address: updateData.address } : {}),
+    ...(updateData.equipment !== undefined ? { equipment: updateData.equipment } : {}),
+    ...(updateData.brand !== undefined ? { brand: updateData.brand } : {}),
+    ...(updateData.btus !== undefined ? { btus: updateData.btus } : {}),
+    ...(updateData.status !== undefined ? { status: updateData.status } : {}),
+    notes: combinedNotes,
+    customerNotes: updateData.customerNotes ?? existing.customerNotes ?? '',
+    customerSignature:
+      updateData.customerSignature !== undefined
+        ? updateData.customerSignature
+        : existing.customerSignature || null,
+  };
+
+  const saved = await callDbApi(
+    'updateInstallationDetails',
+    {
+      ...updateData,
+      id: resolvedId,
+      userUid,
+      notes: combinedNotes,
+    },
+    updatedFallback
+  );
+
+  const next = current.some((i) => String(i.id) === String(resolvedId))
+    ? current.map((i) => (String(i.id) === String(resolvedId) ? saved : i))
+    : [saved, ...current];
+  writeLocalList(localKey, next);
+  return saved;
+}
+
+export async function saveCustomerSignatureAction(sigData: {
+  id?: number | string | null;
+  orderNumber?: string;
+  userUid?: string;
+  clientName?: string;
+  equipment?: string;
+  customerSignature: string;
+}) {
+  const userUid = sigData.userUid || 'public';
+  const rawId = sigData.id || sigData.orderNumber || `OS-${Date.now()}`;
+  const numericId = typeof rawId === 'number' ? rawId : Number(rawId);
+  const resolvedId = Number.isNaN(numericId) ? rawId : numericId;
+  const localKey = `amigo_installations_${userUid}`;
+  const current = readLocalList<any>(localKey);
+  const existing = current.find(
+    (i) =>
+      String(i.id) === String(resolvedId) ||
+      (sigData.orderNumber && i.qrCode === sigData.orderNumber)
+  ) || {
+    id: resolvedId,
+    qrCode: sigData.orderNumber || String(resolvedId),
+    userUid,
+    clientName: sigData.clientName || 'Cliente Amigo',
+    equipment: sigData.equipment || 'Equipamento de Ar-Condicionado',
+    status: 'concluido',
+    date: new Date().toISOString().split('T')[0],
+  };
+
+  const updatedFallback = {
+    ...existing,
+    customerSignature: sigData.customerSignature,
+  };
+
+  const saved = await callDbApi(
+    'saveCustomerSignature',
+    {
+      ...sigData,
+      id: resolvedId,
+      userUid,
+    },
+    updatedFallback
+  );
+
+  const next = current.some(
+    (i) =>
+      String(i.id) === String(resolvedId) ||
+      (sigData.orderNumber && i.qrCode === sigData.orderNumber)
+  )
+    ? current.map((i) =>
+        String(i.id) === String(resolvedId) ||
+        (sigData.orderNumber && i.qrCode === sigData.orderNumber)
+          ? saved
+          : i
+      )
+    : [saved, ...current];
+  writeLocalList(localKey, next);
   return saved;
 }
 
