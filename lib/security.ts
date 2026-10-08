@@ -1044,6 +1044,9 @@ export async function safeHttpsGetPinnedIp(params: {
         path: pathWithQuery,
         method: 'GET',
         servername: net.isIP(originalHostname) === 0 ? originalHostname : undefined,
+        lookup: (_hostname, _options, callback) => {
+          callback(null, pinnedIp, net.isIP(pinnedIp) || 4);
+        },
         headers: {
           ...headers,
           Host: parsed.host,

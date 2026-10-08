@@ -31,7 +31,7 @@ function getMemoryProcessedPayments() {
 /**
  * Valida a assinatura HMAC-SHA256 oficial do Mercado Pago (header x-signature e x-request-id)
  */
-export function verifyMercadoPagoSignature(
+function verifyMercadoPagoSignature(
   req: NextRequest,
   resourceId: string,
   webhookSecret: string

@@ -104,24 +104,78 @@ export async function POST(req: NextRequest) {
             const preapprovalData = await preapprovalRes.json();
             if (preapprovalData.init_point || preapprovalData.sandbox_init_point) {
               const preapprovalId = preapprovalData.id ? String(preapprovalData.id).trim() : null;
-              if (preapprovalId) {
-                const serviceSb = getSupabaseServiceClient();
-                if (serviceSb) {
-                  await serviceSb
-                    .from('profiles')
-                    .update({
-                      active_preapproval_id: preapprovalId,
-                      updated_at: new Date().toISOString(),
-                    })
-                    .eq('id', payerUid);
+              if (!preapprovalId) {
+                return NextResponse.json(
+                  {
+                    success: false,
+                    error: 'O Mercado Pago não retornou o identificador da assinatura (preapproval_id).',
+                  },
+                  { status: 502 }
+                );
+              }
+
+              const serviceSb = getSupabaseServiceClient();
+              let persisted = false;
+              let persistErrorMsg = '';
+
+              if (serviceSb) {
+                const { data: updatedProfile, error: updateErr } = await serviceSb
+                  .from('profiles')
+                  .update({
+                    active_preapproval_id: preapprovalId,
+                    updated_at: new Date().toISOString(),
+                  })
+                  .eq('id', payerUid)
+                  .select('id')
+                  .maybeSingle();
+
+                if (updateErr || !updatedProfile) {
+                  persistErrorMsg = updateErr?.message || 'Perfil do usuário não encontrado para vincular a assinatura.';
+                } else {
+                  persisted = true;
                 }
-                if (isSqlAvailable()) {
-                  await db
+              }
+
+              if (isSqlAvailable()) {
+                try {
+                  const updatedRows = await db
                     .update(users)
                     .set({ activePreapprovalId: preapprovalId })
                     .where(eq(users.uid, payerUid))
-                    .catch(() => {});
+                    .returning({ uid: users.uid });
+                  if (updatedRows && updatedRows.length > 0) {
+                    persisted = true;
+                  } else if (!serviceSb) {
+                    persistErrorMsg = 'Registro do usuário não encontrado no banco SQL.';
+                  }
+                } catch (sqlErr: any) {
+                  if (!serviceSb) {
+                    persistErrorMsg = sqlErr?.message || 'Erro ao gravar active_preapproval_id no SQL.';
+                  }
                 }
+              }
+
+              if (!persisted) {
+                // Cancela imediatamente a assinatura pendente criada no Mercado Pago para não deixar assinatura órfã sem ID no perfil
+                await fetch(
+                  `https://api.mercadopago.com/preapproval/${encodeURIComponent(preapprovalId)}`,
+                  {
+                    method: 'PUT',
+                    headers: {
+                      'Content-Type': 'application/json',
+                      Authorization: `Bearer ${accessToken.trim()}`,
+                    },
+                    body: JSON.stringify({ status: 'cancelled' }),
+                  }
+                ).catch(() => {});
+
+                return NextResponse.json(
+                  {
+                    success: false,
+                    error: `Não foi possível vincular a assinatura ao seu perfil (${persistErrorMsg || 'banco indisponível'}). Nenhuma cobrança foi gerada.`,
+                  },
+                  { status: 500 }
+                );
               }
 
               return NextResponse.json({

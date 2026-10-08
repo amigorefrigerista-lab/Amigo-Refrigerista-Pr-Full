@@ -78,17 +78,10 @@ FOR ALL
 USING (public.is_admin())
 WITH CHECK (public.is_admin());
 
--- 4. Garante que o perfil do Admin Master existe (somente se o e-mail já estiver confirmado em auth.users)
-INSERT INTO public.profiles (id, email, is_admin, role, plano)
-SELECT id, email, true, 'admin', 'pro'
-FROM auth.users
-WHERE lower(email) = 'amigorefrigerista@gmail.com'
-  AND email_confirmed_at IS NOT NULL
-ON CONFLICT (id) DO UPDATE 
-SET is_admin = true,
-    role = 'admin',
-    plano = 'pro',
-    updated_at = NOW();
+-- 4. Promoção de Admin Master (executada manualmente por ID/UUID confirmado, sem depender de e-mail fixo em código)
+-- Exemplo manual no SQL Editor do Supabase após criar e confirmar sua conta:
+-- UPDATE public.profiles SET is_admin = true, role = 'admin', plano = 'pro', updated_at = NOW()
+-- WHERE id = '<UUID_DO_ADMIN_CONFIRMADO>';
 
 -- 5. Habilitar RLS em todas as tabelas principais
 ALTER TABLE IF EXISTS public.profiles ENABLE ROW LEVEL SECURITY;

@@ -170,7 +170,7 @@ function applySecurityHeaders(res: NextResponse, nonce: string): NextResponse {
     "default-src 'self'",
     scriptSrc,
     styleSrc,
-    "style-src-attr 'unsafe-inline'",
+    ...(isDev ? ["style-src-attr 'unsafe-inline'"] : []),
     "font-src 'self' data: https://fonts.gstatic.com",
     "img-src 'self' data: blob: https://picsum.photos https://fastly.picsum.photos https://ui-avatars.com https://api.qrserver.com https://*.googleusercontent.com https://*.supabase.co",
     "connect-src 'self' https://*.supabase.co wss://*.supabase.co https://api.openweathermap.org https://api.mercadopago.com https://generativelanguage.googleapis.com",

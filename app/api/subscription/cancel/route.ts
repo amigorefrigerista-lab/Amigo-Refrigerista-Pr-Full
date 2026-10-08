@@ -44,15 +44,15 @@ export async function POST(req: NextRequest) {
     const serviceSb = getSupabaseServiceClient();
     let currentPlan: string = auth.plan || 'pro';
     let currentExpiresAt: string | null = auth.planExpiresAt || null;
-    let activePreapprovalId: string | null = body?.preapprovalId
-      ? String(body.preapprovalId).trim()
-      : null;
+    // Ignora qualquer preapprovalId enviado no corpo da requisição e usa exclusivamente o active_preapproval_id gravado no perfil
+    let activePreapprovalId: string | null = null;
+    let targetUserEmail: string = auth.email || '';
 
     // 3. Busca dados atuais do perfil (plano, plan_expires_at e active_preapproval_id)
     if (serviceSb) {
       const { data: profile, error: fetchErr } = await serviceSb
         .from('profiles')
-        .select('id, plano, plan_expires_at, active_preapproval_id, subscription_status')
+        .select('id, email, plano, plan_expires_at, active_preapproval_id, subscription_status')
         .eq('id', requestedUserId)
         .maybeSingle();
 
@@ -72,7 +72,10 @@ export async function POST(req: NextRequest) {
 
       currentPlan = profile.plano || currentPlan;
       currentExpiresAt = profile.plan_expires_at || currentExpiresAt;
-      if (!activePreapprovalId && (profile as any).active_preapproval_id) {
+      if ((profile as any).email) {
+        targetUserEmail = String((profile as any).email).trim().toLowerCase();
+      }
+      if ((profile as any).active_preapproval_id) {
         activePreapprovalId = String((profile as any).active_preapproval_id).trim();
       }
     } else if (isSqlAvailable()) {
@@ -91,37 +94,101 @@ export async function POST(req: NextRequest) {
 
       currentPlan = rows[0].plan || currentPlan;
       currentExpiresAt = rows[0].planExpiresAt ? rows[0].planExpiresAt.toISOString() : currentExpiresAt;
-      if (!activePreapprovalId && rows[0].activePreapprovalId) {
-        activePreapprovalId = rows[0].activePreapprovalId;
+      if (rows[0].email) {
+        targetUserEmail = rows[0].email.trim().toLowerCase();
+      }
+      if (rows[0].activePreapprovalId) {
+        activePreapprovalId = rows[0].activePreapprovalId.trim();
       }
     }
 
-    // 4. Se houver assinatura recorrente no Mercado Pago (active_preapproval_id), chama PUT /preapproval/{id} com status: "cancelled"
+    // 4. Se houver assinatura recorrente no Mercado Pago (active_preapproval_id), valida e chama PUT /preapproval/{id} com status: "cancelled"
     const settings = await getAppSettings();
     const accessToken = settings.mercadopago_access_token?.trim() || '';
 
     if (activePreapprovalId && accessToken && accessToken.startsWith('APP_USR')) {
-      const mpCancelRes = await fetch(
+      // Consulta a assinatura no Mercado Pago para conferir o status atual e, no caso de Admin ou validação cruzada, garantir que external_reference aponta para o mesmo usuário
+      const mpGetRes = await fetch(
         `https://api.mercadopago.com/preapproval/${encodeURIComponent(activePreapprovalId)}`,
         {
-          method: 'PUT',
+          method: 'GET',
           headers: {
             'Content-Type': 'application/json',
             Authorization: `Bearer ${accessToken}`,
           },
-          body: JSON.stringify({ status: 'cancelled' }),
         }
       );
 
-      if (!mpCancelRes.ok) {
-        const mpErrBody = await mpCancelRes.json().catch(() => ({}));
-        const mpMessage = String(mpErrBody?.message || '').toLowerCase();
-        // Se já estava cancelada no Mercado Pago, prossegue; caso contrário, retorna erro para não deixar cobrança ativa
-        if (!mpMessage.includes('already cancelled') && !mpMessage.includes('cancel')) {
+      if (!mpGetRes.ok) {
+        return NextResponse.json(
+          {
+            error: `Não foi possível consultar a assinatura no Mercado Pago (HTTP ${mpGetRes.status}). Tente novamente em instantes.`,
+          },
+          { status: 502 }
+        );
+      }
+
+      const mpPreapproval = await mpGetRes.json().catch(() => null);
+      if (!mpPreapproval || typeof mpPreapproval !== 'object') {
+        return NextResponse.json(
+          {
+            error: 'Resposta inválida ao consultar assinatura no Mercado Pago.',
+          },
+          { status: 502 }
+        );
+      }
+
+      // Confere que o external_reference (ou payer_email) da assinatura no Mercado Pago pertence ao usuário alvo (especialmente crítico em ações de Admin)
+      const rawExtRef = mpPreapproval.external_reference;
+      let extUid = '';
+      let extEmail = '';
+      if (typeof rawExtRef === 'string' && rawExtRef.trim()) {
+        try {
+          const parsedExt = JSON.parse(rawExtRef);
+          extUid = parsedExt?.uid ? String(parsedExt.uid).trim() : '';
+          extEmail = parsedExt?.email ? String(parsedExt.email).trim().toLowerCase() : '';
+        } catch {
+          extUid = rawExtRef.trim();
+        }
+      }
+
+      const belongsToTargetUser =
+        (extUid && extUid === requestedUserId) ||
+        (!extUid && extEmail && targetUserEmail && extEmail === targetUserEmail);
+
+      if (!belongsToTargetUser) {
+        return NextResponse.json(
+          {
+            error:
+              'Recusa de segurança: o external_reference da assinatura no Mercado Pago não corresponde ao usuário solicitado.',
+          },
+          { status: 403 }
+        );
+      }
+
+      const currentMpStatus = String(mpPreapproval.status || '').toLowerCase();
+
+      // Se ainda não estiver cancelada no Mercado Pago, executa o PUT e confere código HTTP e status retornado
+      if (currentMpStatus !== 'cancelled') {
+        const mpCancelRes = await fetch(
+          `https://api.mercadopago.com/preapproval/${encodeURIComponent(activePreapprovalId)}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${accessToken}`,
+            },
+            body: JSON.stringify({ status: 'cancelled' }),
+          }
+        );
+
+        const mpCancelBody = await mpCancelRes.json().catch(() => null);
+        const updatedMpStatus = String(mpCancelBody?.status || '').toLowerCase();
+
+        if (!mpCancelRes.ok || updatedMpStatus !== 'cancelled') {
           return NextResponse.json(
             {
-              error:
-                'Não foi possível confirmar o cancelamento da recorrência junto ao Mercado Pago. Tente novamente em instantes.',
+              error: `Não foi possível confirmar o cancelamento da recorrência junto ao Mercado Pago (HTTP ${mpCancelRes.status}). Tente novamente em instantes.`,
             },
             { status: 502 }
           );

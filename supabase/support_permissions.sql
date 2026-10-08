@@ -6,16 +6,21 @@
 CREATE TABLE IF NOT EXISTS public.support_permissions (
     id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
     user_email TEXT NOT NULL UNIQUE,
-    granted_by TEXT NOT NULL DEFAULT 'amigorefrigerista@gmail.com',
+    granted_by TEXT NOT NULL DEFAULT 'system',
     role TEXT NOT NULL DEFAULT 'atendente', -- 'admin' ou 'atendente'
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
--- 2. Insere o administrador master padrão amigorefrigerista@gmail.com
+-- 2. Sincroniza automaticamente administradores marcados com is_admin = true na tabela profiles
 INSERT INTO public.support_permissions (user_email, granted_by, role, is_active)
-VALUES ('amigorefrigerista@gmail.com', 'system', 'admin', true)
+SELECT p.email, 'system', 'admin', true
+FROM public.profiles p
+JOIN auth.users u ON u.id = p.id
+WHERE p.is_admin = true
+  AND p.email IS NOT NULL
+  AND u.email_confirmed_at IS NOT NULL
 ON CONFLICT (user_email) DO UPDATE 
 SET role = 'admin', is_active = true, updated_at = NOW();
 
