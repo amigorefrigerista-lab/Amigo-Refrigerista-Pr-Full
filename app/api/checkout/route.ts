@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings } from '@/lib/getAppSettings';
 import {
+  resolveStripeCredentials,
+  createStripeCheckoutSession,
+} from '@/lib/paymentGateway';
+import {
   authenticateRequest,
   getSupabaseServiceClient,
   checkRateLimitAsync,
@@ -40,6 +44,8 @@ export async function POST(req: NextRequest) {
       userName,
       planType = 'pro',
       billingCycle = 'recurring', // 'recurring' (preapproval mensal) ou 'single_30d' (ciclo de 30 dias)
+      provider: requestedProvider,
+      currency: requestedCurrency,
       returnUrl,
     } = body || {};
 
@@ -58,7 +64,7 @@ export async function POST(req: NextRequest) {
 
     const accessToken = settings.mercadopago_access_token;
     const proPrice = Number(settings.pro_plan_price) > 0 ? Number(settings.pro_plan_price) : 39.9;
-    const flexPrice = 19.9;
+    const flexPrice = Number(settings.flex_plan_price) > 0 ? Number(settings.flex_plan_price) : 19.9;
     const planPrice = normalizedPlan === 'flex' ? flexPrice : proPrice;
     const planTitle =
       normalizedPlan === 'flex'
@@ -72,6 +78,46 @@ export async function POST(req: NextRequest) {
       expectedAmount: planPrice,
       cycleDays: 30,
     });
+
+    const activeProvider = requestedProvider || settings.payment_provider || 'mercadopago';
+    const stripeCreds = resolveStripeCredentials(settings);
+
+    // 0. Gateway Internacional Stripe (quando selecionado como gateway principal ou requisitado no checkout)
+    if (activeProvider === 'stripe' && stripeCreds.isConfigured) {
+      try {
+        const stripeResult = await createStripeCheckoutSession(
+          {
+            payerUid,
+            payerEmail,
+            payerName,
+            plan: normalizedPlan,
+            planTitle,
+            amount: planPrice,
+            currency: requestedCurrency || stripeCreds.currency || 'USD',
+            billingCycle: billingCycle === 'single_30d' ? 'single_30d' : 'recurring',
+            successUrl: `${safeReturnSuccess}${safeReturnSuccess.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`,
+            cancelUrl: safeReturnFailure,
+            externalReference,
+          },
+          stripeCreds.secretKey,
+          requestedCurrency || stripeCreds.currency || 'USD'
+        );
+
+        if (stripeResult.success && stripeResult.init_point) {
+          return NextResponse.json(stripeResult);
+        } else if (requestedProvider === 'stripe') {
+          return NextResponse.json(
+            {
+              success: false,
+              error: stripeResult.error || 'Falha ao iniciar checkout internacional via Stripe.',
+            },
+            { status: 502 }
+          );
+        }
+      } catch (stripeErr) {
+        console.error('Erro na API Stripe:', stripeErr);
+      }
+    }
 
     if (accessToken && accessToken.startsWith('APP_USR')) {
       try {

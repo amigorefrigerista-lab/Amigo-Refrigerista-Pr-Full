@@ -9,6 +9,10 @@ export interface AppSettings {
   mercadopago_access_token: string;
   mercadopago_public_key: string;
   webhook_secret: string;
+  stripe_secret_key?: string;
+  stripe_publishable_key?: string;
+  stripe_webhook_secret?: string;
+  stripe_currency?: string;
   pro_plan_price: number;
   flex_plan_price?: number;
   maintenance_interval_months: number;
@@ -29,6 +33,10 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   mercadopago_access_token: process.env.MERCADOPAGO_ACCESS_TOKEN || '',
   mercadopago_public_key: process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY || '',
   webhook_secret: process.env.MERCADOPAGO_WEBHOOK_SECRET || '',
+  stripe_secret_key: process.env.STRIPE_SECRET_KEY || '',
+  stripe_publishable_key: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
+  stripe_webhook_secret: process.env.STRIPE_WEBHOOK_SECRET || '',
+  stripe_currency: process.env.STRIPE_CURRENCY || 'USD',
   pro_plan_price: 39.9,
   flex_plan_price: 19.9,
   maintenance_interval_months: 6,
@@ -67,6 +75,22 @@ export async function getAppSettings(): Promise<AppSettings> {
           mercadopago_public_key:
             data.mercadopago_public_key || DEFAULT_APP_SETTINGS.mercadopago_public_key,
           webhook_secret: data.webhook_secret || DEFAULT_APP_SETTINGS.webhook_secret,
+          stripe_secret_key:
+            data.stripe_secret_key ||
+            (data.payment_provider === 'stripe' && data.mercadopago_access_token?.startsWith('sk_')
+              ? data.mercadopago_access_token
+              : DEFAULT_APP_SETTINGS.stripe_secret_key),
+          stripe_publishable_key:
+            data.stripe_publishable_key ||
+            (data.payment_provider === 'stripe' && data.mercadopago_public_key?.startsWith('pk_')
+              ? data.mercadopago_public_key
+              : DEFAULT_APP_SETTINGS.stripe_publishable_key),
+          stripe_webhook_secret:
+            data.stripe_webhook_secret ||
+            (data.payment_provider === 'stripe' && data.webhook_secret
+              ? data.webhook_secret
+              : DEFAULT_APP_SETTINGS.stripe_webhook_secret),
+          stripe_currency: data.stripe_currency || DEFAULT_APP_SETTINGS.stripe_currency,
           pro_plan_price: data.pro_plan_price
             ? Number(data.pro_plan_price)
             : DEFAULT_APP_SETTINGS.pro_plan_price,
@@ -123,6 +147,19 @@ export async function getAppSettings(): Promise<AppSettings> {
             mercadopago_public_key:
               row.mercadopago_public_key || DEFAULT_APP_SETTINGS.mercadopago_public_key,
             webhook_secret: row.webhook_secret || DEFAULT_APP_SETTINGS.webhook_secret,
+            stripe_secret_key:
+              row.payment_provider === 'stripe' && row.mercadopago_access_token?.startsWith('sk_')
+                ? row.mercadopago_access_token
+                : DEFAULT_APP_SETTINGS.stripe_secret_key,
+            stripe_publishable_key:
+              row.payment_provider === 'stripe' && row.mercadopago_public_key?.startsWith('pk_')
+                ? row.mercadopago_public_key
+                : DEFAULT_APP_SETTINGS.stripe_publishable_key,
+            stripe_webhook_secret:
+              row.payment_provider === 'stripe' && row.webhook_secret
+                ? row.webhook_secret
+                : DEFAULT_APP_SETTINGS.stripe_webhook_secret,
+            stripe_currency: DEFAULT_APP_SETTINGS.stripe_currency,
             pro_plan_price: row.pro_plan_price
               ? Number(row.pro_plan_price)
               : DEFAULT_APP_SETTINGS.pro_plan_price,

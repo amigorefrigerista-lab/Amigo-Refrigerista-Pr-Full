@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings } from '@/lib/getAppSettings';
 import {
+  resolveStripeCredentials,
+  cancelStripeSubscription,
+} from '@/lib/paymentGateway';
+import {
   authenticateRequest,
   getSupabaseServiceClient,
   checkRateLimitAsync,
@@ -102,11 +106,26 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 4. Se houver assinatura recorrente no Mercado Pago (active_preapproval_id), valida e chama PUT /preapproval/{id} com status: "cancelled"
+    // 4. Se houver assinatura recorrente no Stripe (sub_...) ou Mercado Pago (active_preapproval_id), valida e cancela no respectivo gateway
     const settings = await getAppSettings();
     const accessToken = settings.mercadopago_access_token?.trim() || '';
+    const stripeCreds = resolveStripeCredentials(settings);
 
-    if (activePreapprovalId && accessToken && accessToken.startsWith('APP_USR')) {
+    if (activePreapprovalId && activePreapprovalId.startsWith('sub_') && stripeCreds.isConfigured) {
+      const stripeCancel = await cancelStripeSubscription({
+        subscriptionId: activePreapprovalId,
+        stripeSecretKey: stripeCreds.secretKey,
+        expectedUid: requestedUserId,
+        expectedEmail: targetUserEmail,
+      });
+
+      if (!stripeCancel.ok) {
+        return NextResponse.json(
+          { error: stripeCancel.error || 'Falha ao cancelar assinatura no Stripe.' },
+          { status: stripeCancel.forbidden ? 403 : 502 }
+        );
+      }
+    } else if (activePreapprovalId && accessToken && accessToken.startsWith('APP_USR')) {
       // Consulta a assinatura no Mercado Pago para conferir o status atual e, no caso de Admin ou validação cruzada, garantir que external_reference aponta para o mesmo usuário
       const mpGetRes = await fetch(
         `https://api.mercadopago.com/preapproval/${encodeURIComponent(activePreapprovalId)}`,

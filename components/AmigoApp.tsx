@@ -81,6 +81,7 @@ import { GoogleConnectModal } from '@/components/GoogleConnectModal';
 import { ProfileUpdateModal } from '@/components/ProfileUpdateModal';
 import { RecurringRevenueCard } from '@/components/RecurringRevenueCard';
 import { PlanCarousel } from '@/components/PlanCarousel';
+import { PlanStatusBanner } from '@/components/PlanStatusBanner';
 import { UpgradeModal } from '@/components/UpgradeModal';
 import { InstallPrompt } from '@/components/InstallPrompt';
 import { MobileInstallBanner } from '@/components/MobileInstallBanner';
@@ -1500,6 +1501,9 @@ export default function AmigoApp() {
             </button>
           </div>
         )}
+
+        {/* Banner Visual do Plano Atual do Usuário com Botão Informativo para Upgrade */}
+        <PlanStatusBanner onOpenUpgradeModal={() => setShowUpgradeModal(true)} />
 
         {/* Banner de Boas-Vindas */}
         <PlanCarousel />

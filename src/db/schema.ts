@@ -164,11 +164,6 @@ export const appSettingsTable = pgTable('app_settings', {
   whatsapp_api_url: text('whatsapp_api_url').default(''),
   whatsapp_api_key: text('whatsapp_api_key').default(''),
   whatsapp_instance_name: text('whatsapp_instance_name').default(''),
-  smtp_host: text('smtp_host').default(''),
-  smtp_port: text('smtp_port').default('587'),
-  smtp_user: text('smtp_user').default(''),
-  smtp_pass: text('smtp_pass').default(''),
-  smtp_from: text('smtp_from').default(''),
   updated_at: timestamp('updated_at').defaultNow(),
 });
 

@@ -42,6 +42,10 @@ export default function AdminSettingsPage() {
     mercadopago_access_token: '',
     mercadopago_public_key: '',
     webhook_secret: '',
+    stripe_secret_key: '',
+    stripe_publishable_key: '',
+    stripe_webhook_secret: '',
+    stripe_currency: 'USD',
     pro_plan_price: 39.90,
     flex_plan_price: 19.90,
     maintenance_interval_months: 6,
@@ -201,6 +205,10 @@ export default function AdminSettingsPage() {
         mercadopago_access_token: form.mercadopago_access_token,
         mercadopago_public_key: form.mercadopago_public_key,
         webhook_secret: form.webhook_secret,
+        stripe_secret_key: form.stripe_secret_key,
+        stripe_publishable_key: form.stripe_publishable_key,
+        stripe_webhook_secret: form.stripe_webhook_secret,
+        stripe_currency: form.stripe_currency,
       },
       'Configurações de Integração de Pagamentos'
     );
@@ -403,49 +411,81 @@ export default function AdminSettingsPage() {
                   onChange={(e) => setForm({ ...form, payment_provider: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px] cursor-pointer"
                 >
-                  <option value="mercadopago">Mercado Pago (Pix & Cartão)</option>
+                  <option value="mercadopago">Mercado Pago (Pix & Cartão - Brasil)</option>
+                  <option value="stripe">Stripe International (USD / EUR / BRL)</option>
                   <option value="asaas">Asaas (Boleto & Pix)</option>
-                  <option value="stripe">Stripe International</option>
                   <option value="manual">Transferência Pix Direta</option>
                 </select>
               </div>
 
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Valor da Assinatura VIP (Mensal R$)
+                  Valor da Assinatura VIP (Mensal)
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 pointer-events-none">R$</span>
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 pointer-events-none">
+                    {form.payment_provider === 'stripe' ? (form.stripe_currency || 'USD') : 'R$'}
+                  </span>
                   <input
                     type="number"
                     step="0.01"
                     required
                     value={form.pro_plan_price}
                     onChange={(e) => setForm({ ...form, pro_plan_price: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-12 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
                   />
                 </div>
               </div>
 
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Valor da Assinatura Flex (Mensal R$)
+                  Valor da Assinatura Flex (Mensal)
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 pointer-events-none">R$</span>
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 pointer-events-none">
+                    {form.payment_provider === 'stripe' ? (form.stripe_currency || 'USD') : 'R$'}
+                  </span>
                   <input
                     type="number"
                     step="0.01"
                     required
                     value={form.flex_plan_price}
                     onChange={(e) => setForm({ ...form, flex_plan_price: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-12 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
                   />
                 </div>
               </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  Moeda Internacional (Stripe Currency)
+                </label>
+                <select
+                  value={form.stripe_currency || 'USD'}
+                  onChange={(e) => setForm({ ...form, stripe_currency: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px] cursor-pointer"
+                >
+                  <option value="USD">USD ($) - Dólar Americano</option>
+                  <option value="EUR">EUR (€) - Euro</option>
+                  <option value="GBP">GBP (£) - Libra Esterlina</option>
+                  <option value="BRL">BRL (R$) - Real Brasileiro</option>
+                </select>
+              </div>
             </div>
 
-            <div className="space-y-4 pt-2">
+            {/* Credenciais Mercado Pago */}
+            <div className="space-y-4 pt-3 border-t border-slate-800/80">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-amber-400">
+                  Credenciais Mercado Pago (Brasil - Pix & Cartão)
+                </span>
+                {form.payment_provider === 'mercadopago' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono font-bold">
+                    Ativo como Principal
+                  </span>
+                )}
+              </div>
+
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
                   Mercado Pago Access Token (Privado)
@@ -459,31 +499,91 @@ export default function AdminSettingsPage() {
                 />
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Public Key (Pública)
-                </label>
-                <input
-                  type="text"
-                  placeholder="APP_USR-..."
-                  value={form.mercadopago_public_key}
-                  onChange={(e) => setForm({ ...form, mercadopago_public_key: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Public Key Mercado Pago (Pública)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="APP_USR-..."
+                    value={form.mercadopago_public_key}
+                    onChange={(e) => setForm({ ...form, mercadopago_public_key: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Segredo do Webhook Mercado Pago (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Segredo de validação do webhook MP"
+                    value={form.webhook_secret}
+                    onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Credenciais Stripe International */}
+            <div className="space-y-4 pt-4 border-t border-slate-800/80">
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-black uppercase tracking-wider text-indigo-400">
+                  🌍 Credenciais Stripe International (Pagamentos Globais)
+                </span>
+                {form.payment_provider === 'stripe' && (
+                  <span className="text-[10px] px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/40 font-mono font-bold">
+                    Ativo como Principal
+                  </span>
+                )}
               </div>
 
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Segredo do Webhook (Opcional)
+                  Stripe Secret Key (Chave Privada `sk_live_...` ou `sk_test_...`)
                 </label>
                 <input
-                  type="text"
-                  placeholder="Segredo de validação de eventos do gateway"
-                  value={form.webhook_secret}
-                  onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                  type="password"
+                  placeholder="sk_live_... ou sk_test_..."
+                  value={form.stripe_secret_key}
+                  onChange={(e) => setForm({ ...form, stripe_secret_key: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 min-h-[44px]"
                 />
               </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Stripe Publishable Key (`pk_live_...` ou `pk_test_...`)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="pk_live_... ou pk_test_..."
+                    value={form.stripe_publishable_key}
+                    onChange={(e) => setForm({ ...form, stripe_publishable_key: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Stripe Webhook Signing Secret (`whsec_...`)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="whsec_..."
+                    value={form.stripe_webhook_secret}
+                    onChange={(e) => setForm({ ...form, stripe_webhook_secret: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500/20 min-h-[44px]"
+                  />
+                </div>
+              </div>
+              <p className="text-[11px] text-slate-500 font-mono">
+                Webhook URL para configurar no Dashboard do Stripe: <strong className="text-slate-300">/api/webhooks/stripe</strong> (eventos: <code className="text-indigo-300">checkout.session.completed</code>, <code className="text-indigo-300">invoice.payment_succeeded</code>, <code className="text-indigo-300">customer.subscription.deleted</code>)
+              </p>
             </div>
 
             {/* Botão de Salvar Exclusivo: Pagamentos */}

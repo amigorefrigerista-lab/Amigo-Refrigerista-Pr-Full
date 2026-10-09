@@ -71,14 +71,27 @@ export async function POST(req: NextRequest) {
     // 1. Grava no PostgreSQL Cloud SQL
     if (isSqlAvailable()) {
       try {
+        const sqlAccessToken =
+          updated.payment_provider === 'stripe' && updated.stripe_secret_key
+            ? updated.stripe_secret_key
+            : updated.mercadopago_access_token;
+        const sqlPublicKey =
+          updated.payment_provider === 'stripe' && updated.stripe_publishable_key
+            ? updated.stripe_publishable_key
+            : updated.mercadopago_public_key;
+        const sqlWebhookSecret =
+          updated.payment_provider === 'stripe' && updated.stripe_webhook_secret
+            ? updated.stripe_webhook_secret
+            : updated.webhook_secret;
+
         await db
           .insert(appSettingsTable)
           .values({
             id: 1,
             payment_provider: updated.payment_provider,
-            mercadopago_access_token: updated.mercadopago_access_token,
-            mercadopago_public_key: updated.mercadopago_public_key,
-            webhook_secret: updated.webhook_secret,
+            mercadopago_access_token: sqlAccessToken,
+            mercadopago_public_key: sqlPublicKey,
+            webhook_secret: sqlWebhookSecret,
             pro_plan_price: String(updated.pro_plan_price),
             flex_plan_price: String(updated.flex_plan_price),
             maintenance_interval_months: updated.maintenance_interval_months,
@@ -86,20 +99,15 @@ export async function POST(req: NextRequest) {
             whatsapp_api_url: updated.whatsapp_api_url,
             whatsapp_api_key: updated.whatsapp_api_key,
             whatsapp_instance_name: updated.whatsapp_instance_name,
-            smtp_host: updated.smtp_host,
-            smtp_port: updated.smtp_port,
-            smtp_user: updated.smtp_user,
-            smtp_pass: updated.smtp_pass,
-            smtp_from: updated.smtp_from,
             updated_at: new Date(),
           })
           .onConflictDoUpdate({
             target: appSettingsTable.id,
             set: {
               payment_provider: updated.payment_provider,
-              mercadopago_access_token: updated.mercadopago_access_token,
-              mercadopago_public_key: updated.mercadopago_public_key,
-              webhook_secret: updated.webhook_secret,
+              mercadopago_access_token: sqlAccessToken,
+              mercadopago_public_key: sqlPublicKey,
+              webhook_secret: sqlWebhookSecret,
               pro_plan_price: String(updated.pro_plan_price),
               flex_plan_price: String(updated.flex_plan_price),
               maintenance_interval_months: updated.maintenance_interval_months,
@@ -107,11 +115,6 @@ export async function POST(req: NextRequest) {
               whatsapp_api_url: updated.whatsapp_api_url,
               whatsapp_api_key: updated.whatsapp_api_key,
               whatsapp_instance_name: updated.whatsapp_instance_name,
-              smtp_host: updated.smtp_host,
-              smtp_port: updated.smtp_port,
-              smtp_user: updated.smtp_user,
-              smtp_pass: updated.smtp_pass,
-              smtp_from: updated.smtp_from,
               updated_at: new Date(),
             },
           });
