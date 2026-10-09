@@ -15,7 +15,6 @@ if (!rawHmacSecret || rawHmacSecret.length < 32) {
 }
 
 const nextConfig: NextConfig = {
-  distDir: process.env.NODE_ENV === 'production' ? '.next-build' : '.next',
   reactStrictMode: false,
   eslint: {
     ignoreDuringBuilds: false,
