@@ -1470,6 +1470,7 @@ export default function AmigoApp() {
       <Header 
         onOpenSettings={() => setActiveTab('settings')} 
         onOpenSupportModal={() => setShowSupportModal(true)}
+        onOpenUpgradeModal={() => setShowUpgradeModal(true)}
       />
 
       <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">

@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Snowflake, Bell, Settings, LogOut, Download } from 'lucide-react';
+import { Snowflake, Bell, Settings, LogOut, Download, Crown } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { toast } from 'sonner';
@@ -13,12 +13,13 @@ interface HeaderProps {
   onOpenNotifications?: () => void;
   onOpenSettings?: () => void;
   onOpenSupportModal?: () => void;
+  onOpenUpgradeModal?: () => void;
   unreadCount?: number;
 }
 
-export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }: HeaderProps) {
+export function Header({ onOpenNotifications, onOpenSettings, onOpenUpgradeModal, unreadCount = 0 }: HeaderProps) {
   const router = useRouter();
-  const { user, profile, signOut } = useAuth();
+  const { user, profile, signOut, isAdmin } = useAuth();
   const { isInstalled, install } = usePWAInstall();
 
   const handleSignOut = async () => {
@@ -37,6 +38,10 @@ export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }:
 
   const displayName = profile?.name || user?.displayName || user?.email?.split('@')[0] || 'Técnico';
   const avatarUrl = user?.photoURL || (displayName ? `https://ui-avatars.com/api/?name=${encodeURIComponent(displayName)}&background=0284c7&color=fff&size=80&bold=true` : null);
+
+  const currentPlan = isAdmin ? 'pro' : profile?.subscription?.plan || 'free';
+  const planLabel = currentPlan === 'pro' || currentPlan === 'pro_paid' ? 'Plano PRO' : currentPlan === 'flex' ? 'Plano Flex' : 'Plano Gratuito (Free)';
+  const planBadgeBg = currentPlan === 'pro' || currentPlan === 'pro_paid' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : currentPlan === 'flex' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-slate-800 text-slate-300 border-slate-700';
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#070e1c]/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/80 px-4 md:px-8 py-3 flex items-center justify-between shadow-sm dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)] transition-colors duration-200">
@@ -113,6 +118,20 @@ export function Header({ onOpenNotifications, onOpenSettings, unreadCount = 0 }:
               {displayName}
             </span>
             <Settings size={14} className="text-slate-500 dark:text-slate-400 group-hover:text-sky-500 dark:group-hover:text-sky-400 group-hover:rotate-45 transition-all" />
+          </button>
+        )}
+
+        {/* Indicador de Plano e Botão de Upgrade */}
+        {onOpenUpgradeModal && (
+          <button
+            type="button"
+            onClick={onOpenUpgradeModal}
+            className={`px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl border text-xs font-black transition-all flex items-center gap-1.5 cursor-pointer shadow-sm active:scale-95 ${planBadgeBg} hover:opacity-90`}
+            title="Clique para ver detalhes do plano e fazer upgrade"
+          >
+            <Crown size={14} className="shrink-0 animate-pulse text-amber-400" />
+            <span className="truncate max-w-[100px] sm:max-w-none">{planLabel}</span>
+            <span className="hidden md:inline text-[10px] underline font-bold opacity-85 ml-0.5">Upgrade</span>
           </button>
         )}
 

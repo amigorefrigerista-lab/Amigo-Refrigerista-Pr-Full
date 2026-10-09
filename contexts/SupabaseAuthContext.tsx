@@ -588,6 +588,24 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
           },
         });
 
+        if (error) {
+          return { data, error };
+        }
+
+        // Se o Supabase exigiu confirmação por e-mail mas não retornou sessão, tenta autenticar diretamente com a senha recém criada
+        if (data.user && !data.session) {
+          const loginAttempt = await supabase.auth.signInWithPassword({
+            email: email.trim(),
+            password: pass,
+          });
+          if (loginAttempt.data.session) {
+            setRawUser(loginAttempt.data.user);
+            setSession(loginAttempt.data.session);
+            await syncProfile(loginAttempt.data.user, loginAttempt.data.session.access_token);
+            return { data: loginAttempt.data, error: null };
+          }
+        }
+
         if (data.user && data.session) {
           setRawUser(data.user);
           setSession(data.session);
