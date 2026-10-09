@@ -29,45 +29,102 @@ function getMemoryProcessedPayments() {
 }
 
 /**
- * Valida a assinatura HMAC-SHA256 oficial do Mercado Pago (header x-signature e x-request-id)
+ * Valida a autenticidade da notificação do webhook do Mercado Pago usando o segredo armazenado em MERCADOPAGO_WEBHOOK_SECRET.
+ * Suporta:
+ * 1. O header 'x-hub-signature-256' (ou 'x-signature-256'), com formato 'sha256=<hex>' ou '<hex>' gerado com HMAC-SHA256 sobre o corpo da requisição ou o resourceId/manifest.
+ * 2. O header oficial 'x-signature' do Mercado Pago (com ts, v1 e x-request-id).
  */
-function verifyMercadoPagoSignature(
-  req: NextRequest,
-  resourceId: string,
-  webhookSecret: string
-): boolean {
+function verifyMercadoPagoNotification(params: {
+  req: NextRequest;
+  rawBody: string;
+  resourceId: string;
+  webhookSecret: string;
+}): boolean {
+  const { req, rawBody, resourceId, webhookSecret } = params;
+  if (!webhookSecret) return false;
+
+  const cleanSecret = webhookSecret.trim();
+
+  // 1. Verificação via 'X-Hub-Signature-256'
+  const hubSig =
+    req.headers.get('x-hub-signature-256') ||
+    req.headers.get('x-hub-signature') ||
+    req.headers.get('x-signature-256') ||
+    '';
+
+  if (hubSig) {
+    const cleanHubSig = hubSig.replace(/^sha256=/i, '').trim().toLowerCase();
+
+    // Calcula HMAC-SHA256 sobre o raw body (padrão Hub/Webhook)
+    const expectedHmacRawBody = crypto
+      .createHmac('sha256', cleanSecret)
+      .update(rawBody)
+      .digest('hex')
+      .toLowerCase();
+
+    // Também calcula sobre resourceId para integrações que assinam apenas o identificador
+    const expectedHmacId = resourceId
+      ? crypto
+          .createHmac('sha256', cleanSecret)
+          .update(resourceId)
+          .digest('hex')
+          .toLowerCase()
+      : '';
+
+    try {
+      const sigBuf = Buffer.from(cleanHubSig, 'hex');
+      const expBodyBuf = Buffer.from(expectedHmacRawBody, 'hex');
+
+      if (sigBuf.length === expBodyBuf.length && crypto.timingSafeEqual(sigBuf, expBodyBuf)) {
+        return true;
+      }
+
+      if (expectedHmacId) {
+        const expIdBuf = Buffer.from(expectedHmacId, 'hex');
+        if (sigBuf.length === expIdBuf.length && crypto.timingSafeEqual(sigBuf, expIdBuf)) {
+          return true;
+        }
+      }
+    } catch {
+      // continua para o fallback de x-signature se houver
+    }
+  }
+
+  // 2. Verificação via header 'x-signature' padrão Mercado Pago (ts=..., v1=... com x-request-id)
   const xSignature = req.headers.get('x-signature') || '';
   const xRequestId = req.headers.get('x-request-id') || '';
 
-  if (!xSignature || !webhookSecret) {
-    return false;
+  if (xSignature && resourceId) {
+    const parts = xSignature.split(',');
+    let ts = '';
+    let v1 = '';
+
+    for (const part of parts) {
+      const [key, value] = part.trim().split('=');
+      if (key === 'ts') ts = value;
+      if (key === 'v1') v1 = value;
+    }
+
+    if (ts && v1) {
+      const manifest = `id:${resourceId};request-id:${xRequestId};ts:${ts};`;
+      const computedHmac = crypto
+        .createHmac('sha256', cleanSecret)
+        .update(manifest)
+        .digest('hex');
+
+      try {
+        const sigBuf = Buffer.from(v1, 'hex');
+        const expBuf = Buffer.from(computedHmac, 'hex');
+        if (sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf)) {
+          return true;
+        }
+      } catch {
+        return false;
+      }
+    }
   }
 
-  const parts = xSignature.split(',');
-  let ts = '';
-  let v1 = '';
-
-  for (const part of parts) {
-    const [key, value] = part.trim().split('=');
-    if (key === 'ts') ts = value;
-    if (key === 'v1') v1 = value;
-  }
-
-  if (!ts || !v1) return false;
-
-  const manifest = `id:${resourceId};request-id:${xRequestId};ts:${ts};`;
-  const computedHmac = crypto
-    .createHmac('sha256', webhookSecret.trim())
-    .update(manifest)
-    .digest('hex');
-
-  try {
-    const sigBuf = Buffer.from(v1, 'hex');
-    const expBuf = Buffer.from(computedHmac, 'hex');
-    return sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
-  } catch {
-    return false;
-  }
+  return false;
 }
 
 /**
@@ -381,7 +438,16 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const body = await req.json().catch(() => ({}));
+    const rawBody = await req.text();
+    let body: any = {};
+    if (rawBody) {
+      try {
+        body = JSON.parse(rawBody);
+      } catch {
+        body = {};
+      }
+    }
+
     const resourceId = String(id || body?.data?.id || body?.id || '').trim();
     const eventType = String(body?.type || body?.topic || topicParam || 'payment')
       .toLowerCase()
@@ -391,11 +457,20 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'ID do recurso ausente.' }, { status: 400 });
     }
 
-    // Validação obrigatória de assinatura HMAC-SHA256
-    const isValidSig = verifyMercadoPagoSignature(req, resourceId, webhookSecret);
+    // Validação obrigatória de autenticidade (X-Hub-Signature-256 ou x-signature com MERCADOPAGO_WEBHOOK_SECRET)
+    const isValidSig = verifyMercadoPagoNotification({
+      req,
+      rawBody,
+      resourceId,
+      webhookSecret,
+    });
+
     if (!isValidSig) {
       return NextResponse.json(
-        { error: 'Assinatura de webhook inválida (x-signature).' },
+        {
+          error:
+            'Assinatura de webhook inválida. A validação do header X-Hub-Signature-256 / x-signature com MERCADOPAGO_WEBHOOK_SECRET falhou.',
+        },
         { status: 401 }
       );
     }

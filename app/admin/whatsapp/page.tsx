@@ -42,6 +42,11 @@ export interface WhatsAppSettingsForm {
   template_agendamento: string;
   template_lembrete: string;
   template_pos_venda: string;
+  smtp_host: string;
+  smtp_port: string;
+  smtp_user: string;
+  smtp_pass: string;
+  smtp_from: string;
 }
 
 const DEFAULT_FORM: WhatsAppSettingsForm = {
@@ -58,7 +63,12 @@ const DEFAULT_FORM: WhatsAppSettingsForm = {
   template_orcamento: 'Olá {{nome}}! Segue o seu orçamento para {{servico}} no valor de R$ {{valor}}. Acesse a proposta completa no link!',
   template_agendamento: 'Olá {{nome}}! Confirmamos o agendamento do serviço de {{servico}} para a data {{data}}. Qualquer dúvida, fale conosco!',
   template_lembrete: 'Olá {{nome}}! Passando para lembrar que está no prazo para a manutenção preventiva de {{servico}}. Vamos agendar para {{data}}?',
-  template_pos_venda: 'Olá {{nome}}! Como está o funcionamento do seu equipamento após o serviço de {{servico}}? Agradecemos a preferência!'
+  template_pos_venda: 'Olá {{nome}}! Como está o funcionamento do seu equipamento após o serviço de {{servico}}? Agradecemos a preferência!',
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_user: '',
+  smtp_pass: '',
+  smtp_from: ''
 };
 
 export default function AdminWhatsAppConfigPage() {
@@ -111,6 +121,11 @@ export default function AdminWhatsAppConfigPage() {
                 template_agendamento: data.template_agendamento || DEFAULT_FORM.template_agendamento,
                 template_lembrete: data.template_lembrete || DEFAULT_FORM.template_lembrete,
                 template_pos_venda: data.template_pos_venda || DEFAULT_FORM.template_pos_venda,
+                smtp_host: data.smtp_host || '',
+                smtp_port: data.smtp_port || '587',
+                smtp_user: data.smtp_user || '',
+                smtp_pass: data.smtp_pass || '',
+                smtp_from: data.smtp_from || '',
               });
               setLoading(false);
               return;
@@ -216,6 +231,50 @@ export default function AdminWhatsAppConfigPage() {
     message?: string;
     error?: string;
   } | null>(null);
+
+  const [testingSmtp, setTestingSmtp] = useState(false);
+  const [smtpResult, setSmtpResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
+
+  const handleTestSmtp = async () => {
+    setTestingSmtp(true);
+    setSmtpResult(null);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+        if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+        if (user?.id) headers['x-amigo-uid'] = user.id;
+        if (user?.email) headers['x-amigo-email'] = user.email;
+      }
+
+      const res = await fetch('/api/admin/smtp/test', {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          smtp_host: form.smtp_host,
+          smtp_port: form.smtp_port,
+          smtp_user: form.smtp_user,
+          smtp_pass: form.smtp_pass,
+          smtp_from: form.smtp_from,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      setSmtpResult(data);
+
+      if (res.ok && data.ok) {
+        toast.success(data.message || 'E-mail de teste enviado com sucesso via SMTP!');
+      } else {
+        toast.error(data.error || 'Falha no teste SMTP.');
+      }
+    } catch (err: any) {
+      console.error('Erro no teste SMTP:', err);
+      toast.error('Erro de conexão ao testar SMTP.');
+    } finally {
+      setTestingSmtp(false);
+    }
+  };
 
   const handleTestWebhook = async () => {
     setTestingWebhook(true);
@@ -573,6 +632,118 @@ export default function AdminWhatsAppConfigPage() {
                   </div>
                 )}
               </div>
+            </div>
+          </div>
+
+          {/* Painel SMTP para Alertas de Manutenção Automática */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+                  <Key size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">Configuração SMTP (Alertas de Manutenção por E-mail)</h2>
+                  <p className="text-xs text-slate-400">Configure o servidor SMTP para disparar alertas automáticos de manutenção preventiva aos clientes.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-300 mb-1">Servidor SMTP (Host)</label>
+                <input
+                  type="text"
+                  placeholder="smtp.exemplo.com ou smtp.gmail.com"
+                  value={form.smtp_host || ''}
+                  onChange={(e) => setForm({ ...form, smtp_host: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Porta SMTP</label>
+                <input
+                  type="text"
+                  placeholder="587 ou 465"
+                  value={form.smtp_port || '587'}
+                  onChange={(e) => setForm({ ...form, smtp_port: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Usuário SMTP (E-mail)</label>
+                <input
+                  type="text"
+                  placeholder="seu-email@dominio.com"
+                  value={form.smtp_user || ''}
+                  onChange={(e) => setForm({ ...form, smtp_user: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Senha SMTP (ou App Password)</label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••"
+                  value={form.smtp_pass || ''}
+                  onChange={(e) => setForm({ ...form, smtp_pass: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">E-mail Remetente (From)</label>
+              <input
+                type="text"
+                placeholder="contato@amigorefrigerista.com.br"
+                value={form.smtp_from || ''}
+                onChange={(e) => setForm({ ...form, smtp_from: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+              />
+            </div>
+
+            {/* Teste SMTP */}
+            <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleTestSmtp}
+                disabled={testingSmtp}
+                className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md"
+              >
+                {testingSmtp ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                    <span>Conectando e enviando e-mail de teste...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send size={15} className="text-amber-400" />
+                    <span>Testar Conexão e Envio SMTP</span>
+                  </>
+                )}
+              </button>
+
+              {smtpResult && (
+                <div className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2.5 ${
+                  smtpResult.ok
+                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                    : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                }`}>
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                  <div>
+                    <span className="block text-[11px] font-mono uppercase">
+                      {smtpResult.ok ? 'SMTP Conectado' : 'Falha SMTP'}
+                    </span>
+                    <span className="text-[10px] opacity-90 font-normal">
+                      {smtpResult.message || smtpResult.error}
+                    </span>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

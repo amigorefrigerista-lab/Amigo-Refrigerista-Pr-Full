@@ -184,6 +184,11 @@ export async function fetchVerifiedServerProfile(
   let planExpiresAt: string | null = null;
   let foundInDb = false;
 
+  // Se o e-mail for o master admin cadastrado e o e-mail estiver confirmado, garante privilégio de admin automaticamente
+  if (emailConfirmed && isMasterAdminEmail(email)) {
+    role = 'admin';
+  }
+
   // 1. Lê da tabela 'profiles' no Supabase via Service Role
   const serviceSb = getSupabaseServiceClient();
   if (serviceSb) {
@@ -234,9 +239,9 @@ export async function fetchVerifiedServerProfile(
       if (rows && rows[0]) {
         foundInDb = true;
         const u = rows[0];
-        if (!serviceSb) {
+        if (role !== 'admin') {
           if (emailConfirmed && u.role === 'admin') role = 'admin';
-          else if (emailConfirmed && u.role === 'support') role = 'support';
+          else if (emailConfirmed && u.role === 'support' && role !== 'support') role = 'support';
         }
         if (rawPlan === 'free' && u.plan) rawPlan = u.plan;
         if (!planExpiresAt && u.planExpiresAt) {

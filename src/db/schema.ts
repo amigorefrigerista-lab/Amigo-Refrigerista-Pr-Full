@@ -150,4 +150,26 @@ export const licenseRedemptions = pgTable('license_redemptions', {
   expiresAt: timestamp('expires_at').notNull(),
 });
 
+// Tabela de Configurações Globais do Sistema Master
+export const appSettingsTable = pgTable('app_settings', {
+  id: integer('id').primaryKey().default(1),
+  payment_provider: text('payment_provider').default('mercadopago'),
+  mercadopago_access_token: text('mercadopago_access_token').default(''),
+  mercadopago_public_key: text('mercadopago_public_key').default(''),
+  webhook_secret: text('webhook_secret').default(''),
+  pro_plan_price: text('pro_plan_price').default('39.90'),
+  flex_plan_price: text('flex_plan_price').default('19.90'),
+  maintenance_interval_months: integer('maintenance_interval_months').default(6),
+  free_trial_days: integer('free_trial_days').default(7),
+  whatsapp_api_url: text('whatsapp_api_url').default(''),
+  whatsapp_api_key: text('whatsapp_api_key').default(''),
+  whatsapp_instance_name: text('whatsapp_instance_name').default(''),
+  smtp_host: text('smtp_host').default(''),
+  smtp_port: text('smtp_port').default('587'),
+  smtp_user: text('smtp_user').default(''),
+  smtp_pass: text('smtp_pass').default(''),
+  smtp_from: text('smtp_from').default(''),
+  updated_at: timestamp('updated_at').defaultNow(),
+});
+
 

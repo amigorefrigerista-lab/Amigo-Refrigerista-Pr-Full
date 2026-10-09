@@ -27,7 +27,7 @@ const MASTER_EMAIL = 'amigorefrigerista@gmail.com';
 export default function AdminSettingsPage() {
   const { user, signInWithGoogle, signInWithEmail } = useAuth();
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
+  const [savingSection, setSavingSection] = useState<'all' | 'payments' | 'automation' | 'whatsapp' | null>(null);
   const [message, setMessage] = useState('');
   const [messageType, setMessageType] = useState<'success' | 'error'>('success');
 
@@ -56,8 +56,21 @@ export default function AdminSettingsPage() {
       try {
         const headers: Record<string, string> = {};
         if (typeof window !== 'undefined') {
+          // 1. Prioriza o sessionToken HMAC emitido pelo servidor
           const sessionToken = sessionStorage.getItem('amigo_hmac_session');
-          if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+          if (sessionToken) {
+            headers['Authorization'] = `Bearer ${sessionToken}`;
+          } else {
+            // 2. Se não houver sessionToken HMAC, tenta o token JWT do Supabase
+            try {
+              const { data: { session: sbSession } } = await supabase.auth.getSession();
+              if (sbSession?.access_token) {
+                headers['Authorization'] = `Bearer ${sbSession.access_token}`;
+              }
+            } catch {
+              // ignore
+            }
+          }
           if (user?.id) headers['x-amigo-uid'] = user.id;
           if (user?.email) headers['x-amigo-email'] = user.email;
         }
@@ -124,16 +137,32 @@ export default function AdminSettingsPage() {
     }
   };
 
-  const handleSave = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setSaving(true);
+  const saveSection = async (
+    section: 'all' | 'payments' | 'automation' | 'whatsapp',
+    payload: Partial<typeof form>,
+    successLabel: string
+  ) => {
+    setSavingSection(section);
     setMessage('');
 
     try {
       const headers: Record<string, string> = { 'Content-Type': 'application/json' };
       if (typeof window !== 'undefined') {
+        // 1. Prioriza o sessionToken HMAC emitido pelo servidor
         const sessionToken = sessionStorage.getItem('amigo_hmac_session');
-        if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+        if (sessionToken) {
+          headers['Authorization'] = `Bearer ${sessionToken}`;
+        } else {
+          // 2. Fallback para o access_token da sessão atual do Supabase
+          try {
+            const { data: { session: sbSession } } = await supabase.auth.getSession();
+            if (sbSession?.access_token) {
+              headers['Authorization'] = `Bearer ${sbSession.access_token}`;
+            }
+          } catch {
+            // ignore
+          }
+        }
         if (user?.id) headers['x-amigo-uid'] = user.id;
         if (user?.email) headers['x-amigo-email'] = user.email;
       }
@@ -142,23 +171,69 @@ export default function AdminSettingsPage() {
         method: 'POST',
         headers,
         credentials: 'same-origin',
-        body: JSON.stringify(form),
+        body: JSON.stringify(payload),
       });
 
-      const json = await res.json();
+      const json = await res.json().catch(() => ({}));
       if (!res.ok || !json?.ok) {
         setMessageType('error');
-        setMessage(json?.error || 'Erro ao salvar as configurações no servidor.');
+        setMessage(json?.error || `Erro (${res.status}): Não foi possível salvar ${successLabel.toLowerCase()}.`);
       } else {
         setMessageType('success');
-        setMessage(json.message || 'Configurações salvas com segurança no servidor!');
+        setMessage(`${successLabel} salvas com sucesso no servidor!`);
       }
-    } catch {
+    } catch (err: any) {
       setMessageType('error');
-      setMessage('Erro ao salvar as configurações no servidor.');
+      setMessage(err?.message || `Erro de conexão ao salvar ${successLabel.toLowerCase()} no servidor.`);
     } finally {
-      setSaving(false);
+      setSavingSection(null);
     }
+  };
+
+  const handleSavePayments = async (e?: React.MouseEvent | React.FormEvent) => {
+    if (e) e.preventDefault();
+    await saveSection(
+      'payments',
+      {
+        payment_provider: form.payment_provider,
+        pro_plan_price: form.pro_plan_price,
+        flex_plan_price: form.flex_plan_price,
+        mercadopago_access_token: form.mercadopago_access_token,
+        mercadopago_public_key: form.mercadopago_public_key,
+        webhook_secret: form.webhook_secret,
+      },
+      'Configurações de Integração de Pagamentos'
+    );
+  };
+
+  const handleSaveAutomation = async (e?: React.MouseEvent | React.FormEvent) => {
+    if (e) e.preventDefault();
+    await saveSection(
+      'automation',
+      {
+        maintenance_interval_months: form.maintenance_interval_months,
+        free_trial_days: form.free_trial_days,
+      },
+      'Configurações de Automação e Regras de Negócio'
+    );
+  };
+
+  const handleSaveWhatsApp = async (e?: React.MouseEvent | React.FormEvent) => {
+    if (e) e.preventDefault();
+    await saveSection(
+      'whatsapp',
+      {
+        whatsapp_api_url: form.whatsapp_api_url,
+        whatsapp_api_key: form.whatsapp_api_key,
+        whatsapp_instance_name: form.whatsapp_instance_name,
+      },
+      'Configurações da API do WhatsApp Master'
+    );
+  };
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    await saveSection('all', form, 'Todas as configurações do Painel Master');
   };
 
   if (loading) {
@@ -410,6 +485,28 @@ export default function AdminSettingsPage() {
                 />
               </div>
             </div>
+
+            {/* Botão de Salvar Exclusivo: Pagamentos */}
+            <div className="pt-2 border-t border-slate-800/80 flex justify-end">
+              <button
+                type="button"
+                onClick={handleSavePayments}
+                disabled={savingSection !== null}
+                className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.25)] cursor-pointer disabled:opacity-50 min-h-[44px] active:scale-98"
+              >
+                {savingSection === 'payments' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                    <span>Salvando Pagamentos...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 text-slate-950" />
+                    <span>Salvar Integração de Pagamentos</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
           {/* Bloco 2: Regras e Prazos do Sistema */}
@@ -462,6 +559,28 @@ export default function AdminSettingsPage() {
                   Dias de degustação das funções VIP para novos cadastros.
                 </p>
               </div>
+            </div>
+
+            {/* Botão de Salvar Exclusivo: Automação e Regras */}
+            <div className="pt-2 border-t border-slate-800/80 flex justify-end">
+              <button
+                type="button"
+                onClick={handleSaveAutomation}
+                disabled={savingSection !== null}
+                className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(14,165,233,0.25)] cursor-pointer disabled:opacity-50 min-h-[44px] active:scale-98"
+              >
+                {savingSection === 'automation' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                    <span>Salvando Regras...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 text-slate-950" />
+                    <span>Salvar Automação e Regras de Negócio</span>
+                  </>
+                )}
+              </button>
             </div>
           </div>
 
@@ -519,23 +638,45 @@ export default function AdminSettingsPage() {
                 />
               </div>
             </div>
+
+            {/* Botão de Salvar Exclusivo: WhatsApp Master */}
+            <div className="pt-2 border-t border-slate-800/80 flex justify-end">
+              <button
+                type="button"
+                onClick={handleSaveWhatsApp}
+                disabled={savingSection !== null}
+                className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.25)] cursor-pointer disabled:opacity-50 min-h-[44px] active:scale-98"
+              >
+                {savingSection === 'whatsapp' ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                    <span>Salvando WhatsApp...</span>
+                  </>
+                ) : (
+                  <>
+                    <Save className="w-4 h-4 text-slate-950" />
+                    <span>Salvar API do WhatsApp Master</span>
+                  </>
+                )}
+              </button>
+            </div>
           </div>
 
-          {/* Botão de Salvar */}
+          {/* Botão de Salvar Geral */}
           <button
             type="submit"
-            disabled={saving}
-            className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-sm transition flex items-center justify-center gap-2 shadow-[0_0_30px_rgba(245,158,11,0.3)] cursor-pointer disabled:opacity-50 min-h-[50px] active:scale-98"
+            disabled={savingSection !== null}
+            className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-slate-800 to-slate-700 hover:from-slate-700 hover:to-slate-600 border border-slate-700 text-slate-200 font-bold text-sm transition flex items-center justify-center gap-2 shadow-lg cursor-pointer disabled:opacity-50 min-h-[50px] active:scale-98"
           >
-            {saving ? (
+            {savingSection === 'all' ? (
               <>
-                <Loader2 className="w-5 h-5 animate-spin text-slate-950" />
-                <span>Salvando Configurações...</span>
+                <Loader2 className="w-5 h-5 animate-spin text-amber-400" />
+                <span>Salvando Todas as Configurações...</span>
               </>
             ) : (
               <>
-                <Save className="w-5 h-5 text-slate-950" />
-                <span>Salvar Alterações do Painel Master</span>
+                <Save className="w-5 h-5 text-amber-400" />
+                <span>Salvar Todas as Configurações de Uma Vez</span>
               </>
             )}
           </button>
