@@ -124,6 +124,7 @@ export async function POST(req: NextRequest) {
           : plan === 'flex'
           ? 19.9
           : 39.9;
+      const amountCents = Math.round(Number(amountPaid) * 100);
 
       const cycleDays = Number(meta.cycle_days) > 0 ? Number(meta.cycle_days) : 30;
       const approvedAt = new Date();
@@ -200,7 +201,7 @@ export async function POST(req: NextRequest) {
             userEmail: targetEmail || null,
             plan,
             status: 'approved',
-            amount: String(amountPaid),
+            amount: amountCents,
             approvedAt,
             expiresAt: new Date(expiresAtIso),
             processedAt: new Date(),
@@ -209,6 +210,7 @@ export async function POST(req: NextRequest) {
             target: processedPayments.paymentId,
             set: {
               status: 'approved',
+              amount: amountCents,
               expiresAt: new Date(expiresAtIso),
               processedAt: new Date(),
             },

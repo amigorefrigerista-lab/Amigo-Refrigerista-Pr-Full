@@ -82,7 +82,7 @@ export async function POST(req: NextRequest) {
     const activeProvider = requestedProvider || settings.payment_provider || 'mercadopago';
     const stripeCreds = resolveStripeCredentials(settings);
 
-    // 0. Gateway Internacional Stripe (quando selecionado como gateway principal ou requisitado no checkout)
+    // 0. Gateway Internacional Stripe
     if (activeProvider === 'stripe' && stripeCreds.isConfigured) {
       try {
         const stripeResult = await createStripeCheckoutSession(
