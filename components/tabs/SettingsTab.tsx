@@ -28,7 +28,12 @@ import {
   Trash2,
   Check,
   Shield,
-  LogOut
+  LogOut,
+  CreditCard,
+  Zap,
+  ArrowRight,
+  Copy,
+  Loader2
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { SmtpConfig, SmtpEmailLog, testSmtpConnectionAction } from '@/app/actions/smtpActions';
@@ -140,6 +145,136 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
 
   // Estados de Dados da Empresa
   const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
+
+  // Estados de Integração de Pagamentos (Plano Flex ou PRO + Cartão de Crédito / PIX)
+  const [selectedPlanOption, setSelectedPlanOption] = useState<'flex' | 'pro'>('pro');
+  const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'credit_card' | 'pix'>('credit_card');
+  const [enableCreditCardConfig, setEnableCreditCardConfig] = useState(true);
+  const [enableRecurringCreditCard, setEnableRecurringCreditCard] = useState(true);
+  const [selectedCardGateway, setSelectedCardGateway] = useState<'stripe' | 'mercadopago'>('stripe');
+  const [maxInstallmentsConfig, setMaxInstallmentsConfig] = useState(1);
+  const [cardHolderName, setCardHolderName] = useState('');
+  const [cardDocument, setCardDocument] = useState('');
+  const [planPrices, setPlanPrices] = useState({ flexPrice: 19.9, proPrice: 39.9, provider: 'stripe' });
+  const [isProcessingPayment, setIsProcessingPayment] = useState(false);
+  const [pixCheckoutData, setPixCheckoutData] = useState<{
+    qr_code: string;
+    qr_code_base64?: string;
+    qr_code_url?: string;
+    amount: number;
+    plan: string;
+  } | null>(null);
+  const [copiedPixCode, setCopiedPixCode] = useState(false);
+
+  // Carrega configurações públicas de planos e cartão da API
+  useEffect(() => {
+    fetch('/api/checkout')
+      .then((res) => res.json())
+      .then((data) => {
+        if (data && !data.error) {
+          const flexVal = Number(data?.plans?.flex?.price || data?.flex_plan_price || 19.9);
+          const proVal = Number(data?.plans?.pro?.price || data?.pro_plan_price || 39.9);
+          const providerVal = data?.paymentConfig?.provider || data?.payment_provider || 'stripe';
+          setPlanPrices({
+            flexPrice: flexVal,
+            proPrice: proVal,
+            provider: providerVal,
+          });
+          if (providerVal === 'stripe' || data?.paymentConfig?.creditCardGateway === 'stripe') {
+            setSelectedCardGateway('stripe');
+          } else if (providerVal === 'mercadopago') {
+            setSelectedCardGateway('mercadopago');
+          }
+          if (data?.paymentConfig?.creditCardEnabled !== undefined) {
+            setEnableCreditCardConfig(Boolean(data.paymentConfig.creditCardEnabled));
+          } else if (typeof data.enable_credit_card === 'boolean') {
+            setEnableCreditCardConfig(data.enable_credit_card);
+          }
+          if (data?.paymentConfig?.creditCardRecurringEnabled !== undefined) {
+            setEnableRecurringCreditCard(Boolean(data.paymentConfig.creditCardRecurringEnabled));
+          }
+          if (data?.paymentConfig?.creditCardMaxInstallments) {
+            setMaxInstallmentsConfig(Number(data.paymentConfig.creditCardMaxInstallments));
+          } else if (data.max_installments) {
+            setMaxInstallmentsConfig(Number(data.max_installments));
+          }
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleTriggerPaymentCheckout = async () => {
+    if (!user) {
+      toast.error('Faça login para assinar ou alterar seu plano.');
+      return;
+    }
+
+    setIsProcessingPayment(true);
+    setPixCheckoutData(null);
+
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+        if (sessionToken) {
+          headers['Authorization'] = `Bearer ${sessionToken}`;
+        }
+        if (user.uid) headers['x-amigo-uid'] = user.uid;
+        if (user.email) headers['x-amigo-email'] = user.email;
+      }
+
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          userId: user.uid,
+          email: user.email,
+          userName: cardHolderName.trim() || profile?.name || user.displayName || 'Técnico HVAC',
+          planType: selectedPlanOption,
+          plan: selectedPlanOption,
+          paymentMethod: selectedPaymentMethod,
+          installments: maxInstallmentsConfig,
+          billingCycle:
+            selectedPaymentMethod === 'credit_card' && enableRecurringCreditCard
+              ? 'recurring'
+              : 'single_30d',
+          provider: selectedPaymentMethod === 'credit_card' ? selectedCardGateway : undefined,
+          returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok) {
+        throw new Error(data.error || 'Erro ao iniciar pagamento.');
+      }
+
+      if (data.init_point) {
+        toast.success(
+          `Redirecionando para pagamento seguro com Cartão de Crédito (${selectedCardGateway === 'stripe' ? 'Stripe' : 'Mercado Pago'} - Plano ${selectedPlanOption.toUpperCase()})...`
+        );
+        window.location.href = data.init_point;
+        return;
+      }
+
+      if (data.pix || data.qr_code) {
+        const copyPaste = data.pix?.copy_paste || data.qr_code;
+        setPixCheckoutData({
+          qr_code: copyPaste,
+          qr_code_base64: data.qr_code_base64,
+          qr_code_url: data.pix?.qr_code_url,
+          amount: Number(
+            data.amount || (selectedPlanOption === 'flex' ? planPrices.flexPrice : planPrices.proPrice)
+          ),
+          plan: selectedPlanOption,
+        });
+        toast.success(`QR Code PIX gerado para o Plano ${selectedPlanOption.toUpperCase()}!`);
+      }
+    } catch (err: any) {
+      toast.error(err.message || 'Não foi possível iniciar o checkout.');
+    } finally {
+      setIsProcessingPayment(false);
+    }
+  };
 
   // Carregar do localStorage na inicialização
   useEffect(() => {
@@ -831,16 +966,375 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
           </div>
         </div>
 
-        {/* 3. SEÇÃO DE ASSINATURA & PLANO */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4">
-          <div className="border-b border-slate-800 pb-3 flex items-center justify-between">
-            <h3 className="text-base font-bold text-white flex items-center gap-2">
-              <Crown size={18} className="text-amber-400" />
-              <span>Minha Conta & Licença</span>
-            </h3>
-            <span className="text-xs px-2.5 py-1 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30">
-              {profile?.isVip ? 'VIP Vitalício' : profile?.subscription?.plan?.toUpperCase() || 'PRO'}
+        {/* 3. SEÇÃO DE INTEGRAÇÃO DE PAGAMENTOS & PLANOS (FLEX OU PRO + CARTÃO DE CRÉDITO) */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-6">
+          <div className="border-b border-slate-800 pb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-3">
+              <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                <CreditCard size={20} />
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-white flex items-center gap-2">
+                  <span>Integração de Pagamentos & Escolha de Plano</span>
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  Escolha entre o <strong>Plano Flex</strong> ou <strong>Plano PRO</strong> e configure o pagamento via <strong>Cartão de Crédito</strong> ou PIX.
+                </p>
+              </div>
+            </div>
+            <span className="text-xs px-3 py-1 rounded-full bg-amber-500/20 text-amber-300 font-bold border border-amber-500/30 self-start sm:self-center">
+              Plano Atual: {profile?.isVip ? 'VIP Vitalício' : profile?.subscription?.plan?.toUpperCase() || 'GRÁTIS'}
             </span>
+          </div>
+
+          {/* 3.1 Escolha do Plano: Flex vs PRO */}
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                <Crown size={14} className="text-amber-400" />
+                <span>1. Escolha o Plano Desejado (Flex ou PRO)</span>
+              </label>
+              <span className="text-[11px] font-bold text-slate-400">
+                Selecionado: <strong className={selectedPlanOption === 'pro' ? 'text-amber-400' : 'text-sky-400'}>
+                  {selectedPlanOption === 'pro' ? 'Plano PRO Ilimitado' : 'Plano Flex Intermediário'}
+                </strong>
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              {/* Card Plano Flex */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPlanOption('flex');
+                  setPixCheckoutData(null);
+                }}
+                className={`p-4 rounded-2xl border text-left transition cursor-pointer relative overflow-hidden ${
+                  selectedPlanOption === 'flex'
+                    ? 'bg-sky-500/15 border-sky-500 ring-2 ring-sky-500/25 shadow-lg shadow-sky-500/10'
+                    : 'bg-slate-950/90 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-sky-500/20 text-sky-300 border border-sky-500/30">
+                    <Zap size={11} /> PLANO FLEX
+                  </span>
+                  {selectedPlanOption === 'flex' && (
+                    <span className="px-2 py-0.5 rounded bg-sky-500 text-slate-950 text-[9px] font-black uppercase">
+                      SELECIONADO
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xs text-slate-400 font-bold">R$</span>
+                  <span className="text-2xl font-black text-white">
+                    {planPrices.flexPrice.toFixed(2).replace('.', ',')}
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-semibold">/mês</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                  Ideal para técnicos em expansão: até 25 clientes, 30 Ordens de Serviço/mês, Superaquecimento e Orçamentos PDF.
+                </p>
+              </button>
+
+              {/* Card Plano PRO */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedPlanOption('pro');
+                  setPixCheckoutData(null);
+                }}
+                className={`p-4 rounded-2xl border text-left transition cursor-pointer relative overflow-hidden ${
+                  selectedPlanOption === 'pro'
+                    ? 'bg-amber-500/15 border-amber-500 ring-2 ring-amber-500/25 shadow-lg shadow-amber-500/10'
+                    : 'bg-slate-950/90 border-slate-800 hover:border-slate-700'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-2">
+                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                    <Crown size={11} /> PLANO PRO
+                  </span>
+                  <span className="px-2 py-0.5 rounded bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-[9px] font-black uppercase">
+                    MAIS COMPLETO
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-1 mt-1">
+                  <span className="text-xs text-slate-400 font-bold">R$</span>
+                  <span className="text-2xl font-black text-white">
+                    {planPrices.proPrice.toFixed(2).replace('.', ',')}
+                  </span>
+                  <span className="text-[11px] text-slate-400 font-semibold">/mês</span>
+                </div>
+                <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
+                  Acesso 100% ilimitado: Clientes e OS sem limites, IA Diagnóstico, Leitor OCR de Placas, PMOC e Lembretes WhatsApp.
+                </p>
+              </button>
+            </div>
+          </div>
+
+          {/* 3.2 Configuração para Pagamento no Cartão de Crédito e Escolha de Método */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+              <div>
+                <h4 className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-2">
+                  <CreditCard size={15} className="text-indigo-400" />
+                  <span>2. Configuração para Pagamento no Cartão de Crédito</span>
+                </h4>
+                <p className="text-[11px] text-slate-400 mt-0.5">
+                  Habilite e configure o pagamento com Cartão de Crédito (Visa, Mastercard, Elo, Hipercard, Amex) ou PIX.
+                </p>
+              </div>
+
+              {/* Toggle Habilitar Pagamento no Cartão de Crédito */}
+              <label className="flex items-center gap-2.5 cursor-pointer bg-slate-900 px-3.5 py-2 rounded-xl border border-indigo-500/30 shrink-0">
+                <span className="text-xs font-bold text-indigo-300">Habilitar Cartão de Crédito</span>
+                <input
+                  type="checkbox"
+                  checked={enableCreditCardConfig}
+                  onChange={(e) => {
+                    const checked = e.target.checked;
+                    setEnableCreditCardConfig(checked);
+                    if (!checked && selectedPaymentMethod === 'credit_card') {
+                      setSelectedPaymentMethod('pix');
+                    } else if (checked) {
+                      setSelectedPaymentMethod('credit_card');
+                    }
+                  }}
+                  className="w-4 h-4 rounded text-indigo-500 focus:ring-indigo-400 bg-slate-950 border-slate-700 cursor-pointer"
+                />
+              </label>
+            </div>
+
+            {/* Abas de Método de Pagamento: Cartão de Crédito vs PIX */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <button
+                type="button"
+                disabled={!enableCreditCardConfig}
+                onClick={() => {
+                  setSelectedPaymentMethod('credit_card');
+                  setPixCheckoutData(null);
+                }}
+                className={`p-3.5 rounded-xl border text-left transition flex items-center gap-3 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed ${
+                  selectedPaymentMethod === 'credit_card'
+                    ? 'bg-indigo-500/20 border-indigo-500 text-white shadow-md'
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className={`p-2 rounded-lg ${selectedPaymentMethod === 'credit_card' ? 'bg-indigo-500 text-white' : 'bg-slate-800 text-slate-400'}`}>
+                  <CreditCard size={18} />
+                </div>
+                <div>
+                  <span className="text-xs font-black block">Cartão de Crédito</span>
+                  <span className="text-[10px] text-slate-400 block">
+                    Até {maxInstallmentsConfig}x ou assinatura mensal automática
+                  </span>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setSelectedPaymentMethod('pix')}
+                className={`p-3.5 rounded-xl border text-left transition flex items-center gap-3 cursor-pointer ${
+                  selectedPaymentMethod === 'pix'
+                    ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-md'
+                    : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                <div className={`p-2 rounded-lg ${selectedPaymentMethod === 'pix' ? 'bg-emerald-500 text-slate-950' : 'bg-slate-800 text-slate-400'}`}>
+                  <QrCode size={18} />
+                </div>
+                <div>
+                  <span className="text-xs font-black block">PIX Instantâneo</span>
+                  <span className="text-[10px] text-slate-400 block">
+                    QR Code e Copia e Cola com liberação na hora
+                  </span>
+                </div>
+              </button>
+            </div>
+
+            {/* Opções de Configuração do Cartão de Crédito */}
+            {selectedPaymentMethod === 'credit_card' && enableCreditCardConfig && (
+              <div className="p-4 rounded-xl bg-indigo-950/20 border border-indigo-500/30 space-y-4 text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2 border-b border-indigo-500/20">
+                  <span className="font-bold text-indigo-300 flex items-center gap-1.5">
+                    <CreditCard size={14} />
+                    <span>Opções de Pagamento & Recorrência no Cartão de Crédito</span>
+                  </span>
+
+                  {/* Toggle Habilitar/Desabilitar Pagamentos Recorrentes por Cartão de Crédito */}
+                  <label className="flex items-center gap-2 cursor-pointer bg-slate-900 px-3 py-1.5 rounded-lg border border-indigo-500/40">
+                    <span className="text-[11px] font-bold text-indigo-200">
+                      Pagamentos Recorrentes por Cartão
+                    </span>
+                    <input
+                      type="checkbox"
+                      checked={enableRecurringCreditCard}
+                      onChange={(e) => setEnableRecurringCreditCard(e.target.checked)}
+                      className="w-4 h-4 rounded text-indigo-500 bg-slate-950 border-slate-700 cursor-pointer"
+                    />
+                  </label>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  <div>
+                    <label className="text-slate-400 block mb-1 font-semibold text-[11px]">
+                      Gateway do Cartão de Crédito:
+                    </label>
+                    <select
+                      value={selectedCardGateway}
+                      onChange={(e) =>
+                        setSelectedCardGateway(e.target.value as 'stripe' | 'mercadopago')
+                      }
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value="stripe">Stripe (Nacional & Internacional)</option>
+                      <option value="mercadopago">Mercado Pago Pro</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="text-slate-400 block mb-1 font-semibold text-[11px]">
+                      Nome do Titular do Cartão:
+                    </label>
+                    <input
+                      type="text"
+                      placeholder={profile?.name || user?.displayName || 'Nome impresso no cartão'}
+                      value={cardHolderName}
+                      onChange={(e) => setCardHolderName(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-slate-400 block mb-1 font-semibold text-[11px]">
+                      CPF / CNPJ do Titular:
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="000.000.000-00"
+                      value={cardDocument}
+                      onChange={(e) => setCardDocument(e.target.value)}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white placeholder-slate-600 focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="text-slate-400 block mb-1 font-semibold text-[11px]">
+                      Ciclo / Parcelamento no Cartão:
+                    </label>
+                    <select
+                      value={maxInstallmentsConfig}
+                      onChange={(e) => setMaxInstallmentsConfig(Number(e.target.value))}
+                      className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-indigo-500"
+                    >
+                      <option value={1}>
+                        {enableRecurringCreditCard
+                          ? 'Assinatura Mensal Recorrente (1x)'
+                          : 'Ciclo Avulso 30 Dias (1x sem recorrência)'}
+                      </option>
+                      <option value={2}>Até 2x no cartão</option>
+                      <option value={3}>Até 3x no cartão</option>
+                      <option value={6}>Até 6x no cartão</option>
+                      <option value={10}>Até 10x no cartão</option>
+                      <option value={12}>Até 12x no cartão</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Resultado QR Code PIX se gerado */}
+            {pixCheckoutData && selectedPaymentMethod === 'pix' && (
+              <div className="p-4 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-3 text-center">
+                <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-2">
+                  <span className="font-bold text-emerald-400">
+                    QR Code PIX — Plano {pixCheckoutData.plan.toUpperCase()}
+                  </span>
+                  <span className="font-mono font-black text-white">
+                    R$ {pixCheckoutData.amount.toFixed(2).replace('.', ',')}
+                  </span>
+                </div>
+
+                {(pixCheckoutData.qr_code_base64 || pixCheckoutData.qr_code_url) && (
+                  <div className="bg-white p-3 rounded-xl inline-block mx-auto">
+                    <img
+                      src={
+                        pixCheckoutData.qr_code_base64
+                          ? `data:image/png;base64,${pixCheckoutData.qr_code_base64}`
+                          : pixCheckoutData.qr_code_url
+                      }
+                      alt="QR Code PIX"
+                      className="w-40 h-40 mx-auto"
+                    />
+                  </div>
+                )}
+
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    readOnly
+                    value={pixCheckoutData.qr_code}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-[11px] font-mono text-slate-300"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(pixCheckoutData.qr_code);
+                      setCopiedPixCode(true);
+                      toast.success('Código PIX copiado!');
+                      setTimeout(() => setCopiedPixCode(false), 3000);
+                    }}
+                    className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs flex items-center gap-1.5 cursor-pointer shrink-0"
+                  >
+                    {copiedPixCode ? <Check size={14} /> : <Copy size={14} />}
+                    <span>{copiedPixCode ? 'Copiado' : 'Copiar'}</span>
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Botão Principal de Pagamento */}
+            <button
+              type="button"
+              disabled={isProcessingPayment}
+              onClick={handleTriggerPaymentCheckout}
+              className={`w-full py-3.5 px-5 rounded-2xl font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-lg disabled:opacity-50 ${
+                selectedPlanOption === 'pro'
+                  ? 'bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 hover:from-amber-400 hover:to-orange-400 text-slate-950 shadow-amber-500/20'
+                  : 'bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 shadow-sky-500/20'
+              }`}
+            >
+              {isProcessingPayment ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>Iniciando Pagamento Seguro...</span>
+                </>
+              ) : selectedPaymentMethod === 'credit_card' ? (
+                <>
+                  <CreditCard size={16} />
+                  <span>
+                    Pagar Plano {selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} no Cartão de Crédito (R${' '}
+                    {(selectedPlanOption === 'pro' ? planPrices.proPrice : planPrices.flexPrice)
+                      .toFixed(2)
+                      .replace('.', ',')}
+                    )
+                  </span>
+                  <ArrowRight size={15} />
+                </>
+              ) : (
+                <>
+                  <QrCode size={16} />
+                  <span>
+                    Gerar PIX do Plano {selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} (R${' '}
+                    {(selectedPlanOption === 'pro' ? planPrices.proPrice : planPrices.flexPrice)
+                      .toFixed(2)
+                      .replace('.', ',')}
+                    )
+                  </span>
+                  <ArrowRight size={15} />
+                </>
+              )}
+            </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
@@ -859,10 +1353,10 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
             <button
               type="button"
               onClick={onOpenUpgradeModal}
-              className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-amber-500/10"
+              className="w-full py-3 px-4 rounded-2xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-amber-300 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer"
             >
               <Gift size={16} />
-              <span>Resgatar Nova Licença / Gerenciar Assinatura</span>
+              <span>Abrir Modal Completo de Planos / Resgatar Código de Licença</span>
             </button>
           )}
 

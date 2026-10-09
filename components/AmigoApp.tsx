@@ -73,6 +73,7 @@ import {
   generateWhatsAppReminderLink, 
   calculateNextMaintenanceDate,
   calculateReminderAlertDate,
+  dispatchWhatsAppMaintenanceReminder,
   DEFAULT_WHATSAPP_TEMPLATE,
   ServiceOrder
 } from '@/lib/reminderUtils';
@@ -381,6 +382,7 @@ export default function AmigoApp() {
   const [remNotes, setRemNotes] = useState('');
   const [remServiceDate, setRemServiceDate] = useState(new Date().toISOString().split('T')[0]);
   const [autoScheduleReminder, setAutoScheduleReminder] = useState(true);
+  const [sendWhatsAppImmediately, setSendWhatsAppImmediately] = useState(false);
   const [serviceOrders, setServiceOrders] = useState<ServiceOrder[]>([]);
   const [defaultOrderStatus, setDefaultOrderStatus] = useState<'Pending' | 'In Progress' | 'Completed'>('Completed');
   const [editingOsId, setEditingOsId] = useState<string | null>(null);
@@ -1012,6 +1014,66 @@ export default function AmigoApp() {
       }
 
       setServiceOrders(prev => [newOS, ...prev]);
+
+      // Integração com o serviço de disparo de Lembrete de Manutenção via WhatsApp
+      if (autoScheduleReminder) {
+        const newReminder: MaintenanceReminder = {
+          id: `rem-${Date.now()}`,
+          orderNumber,
+          clientName: remClientName.trim(),
+          clientPhone: remClientPhone.trim(),
+          clientAddress: remClientAddress.trim(),
+          equipment: remEquipment.trim(),
+          serviceDate: remServiceDate,
+          monthsInterval: remMonths,
+          reminderDaysBefore: remDaysBefore,
+          alertDate,
+          nextServiceDate: targetDueDate,
+          technicianName: profile?.name || user?.displayName || 'Técnico Especialista',
+          companyName: profile?.empresa || profile?.name || 'Amigo Refrigerista Pro',
+          notes: remNotes.trim(),
+          status: sendWhatsAppImmediately ? 'sent' : 'pending',
+          createdAt: new Date().toISOString(),
+        };
+
+        setReminders((prev) => [newReminder, ...prev]);
+
+        const dispatchRes = await dispatchWhatsAppMaintenanceReminder({
+          reminder: newReminder,
+          customTemplate: waTemplate,
+          dispatchNow: sendWhatsAppImmediately,
+        });
+
+        if (dispatchRes.apiDispatched) {
+          toast.success(
+            dispatchRes.message ||
+              `📲 Lembrete da OS #${orderNumber} disparado automaticamente via API do WhatsApp!`
+          );
+        } else if (sendWhatsAppImmediately && typeof window !== 'undefined') {
+          const a = document.createElement('a');
+          a.href = dispatchRes.waLink;
+          a.target = '_blank';
+          a.rel = 'noopener noreferrer';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          toast.success(
+            `📲 Abrindo WhatsApp para disparo do Lembrete de Manutenção (${
+              remDaysBefore === 0 ? 'no dia do vencimento' : `${remDaysBefore} dias antes`
+            })!`
+          );
+        } else {
+          toast.success(
+            dispatchRes.message ||
+              `🔔 Lembrete de Manutenção agendado no WhatsApp para ${new Date(
+                alertDate + 'T12:00:00'
+              ).toLocaleDateString('pt-BR')} (${
+                remDaysBefore === 0 ? 'no dia da data' : `${remDaysBefore} dias antes da data`
+              })!`
+          );
+        }
+      }
+
       setShowOSModal(false);
 
       // Limpa campos
@@ -1021,6 +1083,7 @@ export default function AmigoApp() {
       setRemClientAddress('');
       setRemEquipment('');
       setRemNotes('');
+      setSendWhatsAppImmediately(false);
     } catch (err: any) {
       console.error(err);
       toast.error('Erro ao salvar Ordem de Serviço.');
@@ -1060,9 +1123,9 @@ export default function AmigoApp() {
 
   if (authLoading) {
     return (
-      <div className="min-h-screen bg-[#070e1c] flex flex-col items-center justify-center p-6 space-y-4">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] flex flex-col items-center justify-center p-6 space-y-4">
         <div className="w-12 h-12 border-4 border-sky-500 border-t-transparent rounded-full animate-spin" />
-        <p className="text-slate-300 text-sm font-semibold">Iniciando Amigo Refrigerista Pro...</p>
+        <p className="text-slate-700 dark:text-slate-300 text-sm font-semibold">Iniciando Amigo Refrigerista Pro...</p>
       </div>
     );
   }
@@ -2311,29 +2374,30 @@ export default function AmigoApp() {
                       data={monthlyChartData}
                       margin={{ top: 10, right: 10, left: -20, bottom: 0 }}
                     >
-                      <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                      <CartesianGrid strokeDasharray="3 3" stroke={isDark ? '#1e293b' : '#e2e8f0'} vertical={false} />
                       <XAxis 
                         dataKey="month" 
-                        stroke="#64748b" 
+                        stroke={isDark ? '#64748b' : '#475569'} 
                         fontSize={11}
                         tickLine={false}
                         axisLine={false}
                       />
                       <YAxis 
-                        stroke="#64748b" 
+                        stroke={isDark ? '#64748b' : '#475569'} 
                         fontSize={10}
                         tickLine={false}
                         axisLine={false}
                         tickFormatter={(v) => `R$ ${v}`}
                       />
                       <Tooltip
-                        cursor={{ fill: '#334155', opacity: 0.15 }}
+                        cursor={{ fill: isDark ? '#334155' : '#cbd5e1', opacity: 0.2 }}
                         contentStyle={{
-                          backgroundColor: '#020617',
-                          border: '1px solid #334155',
+                          backgroundColor: isDark ? '#020617' : '#ffffff',
+                          border: isDark ? '1px solid #334155' : '1px solid #cbd5e1',
                           borderRadius: '16px',
                           fontSize: '11px',
-                          color: '#fff'
+                          color: isDark ? '#fff' : '#0f172a',
+                          boxShadow: isDark ? undefined : '0 10px 25px -5px rgba(15, 23, 42, 0.12)'
                         }}
                         formatter={(value: any, name: any) => [
                           `R$ ${parseFloat(value).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`,
@@ -2345,9 +2409,9 @@ export default function AmigoApp() {
                         height={36} 
                         iconType="circle"
                         iconSize={8}
-                        wrapperStyle={{ fontSize: '11px', color: '#94a3b8' }}
+                        wrapperStyle={{ fontSize: '11px', color: isDark ? '#94a3b8' : '#475569' }}
                       />
-                      <Bar dataKey="Receitas" fill="#34d399" radius={[4, 4, 0, 0]} barSize={24} />
+                      <Bar dataKey="Receitas" fill="#10b981" radius={[4, 4, 0, 0]} barSize={24} />
                       <Bar dataKey="Despesas" fill="#f43f5e" radius={[4, 4, 0, 0]} barSize={24} />
                     </BarChart>
                   </ResponsiveContainer>
@@ -2628,9 +2692,30 @@ export default function AmigoApp() {
                             href={waLink}
                             target="_blank"
                             rel="noopener noreferrer"
-                            onClick={() => {
-                              setReminders(prev => prev.map(r => r.id === rem.id ? { ...r, status: 'sent' } : r));
-                              toast.success('Gerando conversa no WhatsApp com mensagem de lembrete pronta!');
+                            onClick={(e) => {
+                              setReminders((prev) =>
+                                prev.map((r) => (r.id === rem.id ? { ...r, status: 'sent' } : r))
+                              );
+                              dispatchWhatsAppMaintenanceReminder({
+                                reminder: {
+                                  ...rem,
+                                  technicianName:
+                                    profile?.name || user?.displayName || 'Técnico Especialista',
+                                  companyName: profile?.empresa || 'Amigo Refrigerista Pro',
+                                  reminderDaysBefore: daysBefore,
+                                },
+                                customTemplate: waTemplate,
+                                dispatchNow: true,
+                              })
+                                .then((res) => {
+                                  if (res.apiDispatched && res.message) {
+                                    toast.success(res.message);
+                                  }
+                                })
+                                .catch(() => {});
+                              toast.success(
+                                'Disparando lembrete de manutenção via WhatsApp!'
+                              );
                             }}
                             className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-2 shadow-md cursor-pointer"
                           >
@@ -4350,40 +4435,65 @@ export default function AmigoApp() {
                 </div>
               </div>
 
-              <div className="p-3 rounded-2xl bg-slate-950 border border-slate-800 space-y-3">
-                <div className="flex items-center gap-2.5 text-slate-300">
-                  <input
-                    type="checkbox"
-                    id="autoScheduleReminder"
-                    checked={autoScheduleReminder}
-                    onChange={(e) => setAutoScheduleReminder(e.target.checked)}
-                    className="rounded border-slate-800 bg-slate-900 text-emerald-500 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
-                  />
-                  <label htmlFor="autoScheduleReminder" className="font-bold cursor-pointer text-white">
-                    Agendar Lembrete de Preventiva Automaticamente no WhatsApp
-                  </label>
+              <div className="p-3.5 rounded-2xl bg-slate-950 border border-emerald-500/30 space-y-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2.5 text-slate-300">
+                    <input
+                      type="checkbox"
+                      id="autoScheduleReminder"
+                      checked={autoScheduleReminder}
+                      onChange={(e) => setAutoScheduleReminder(e.target.checked)}
+                      className="rounded border-slate-800 bg-slate-900 text-emerald-500 focus:ring-emerald-500 w-4 h-4 cursor-pointer"
+                    />
+                    <label htmlFor="autoScheduleReminder" className="font-bold cursor-pointer text-white flex items-center gap-1.5">
+                      <BellRing size={14} className="text-emerald-400 shrink-0" />
+                      <span>Lembrete de Manutenção (Disparo via WhatsApp)</span>
+                    </label>
+                  </div>
+                  <span className="px-2 py-0.5 rounded-full text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 shrink-0">
+                    WHATSAPP API
+                  </span>
                 </div>
 
-                {/* Seletor de Antecedência do Lembrete */}
+                {/* Configuração de Antecedência (dias antes da data) e Integração WhatsApp */}
                 {autoScheduleReminder && (
-                  <div className="pt-2 border-t border-slate-900 space-y-2.5">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5">
-                        <Clock size={13} className="text-emerald-400" />
-                        <span>Antecedência do Disparo do Lembrete</span>
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                        {remDaysBefore === 0 ? 'No dia do vencimento' : `${remDaysBefore} dias antes`}
-                      </span>
+                  <div className="pt-2.5 border-t border-slate-900 space-y-3">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                      <label
+                        htmlFor="reminderDaysBeforeInput"
+                        className="text-[11px] font-bold text-slate-300 flex items-center gap-1.5"
+                      >
+                        <Clock size={13} className="text-emerald-400 shrink-0" />
+                        <span>Antecedência do Lembrete (dias antes da data)</span>
+                      </label>
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          id="reminderDaysBeforeInput"
+                          type="number"
+                          min={0}
+                          max={180}
+                          value={remDaysBefore}
+                          onChange={(e) =>
+                            setRemDaysBefore(
+                              Math.max(0, Math.min(180, parseInt(e.target.value, 10) || 0))
+                            )
+                          }
+                          className="w-16 px-2 py-1 text-center font-mono font-bold text-xs bg-slate-900 border border-emerald-500/40 rounded-lg text-emerald-300 focus:outline-none focus:border-emerald-400"
+                        />
+                        <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg border border-emerald-500/20">
+                          {remDaysBefore === 0 ? 'No dia da data' : `${remDaysBefore} dias antes`}
+                        </span>
+                      </div>
                     </div>
 
-                    <div className="grid grid-cols-5 gap-1.5">
+                    <div className="grid grid-cols-6 gap-1.5">
                       {[
-                        { days: 0, label: '0 dias', sub: 'no dia' },
-                        { days: 3, label: '3 dias', sub: 'ideal' },
-                        { days: 5, label: '5 dias', sub: 'antes' },
-                        { days: 7, label: '7 dias', sub: '1 sem' },
-                        { days: 15, label: '15 dias', sub: '2 sem' }
+                        { days: 0, label: '0d', sub: 'no dia' },
+                        { days: 1, label: '1d', sub: 'véspera' },
+                        { days: 3, label: '3d', sub: 'ideal' },
+                        { days: 5, label: '5d', sub: 'antes' },
+                        { days: 7, label: '7d', sub: '1 sem' },
+                        { days: 15, label: '15d', sub: '2 sem' }
                       ].map((item) => (
                         <button
                           key={item.days}
@@ -4401,22 +4511,100 @@ export default function AmigoApp() {
                       ))}
                     </div>
 
-                    {/* Prévia da data calculada */}
+                    {/* Prévia da data calculada e integração com disparo WhatsApp */}
                     {(() => {
                       const targetDate = calculateNextMaintenanceDate(remServiceDate, remMonths);
                       const alertDate = calculateReminderAlertDate(targetDate, remDaysBefore);
                       const formattedTarget = new Date(targetDate + 'T12:00:00').toLocaleDateString('pt-BR');
                       const formattedAlert = new Date(alertDate + 'T12:00:00').toLocaleDateString('pt-BR');
 
+                      const previewReminder: MaintenanceReminder = {
+                        orderNumber: nextOrderNumber,
+                        clientName: remClientName.trim() || 'Cliente',
+                        clientPhone: remClientPhone.trim() || '5511999999999',
+                        clientAddress: remClientAddress.trim(),
+                        equipment: remEquipment.trim() || 'Ar-Condicionado Split',
+                        serviceDate: remServiceDate,
+                        monthsInterval: remMonths,
+                        reminderDaysBefore: remDaysBefore,
+                        alertDate,
+                        nextServiceDate: targetDate,
+                        technicianName: profile?.name || user?.displayName || 'Técnico Especialista',
+                        companyName: profile?.empresa || profile?.name || 'Amigo Refrigerista Pro',
+                      };
+
                       return (
-                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 text-[10px] space-y-1 font-mono">
-                          <div className="flex items-center justify-between text-slate-300">
-                            <span>🎯 Data de Vencimento:</span>
-                            <strong className="text-white">{formattedTarget}</strong>
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 text-[10px] space-y-2 font-mono">
+                          <div className="space-y-1">
+                            <div className="flex items-center justify-between text-slate-300">
+                              <span>🎯 Data da Próxima Manutenção:</span>
+                              <strong className="text-white">{formattedTarget}</strong>
+                            </div>
+                            <div className="flex items-center justify-between text-emerald-400">
+                              <span>📲 Disparo WhatsApp programado:</span>
+                              <strong>
+                                {formattedAlert}{' '}
+                                {remDaysBefore > 0 ? `(${remDaysBefore} dias antes)` : '(no dia)'}
+                              </strong>
+                            </div>
                           </div>
-                          <div className="flex items-center justify-between text-emerald-400">
-                            <span>🔔 Lembrete será ativado em:</span>
-                            <strong>{formattedAlert} {remDaysBefore > 0 ? `(${remDaysBefore} dias antes)` : '(no dia)'}</strong>
+
+                          <div className="pt-2 border-t border-slate-800 flex flex-col gap-2 font-sans">
+                            <label className="flex items-center gap-2 cursor-pointer text-slate-300">
+                              <input
+                                type="checkbox"
+                                checked={sendWhatsAppImmediately}
+                                onChange={(e) => setSendWhatsAppImmediately(e.target.checked)}
+                                className="rounded border-slate-700 bg-slate-950 text-emerald-500 focus:ring-emerald-500 w-3.5 h-3.5 cursor-pointer"
+                              />
+                              <span className="text-[11px] font-semibold text-emerald-300">
+                                Disparar mensagem no WhatsApp imediatamente ao salvar a OS
+                              </span>
+                            </label>
+
+                            <div className="flex items-center justify-between gap-2">
+                              <button
+                                type="button"
+                                onClick={() => setShowTemplateModal(true)}
+                                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-sky-300 border border-slate-700 text-[10px] font-bold transition flex items-center gap-1 cursor-pointer"
+                              >
+                                <SlidersHorizontal size={11} />
+                                <span>Configurar Texto</span>
+                              </button>
+
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!remClientPhone.trim()) {
+                                    toast.error('Informe o WhatsApp do cliente para testar o disparo.');
+                                    return;
+                                  }
+                                  const res = await dispatchWhatsAppMaintenanceReminder({
+                                    reminder: previewReminder,
+                                    customTemplate: waTemplate,
+                                    dispatchNow: true,
+                                  });
+                                  if (res.apiDispatched) {
+                                    toast.success(
+                                      res.message || 'Disparo enviado via API do WhatsApp com sucesso!'
+                                    );
+                                  } else {
+                                    const a = document.createElement('a');
+                                    a.href = res.waLink;
+                                    a.target = '_blank';
+                                    a.rel = 'noopener noreferrer';
+                                    document.body.appendChild(a);
+                                    a.click();
+                                    document.body.removeChild(a);
+                                    toast.success('Abrindo disparo de Lembrete no WhatsApp!');
+                                  }
+                                }}
+                                className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[10px] font-bold transition flex items-center gap-1.5 cursor-pointer"
+                              >
+                                <MessageSquare size={12} />
+                                <span>Disparar Teste via WhatsApp</span>
+                              </button>
+                            </div>
                           </div>
                         </div>
                       );

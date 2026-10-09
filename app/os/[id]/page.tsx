@@ -4,6 +4,7 @@ import { CheckCircle2, ArrowLeft } from 'lucide-react';
 import { getPublicInstallationAction } from '@/app/actions/dbActions';
 import { ServiceOrderData } from '@/components/ServiceOrderPdfExporter';
 import ServiceOrderDetailCard from '@/components/ServiceOrderDetailCard';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -55,22 +56,25 @@ export default async function PublicServiceOrderPage({ params }: PageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[#070e1c] text-slate-100 flex flex-col justify-between p-4 sm:p-8 font-sans">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-slate-100 flex flex-col justify-between p-4 sm:p-8 font-sans transition-colors duration-200">
       <div className="max-w-2xl mx-auto w-full space-y-6">
         {/* Topo / Voltar */}
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <Link
             href="/"
-            className="flex items-center gap-2 text-xs text-sky-400 hover:text-sky-300 font-bold transition"
+            className="flex items-center gap-2 text-xs text-sky-600 dark:text-sky-400 hover:text-sky-500 dark:hover:text-sky-300 font-bold transition"
           >
             <ArrowLeft size={16} />
             <span>Voltar ao Aplicativo</span>
           </Link>
 
-          <span className="text-[11px] font-mono text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full flex items-center gap-1.5 font-bold">
-            <CheckCircle2 size={13} />
-            <span>Certificado Digital Autêntico</span>
-          </span>
+          <div className="flex items-center gap-2">
+            <ThemeToggle />
+            <span className="text-[11px] font-mono text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/30 px-3 py-1 rounded-full flex items-center gap-1.5 font-bold">
+              <CheckCircle2 size={13} />
+              <span>Certificado Digital Autêntico</span>
+            </span>
+          </div>
         </div>
 
         {/* Card Principal da OS com #service-order-container, seletor de Status e cabeçalho dinâmico */}

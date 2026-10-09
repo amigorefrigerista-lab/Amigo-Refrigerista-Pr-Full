@@ -52,6 +52,15 @@ export default async function RootLayout({
           dangerouslySetInnerHTML={{
             __html: `
               (function() {
+                try {
+                  var savedTheme = localStorage.getItem('amigo_refrigerista_theme_mode');
+                  var root = document.documentElement;
+                  if (savedTheme === 'light' || savedTheme === 'dark') {
+                    root.classList.remove('dark', 'light');
+                    root.classList.add(savedTheme);
+                    root.setAttribute('data-theme', savedTheme);
+                  }
+                } catch (e) {}
                 window.addEventListener('beforeinstallprompt', function(e) {
                   e.preventDefault();
                   window.__amigoDeferredPrompt = e;

@@ -21,6 +21,7 @@ import {
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
+import { ThemeToggle } from '@/components/ThemeToggle';
 
 const MASTER_EMAIL = 'amigorefrigerista@gmail.com';
 
@@ -45,7 +46,12 @@ export default function AdminSettingsPage() {
     stripe_secret_key: '',
     stripe_publishable_key: '',
     stripe_webhook_secret: '',
-    stripe_currency: 'USD',
+    stripe_currency: 'BRL',
+    credit_card_enabled: true,
+    credit_card_recurring_enabled: true,
+    credit_card_max_installments: 12,
+    credit_card_gateway: 'auto',
+    pix_enabled: true,
     pro_plan_price: 39.90,
     flex_plan_price: 19.90,
     maintenance_interval_months: 6,
@@ -54,6 +60,19 @@ export default function AdminSettingsPage() {
     whatsapp_api_key: '',
     whatsapp_instance_name: ''
   });
+
+  // Estados de Simulação / Escolha de Plano (Flex ou Pró) e Método de Pagamento na Integração
+  const [selectedPreviewPlan, setSelectedPreviewPlan] = useState<'flex' | 'pro'>('pro');
+  const [selectedPreviewMethod, setSelectedPreviewMethod] = useState<'credit_card' | 'pix'>('credit_card');
+  const [testingCheckout, setTestingCheckout] = useState(false);
+  const [checkoutPreviewResult, setCheckoutPreviewResult] = useState<{
+    init_point?: string | null;
+    pix?: { copy_paste: string; qr_code_url: string } | null;
+    message?: string;
+    plan?: string;
+    amount?: number;
+    payment_method?: string;
+  } | null>(null);
 
   useEffect(() => {
     async function loadSettings() {
@@ -90,6 +109,12 @@ export default function AdminSettingsPage() {
             setForm((prev) => ({
               ...prev,
               ...data,
+              credit_card_enabled:
+                data.credit_card_enabled !== undefined ? Boolean(data.credit_card_enabled) : prev.credit_card_enabled,
+              credit_card_recurring_enabled:
+                data.credit_card_recurring_enabled !== undefined
+                  ? Boolean(data.credit_card_recurring_enabled)
+                  : prev.credit_card_recurring_enabled,
               pro_plan_price: data.pro_plan_price ? Number(data.pro_plan_price) : prev.pro_plan_price,
               flex_plan_price: data.flex_plan_price ? Number(data.flex_plan_price) : prev.flex_plan_price,
               maintenance_interval_months: data.maintenance_interval_months
@@ -202,12 +227,77 @@ export default function AdminSettingsPage() {
         payment_provider: form.payment_provider,
         pro_plan_price: form.pro_plan_price,
         flex_plan_price: form.flex_plan_price,
+        credit_card_enabled: form.credit_card_enabled,
+        credit_card_recurring_enabled: form.credit_card_recurring_enabled,
+        credit_card_max_installments: form.credit_card_max_installments,
+        credit_card_gateway: form.credit_card_gateway,
+        pix_enabled: form.pix_enabled,
         mercadopago_access_token: form.mercadopago_access_token,
         mercadopago_public_key: form.mercadopago_public_key,
         webhook_secret: form.webhook_secret,
+        stripe_secret_key: form.stripe_secret_key,
+        stripe_publishable_key: form.stripe_publishable_key,
+        stripe_webhook_secret: form.stripe_webhook_secret,
+        stripe_currency: form.stripe_currency,
       },
-      'Configurações de Integração de Pagamentos'
+      'Configurações de Integração de Pagamentos e Cartão de Crédito'
     );
+  };
+
+  const handleTestCheckoutFlow = async (planToTest: 'flex' | 'pro', methodToTest: 'credit_card' | 'pix') => {
+    setTestingCheckout(true);
+    setCheckoutPreviewResult(null);
+    setMessage('');
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+        if (sessionToken) {
+          headers['Authorization'] = `Bearer ${sessionToken}`;
+        } else {
+          try {
+            const { data: { session: sbSession } } = await supabase.auth.getSession();
+            if (sbSession?.access_token) {
+              headers['Authorization'] = `Bearer ${sbSession.access_token}`;
+            }
+          } catch {}
+        }
+        if (user?.id) headers['x-amigo-uid'] = user.id;
+        if (user?.email) headers['x-amigo-email'] = user.email;
+      }
+
+      const res = await fetch('/api/checkout', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          userName: user?.displayName || 'Administrador Teste',
+          planType: planToTest,
+          paymentMethod: methodToTest,
+          installments: form.credit_card_max_installments || 12,
+          billingCycle: form.credit_card_recurring_enabled ? 'recurring' : 'single_30d',
+          provider: form.payment_provider === 'stripe' || form.credit_card_gateway === 'stripe' ? 'stripe' : undefined,
+          returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setCheckoutPreviewResult(data);
+        setMessageType('success');
+        setMessage(
+          `Link de pagamento (${planToTest === 'flex' ? 'Plano Flex' : 'Plano Pró'} via ${
+            methodToTest === 'credit_card' ? 'Cartão de Crédito' : 'PIX'
+          }) gerado com sucesso!`
+        );
+      } else {
+        setMessageType('error');
+        setMessage(data.error || 'Erro ao gerar sessão de checkout.');
+      }
+    } catch (err: any) {
+      setMessageType('error');
+      setMessage(err?.message || 'Erro de conexão ao testar checkout.');
+    } finally {
+      setTestingCheckout(false);
+    }
   };
 
   const handleSaveAutomation = async (e?: React.MouseEvent | React.FormEvent) => {
@@ -355,6 +445,7 @@ export default function AdminSettingsPage() {
                 <CrownIcon />
                 Painel Master
               </span>
+              <ThemeToggle showLabel />
             </div>
 
             <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2.5">
@@ -384,42 +475,289 @@ export default function AdminSettingsPage() {
 
         <form onSubmit={handleSave} className="space-y-6">
           {/* Bloco 1: Meios de Pagamento */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-5 shadow-xl">
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
-              <div className="p-2.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
-                <CreditCard size={22} />
+          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-6 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
+                  <CreditCard size={22} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>💳 Integração de Pagamentos</span>
+                  </h2>
+                  <p className="text-xs text-slate-400">
+                    Escolha de planos (Flex ou Pró), configuração para Cartão de Crédito, PIX e chaves de API
+                  </p>
+                </div>
               </div>
-              <div>
-                <h2 className="text-base font-bold text-white flex items-center gap-2">
-                  <span>💳 Integração de Pagamentos</span>
-                </h2>
-                <p className="text-xs text-slate-400">Chaves de API do Mercado Pago e valor da assinatura VIP</p>
+
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${
+                  form.credit_card_enabled
+                    ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {form.credit_card_enabled ? '✓ Cartão de Crédito Habilitado' : 'Cartão Desabilitado'}
+                </span>
+                <span className={`px-2.5 py-1 rounded-lg text-[10px] font-bold border ${
+                  form.credit_card_recurring_enabled
+                    ? 'bg-indigo-500/15 text-indigo-300 border-indigo-500/30'
+                    : 'bg-slate-800 text-slate-400 border-slate-700'
+                }`}>
+                  {form.credit_card_recurring_enabled ? '✓ Recorrência no Cartão Ativa' : 'Recorrência Desativada'}
+                </span>
+                <span className="px-2.5 py-1 rounded-lg text-[10px] font-bold bg-sky-500/15 text-sky-300 border border-sky-500/30">
+                  Planos Flex & Pró Ativos
+                </span>
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            {/* 1.1 Escolha de Plano (Flex ou Pró) e Contratação / Checkout Rápido */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
+                    ESCOLHA DO PLANO PELO USUÁRIO (FLEX OU PRÓ)
+                  </span>
+                  <h3 className="text-sm font-bold text-white mt-0.5">
+                    Selecione o Plano para Assinatura ou Teste de Checkout
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    O usuário pode escolher livremente entre o Plano Flex ou o Plano Pró e pagar via Cartão de Crédito ou PIX.
+                  </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                {/* Card Plano Flex */}
+                <div
+                  onClick={() => setSelectedPreviewPlan('flex')}
+                  className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-3 ${
+                    selectedPreviewPlan === 'flex'
+                      ? 'bg-cyan-950/40 border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.2)]'
+                      : 'bg-slate-900/70 border-slate-800 hover:border-cyan-500/40'
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
+                        Plano Flex VIP
+                      </span>
+                      <input
+                        type="radio"
+                        name="selected_plan_choice"
+                        checked={selectedPreviewPlan === 'flex'}
+                        onChange={() => setSelectedPreviewPlan('flex')}
+                        className="w-4 h-4 text-cyan-400 bg-slate-900 border-slate-700"
+                      />
+                    </div>
+                    <div className="flex items-baseline gap-1 pt-1">
+                      <span className="text-2xl font-black text-cyan-400 font-mono">
+                        R$ {Number(form.flex_plan_price || 19.9).toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="text-xs text-slate-400">/ mês</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Ferramentas essenciais de campo, Calculadora Superaquecimento/Sub-resfriamento e Gestão de OS.
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                    <span className="text-cyan-300 font-bold">
+                      {selectedPreviewPlan === 'flex' ? '✓ Plano Flex Selecionado' : 'Clique para selecionar Flex'}
+                    </span>
+                    <span className="text-slate-400 font-mono">Cartão ou PIX</span>
+                  </div>
+                </div>
+
+                {/* Card Plano Pró */}
+                <div
+                  onClick={() => setSelectedPreviewPlan('pro')}
+                  className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-3 ${
+                    selectedPreviewPlan === 'pro'
+                      ? 'bg-amber-950/40 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.2)]'
+                      : 'bg-slate-900/70 border-slate-800 hover:border-amber-500/40'
+                  }`}
+                >
+                  <div className="space-y-1.5">
+                    <div className="flex items-center justify-between">
+                      <span className="px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        Plano Pró Completo (Recomendado)
+                      </span>
+                      <input
+                        type="radio"
+                        name="selected_plan_choice"
+                        checked={selectedPreviewPlan === 'pro'}
+                        onChange={() => setSelectedPreviewPlan('pro')}
+                        className="w-4 h-4 text-amber-400 bg-slate-900 border-slate-700"
+                      />
+                    </div>
+                    <div className="flex items-baseline gap-1 pt-1">
+                      <span className="text-2xl font-black text-amber-400 font-mono">
+                        R$ {Number(form.pro_plan_price || 39.9).toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="text-xs text-slate-400">/ mês</span>
+                    </div>
+                    <p className="text-[11px] text-slate-300 leading-relaxed">
+                      Ordens de Serviço ilimitadas com QR Code PMOC, Diagnóstico IA ilimitado, Leitor OCR e WhatsApp.
+                    </p>
+                  </div>
+                  <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[11px]">
+                    <span className="text-amber-300 font-bold">
+                      {selectedPreviewPlan === 'pro' ? '✓ Plano Pró Selecionado' : 'Clique para selecionar Pró'}
+                    </span>
+                    <span className="text-slate-400 font-mono">Cartão ou PIX</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Escolha do Método (Cartão de Crédito ou PIX) e Botão de Gerar Checkout */}
+              <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPreviewMethod('credit_card')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                      selectedPreviewMethod === 'credit_card'
+                        ? 'bg-amber-500/20 border-amber-400 text-amber-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <CreditCard size={14} />
+                    <span>Pagar no Cartão de Crédito</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedPreviewMethod('pix')}
+                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                      selectedPreviewMethod === 'pix'
+                        ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
+                        : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
+                    }`}
+                  >
+                    <DollarSign size={14} />
+                    <span>Pagar via PIX</span>
+                  </button>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={testingCheckout}
+                  onClick={() => handleTestCheckoutFlow(selectedPreviewPlan, selectedPreviewMethod)}
+                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                >
+                  {testingCheckout ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
+                      <span>Gerando Checkout...</span>
+                    </>
+                  ) : (
+                    <>
+                      <CreditCard className="w-4 h-4 text-slate-950" />
+                      <span>
+                        Assinar / Testar {selectedPreviewPlan === 'flex' ? 'Plano Flex' : 'Plano Pró'} (
+                        {selectedPreviewMethod === 'credit_card' ? 'Cartão de Crédito' : 'PIX'})
+                      </span>
+                    </>
+                  )}
+                </button>
+              </div>
+
+              {checkoutPreviewResult && (
+                <div className="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-400">
+                      ✓ Sessão de Pagamento pronta ({checkoutPreviewResult.plan === 'flex' ? 'Plano Flex' : 'Plano Pró'})
+                    </span>
+                    <span className="font-mono text-slate-300">
+                      R$ {Number(checkoutPreviewResult.amount || 0).toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                  {checkoutPreviewResult.init_point && (
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 pt-1">
+                      <span className="text-slate-300 text-[11px]">
+                        Checkout seguro de Cartão de Crédito gerado pelo gateway:
+                      </span>
+                      <a
+                        href={checkoutPreviewResult.init_point}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs text-center transition"
+                      >
+                        Abrir Pagamento no Cartão de Crédito →
+                      </a>
+                    </div>
+                  )}
+                  {checkoutPreviewResult.pix && (
+                    <div className="space-y-2 pt-1">
+                      {checkoutPreviewResult.message && (
+                        <p className="text-[11px] text-amber-300">{checkoutPreviewResult.message}</p>
+                      )}
+                      <div className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          readOnly
+                          value={checkoutPreviewResult.pix.copy_paste}
+                          className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-[11px] font-mono text-slate-300"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(checkoutPreviewResult.pix!.copy_paste);
+                            setMessageType('success');
+                            setMessage('Código PIX Copia e Cola copiado!');
+                          }}
+                          className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs cursor-pointer shrink-0"
+                        >
+                          Copiar Código PIX
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* 1.2 Configuração de Preços e Gateway Principal */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Gateway Principal
+                  Gateway Principal de Pagamento
                 </label>
                 <select
                   value={form.payment_provider}
                   onChange={(e) => setForm({ ...form, payment_provider: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px] cursor-pointer"
                 >
-                  <option value="mercadopago">Mercado Pago (Pix & Cartão)</option>
-                  <option value="asaas">Asaas (Boleto & Pix)</option>
-                  <option value="stripe">Stripe International</option>
+                  <option value="mercadopago">Mercado Pago (Cartão de Crédito & Pix)</option>
+                  <option value="stripe">Stripe (Cartão de Crédito Nacional & Internacional)</option>
+                  <option value="asaas">Asaas (Cartão, Boleto & Pix)</option>
                   <option value="manual">Transferência Pix Direta</option>
                 </select>
               </div>
 
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Valor da Assinatura VIP (Mensal R$)
+                  Valor do Plano Flex (Mensal R$)
                 </label>
                 <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 pointer-events-none">R$</span>
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-cyan-400 pointer-events-none">R$</span>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={form.flex_plan_price}
+                    onChange={(e) => setForm({ ...form, flex_plan_price: parseFloat(e.target.value) || 0 })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/20 min-h-[44px]"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  Valor do Plano Pró VIP (Mensal R$)
+                </label>
+                <div className="relative">
+                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-amber-400 pointer-events-none">R$</span>
                   <input
                     type="number"
                     step="0.01"
@@ -430,55 +768,163 @@ export default function AdminSettingsPage() {
                   />
                 </div>
               </div>
+            </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Valor da Assinatura Flex (Mensal R$)
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-xs font-mono font-bold text-slate-400 pointer-events-none">R$</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    required
-                    value={form.flex_plan_price}
-                    onChange={(e) => setForm({ ...form, flex_plan_price: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
-                  />
+            {/* 1.3 Configuração para Pagamento no Cartão de Crédito & Recorrência */}
+            <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-sky-500/30 space-y-4">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
+                <div>
+                  <span className="text-[10px] font-black uppercase tracking-wider text-sky-400 block">
+                    CONFIGURAÇÃO DE CARTÃO DE CRÉDITO & RECORRÊNCIA (STRIPE / MERCADO PAGO)
+                  </span>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2 mt-0.5">
+                    <CreditCard size={16} className="text-sky-400" />
+                    <span>Opções de Recebimento e Assinatura Recorrente no Cartão de Crédito</span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Habilite ou desabilite pagamentos recorrentes por cartão de crédito para os planos Flex e Pró e escolha o gateway (Stripe ou Mercado Pago).
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  <label className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.credit_card_enabled)}
+                      onChange={(e) => setForm({ ...form, credit_card_enabled: e.target.checked })}
+                      className="w-4 h-4 rounded text-amber-500 bg-slate-950 border-slate-700"
+                    />
+                    <span className="text-xs font-bold text-white">Habilitar Cartão de Crédito</span>
+                  </label>
+
+                  <label className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-indigo-500/15 border border-indigo-500/40 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      disabled={!form.credit_card_enabled}
+                      checked={Boolean(form.credit_card_recurring_enabled)}
+                      onChange={(e) =>
+                        setForm({ ...form, credit_card_recurring_enabled: e.target.checked })
+                      }
+                      className="w-4 h-4 rounded text-indigo-500 bg-slate-950 border-slate-700 disabled:opacity-40"
+                    />
+                    <span className="text-xs font-bold text-indigo-300">
+                      Pagamentos Recorrentes no Cartão
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Processador do Cartão de Crédito
+                  </label>
+                  <select
+                    value={form.credit_card_gateway || 'auto'}
+                    onChange={(e) => setForm({ ...form, credit_card_gateway: e.target.value })}
+                    disabled={!form.credit_card_enabled}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-medium focus:outline-none focus:border-sky-500 disabled:opacity-50 cursor-pointer min-h-[42px]"
+                  >
+                    <option value="auto">Automático (Segue Gateway Principal)</option>
+                    <option value="stripe">Stripe (Cartão Recorrente Nacional & Internacional)</option>
+                    <option value="mercadopago">Mercado Pago (Cartão Nacional / Recorrente)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Modo de Cobrança no Cartão
+                  </label>
+                  <select
+                    value={form.credit_card_recurring_enabled ? 'recurring' : 'single_30d'}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        credit_card_recurring_enabled: e.target.value === 'recurring',
+                      })
+                    }
+                    disabled={!form.credit_card_enabled}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-bold focus:outline-none focus:border-indigo-500 disabled:opacity-50 cursor-pointer min-h-[42px]"
+                  >
+                    <option value="recurring">Assinatura Recorrente Mensal (Automática)</option>
+                    <option value="single_30d">Cobrança Avulsa de 30 Dias (Sem Recorrência)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Parcelamento Máximo no Cartão
+                  </label>
+                  <select
+                    value={form.credit_card_max_installments || 12}
+                    onChange={(e) =>
+                      setForm({ ...form, credit_card_max_installments: Number(e.target.value) || 12 })
+                    }
+                    disabled={!form.credit_card_enabled}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 disabled:opacity-50 cursor-pointer min-h-[42px]"
+                  >
+                    <option value={1}>À vista (1x no Cartão / Assinatura Mensal)</option>
+                    <option value={2}>Até 2x no Cartão</option>
+                    <option value={3}>Até 3x no Cartão</option>
+                    <option value={6}>Até 6x no Cartão</option>
+                    <option value={10}>Até 10x no Cartão</option>
+                    <option value={12}>Até 12x no Cartão</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Pagamento via PIX Instantâneo
+                  </label>
+                  <label className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer min-h-[42px]">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(form.pix_enabled)}
+                      onChange={(e) => setForm({ ...form, pix_enabled: e.target.checked })}
+                      className="w-4 h-4 rounded text-emerald-500 bg-slate-950 border-slate-700"
+                    />
+                    <span className="text-xs font-semibold text-slate-200">Habilitar PIX em paralelo</span>
+                  </label>
                 </div>
               </div>
             </div>
 
-            <div className="space-y-4 pt-2">
-              <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Mercado Pago Access Token (Privado)
-                </label>
-                <input
-                  type="password"
-                  placeholder="APP_USR-..."
-                  value={form.mercadopago_access_token}
-                  onChange={(e) => setForm({ ...form, mercadopago_access_token: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
-                />
+            {/* 1.4 Credenciais Mercado Pago (Cartão & PIX) */}
+            <div className="space-y-4 pt-1">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                Credenciais Mercado Pago (Cartão de Crédito & PIX)
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Mercado Pago Access Token (Privado)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="APP_USR-..."
+                    value={form.mercadopago_access_token}
+                    onChange={(e) => setForm({ ...form, mercadopago_access_token: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Mercado Pago Public Key (Pública - Checkout Cartão)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="APP_USR-..."
+                    value={form.mercadopago_public_key}
+                    onChange={(e) => setForm({ ...form, mercadopago_public_key: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                  />
+                </div>
               </div>
 
               <div>
                 <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Public Key (Pública)
-                </label>
-                <input
-                  type="text"
-                  placeholder="APP_USR-..."
-                  value={form.mercadopago_public_key}
-                  onChange={(e) => setForm({ ...form, mercadopago_public_key: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
-                />
-              </div>
-
-              <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
-                  Segredo do Webhook (Opcional)
+                  Segredo do Webhook Mercado Pago (Opcional)
                 </label>
                 <input
                   type="text"
@@ -487,6 +933,89 @@ export default function AdminSettingsPage() {
                   onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })}
                   className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
                 />
+              </div>
+            </div>
+
+            {/* 1.5 Credenciais Stripe (Cartão de Crédito Nacional & Internacional) */}
+            <div className="space-y-4 pt-3 border-t border-slate-800">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-sky-400">
+                    Credenciais Gateway Stripe (Cartão de Crédito Recorrente & Internacional)
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Endpoint de Webhook Stripe: <code className="text-sky-300 font-mono bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">/api/webhooks/stripe</code>
+                  </p>
+                </div>
+                <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/30 cursor-pointer self-start sm:self-center">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(form.credit_card_recurring_enabled)}
+                    onChange={(e) =>
+                      setForm({ ...form, credit_card_recurring_enabled: e.target.checked })
+                    }
+                    className="w-4 h-4 rounded text-sky-500 bg-slate-950 border-slate-700"
+                  />
+                  <span className="text-[11px] font-bold text-sky-300">
+                    Habilitar Cobrança Recorrente no Cartão (Stripe)
+                  </span>
+                </label>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Stripe Secret Key (Chave Secreta Cartão)
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="sk_live_... ou sk_test_..."
+                    value={form.stripe_secret_key}
+                    onChange={(e) => setForm({ ...form, stripe_secret_key: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Stripe Publishable Key (Chave Pública Cartão)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="pk_live_... ou pk_test_..."
+                    value={form.stripe_publishable_key}
+                    onChange={(e) => setForm({ ...form, stripe_publishable_key: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Stripe Webhook Secret (whsec_...)
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="whsec_..."
+                    value={form.stripe_webhook_secret}
+                    onChange={(e) => setForm({ ...form, stripe_webhook_secret: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                    Moeda de Cobrança no Cartão (Stripe)
+                  </label>
+                  <select
+                    value={form.stripe_currency || 'BRL'}
+                    onChange={(e) => setForm({ ...form, stripe_currency: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 min-h-[44px] cursor-pointer"
+                  >
+                    <option value="BRL">BRL (Real Brasileiro - R$)</option>
+                    <option value="USD">USD (Dólar Americano - US$)</option>
+                    <option value="EUR">EUR (Euro - €)</option>
+                  </select>
+                </div>
               </div>
             </div>
 

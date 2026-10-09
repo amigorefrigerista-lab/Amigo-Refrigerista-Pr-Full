@@ -143,3 +143,98 @@ export function calculateNextMaintenanceDate(startDate: string, months: number):
   date.setMonth(date.getMonth() + months);
   return date.toISOString().split('T')[0];
 }
+
+/**
+ * Integra o lembrete de manutenção com o serviço de disparo via WhatsApp (/api/whatsapp/send-reminder)
+ * e retorna os dados do lembrete agendado/disparado junto com o link wa.me formatado.
+ */
+export async function dispatchWhatsAppMaintenanceReminder(params: {
+  reminder: MaintenanceReminder;
+  customTemplate?: string;
+  dispatchNow?: boolean;
+}): Promise<{
+  success: boolean;
+  apiDispatched?: boolean;
+  status?: string;
+  message?: string;
+  waLink: string;
+  formattedMessage: string;
+  alertDate: string;
+  nextServiceDate: string;
+}> {
+  const { reminder, customTemplate, dispatchNow = false } = params;
+  const serviceDateStr =
+    typeof reminder.serviceDate === 'string'
+      ? reminder.serviceDate
+      : new Date(reminder.serviceDate).toISOString().split('T')[0];
+  const nextServiceDate =
+    reminder.nextServiceDate ||
+    calculateNextMaintenanceDate(serviceDateStr, reminder.monthsInterval || 6);
+  const alertDate =
+    reminder.alertDate ||
+    calculateReminderAlertDate(nextServiceDate, reminder.reminderDaysBefore ?? 3);
+
+  const origin =
+    typeof window !== 'undefined' ? window.location.origin : 'https://amigorefrigerista.pro';
+  const fallbackWaLink = generateWhatsAppReminderLink(reminder, customTemplate, origin);
+  const fallbackMessage = formatWhatsAppReminderMessage(reminder, customTemplate, origin);
+
+  if (typeof window === 'undefined') {
+    return {
+      success: true,
+      apiDispatched: false,
+      status: 'scheduled',
+      waLink: fallbackWaLink,
+      formattedMessage: fallbackMessage,
+      alertDate,
+      nextServiceDate,
+    };
+  }
+
+  try {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+    if (sessionToken) {
+      headers['Authorization'] = `Bearer ${sessionToken}`;
+    }
+
+    const res = await fetch('/api/whatsapp/send-reminder', {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({
+        ...reminder,
+        serviceDate: serviceDateStr,
+        customTemplate,
+        dispatchNow,
+        baseUrl: origin,
+      }),
+    });
+
+    const data = await res.json().catch(() => null);
+    if (res.ok && data?.success) {
+      return {
+        success: true,
+        apiDispatched: Boolean(data.apiDispatched),
+        status: data.status,
+        message: data.message,
+        waLink: data.waLink || fallbackWaLink,
+        formattedMessage: data.formattedMessage || fallbackMessage,
+        alertDate: data.alertDate || alertDate,
+        nextServiceDate: data.nextServiceDate || nextServiceDate,
+      };
+    }
+  } catch {
+    // Fallback silencioso para disparo via link direto wa.me
+  }
+
+  return {
+    success: true,
+    apiDispatched: false,
+    status: 'scheduled',
+    waLink: fallbackWaLink,
+    formattedMessage: fallbackMessage,
+    alertDate,
+    nextServiceDate,
+  };
+}
+

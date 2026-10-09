@@ -41,7 +41,7 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenUpgradeModal
 
   const currentPlan = isAdmin ? 'pro' : profile?.subscription?.plan || 'free';
   const planLabel = currentPlan === 'pro' || currentPlan === 'pro_paid' ? 'Plano PRO' : currentPlan === 'flex' ? 'Plano Flex' : 'Plano Gratuito (Free)';
-  const planBadgeBg = currentPlan === 'pro' || currentPlan === 'pro_paid' ? 'bg-amber-500/20 text-amber-300 border-amber-500/40' : currentPlan === 'flex' ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40' : 'bg-slate-800 text-slate-300 border-slate-700';
+  const planBadgeBg = currentPlan === 'pro' || currentPlan === 'pro_paid' ? 'bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/40' : currentPlan === 'flex' ? 'bg-cyan-500/20 text-cyan-700 dark:text-cyan-300 border-cyan-500/40' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border-slate-300 dark:border-slate-700';
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 bg-white/90 dark:bg-[#070e1c]/85 backdrop-blur-xl border-b border-slate-200 dark:border-slate-800/80 px-4 md:px-8 py-3 flex items-center justify-between shadow-sm dark:shadow-[0_4px_30px_rgba(0,0,0,0.4)] transition-colors duration-200">

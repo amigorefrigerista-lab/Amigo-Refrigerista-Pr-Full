@@ -1014,7 +1014,25 @@ export async function safeHttpsGetPinnedIp(params: {
   bodyText: string;
   blockedReason?: string;
 }> {
-  const { targetUrl, headers = {}, timeoutMs = 6000 } = params;
+  return safeHttpsRequestPinnedIp({
+    ...params,
+    method: 'GET',
+  });
+}
+
+export async function safeHttpsRequestPinnedIp(params: {
+  targetUrl: string;
+  method?: 'GET' | 'POST' | 'PUT';
+  headers?: Record<string, string>;
+  body?: string;
+  timeoutMs?: number;
+}): Promise<{
+  ok: boolean;
+  status: number;
+  bodyText: string;
+  blockedReason?: string;
+}> {
+  const { targetUrl, method = 'GET', headers = {}, body, timeoutMs = 6000 } = params;
   const dnsCheck = await validateSafeExternalUrlWithDns(targetUrl);
   if (!dnsCheck.safe || !dnsCheck.parsedUrl || !dnsCheck.resolvedIps?.length) {
     return {
@@ -1040,6 +1058,7 @@ export async function safeHttpsGetPinnedIp(params: {
   const originalHostname = parsed.hostname.replace(/^\[|\]$/g, '');
   const port = parsed.port ? Number(parsed.port) : 443;
   const pathWithQuery = `${parsed.pathname || '/'}${parsed.search || ''}`;
+  const bodyBuf = body ? Buffer.from(body, 'utf8') : null;
 
   return new Promise((resolve) => {
     const req = https.request(
@@ -1047,7 +1066,7 @@ export async function safeHttpsGetPinnedIp(params: {
         host: pinnedIp,
         port,
         path: pathWithQuery,
-        method: 'GET',
+        method,
         servername: net.isIP(originalHostname) === 0 ? originalHostname : undefined,
         lookup: (_hostname, _options, callback) => {
           callback(null, pinnedIp, net.isIP(pinnedIp) || 4);
@@ -1055,6 +1074,7 @@ export async function safeHttpsGetPinnedIp(params: {
         headers: {
           ...headers,
           Host: parsed.host,
+          ...(bodyBuf ? { 'Content-Length': String(bodyBuf.length) } : {}),
         },
         timeout: timeoutMs,
         rejectUnauthorized: true,
@@ -1104,6 +1124,9 @@ export async function safeHttpsGetPinnedIp(params: {
       });
     });
 
+    if (bodyBuf) {
+      req.write(bodyBuf);
+    }
     req.end();
   });
 }

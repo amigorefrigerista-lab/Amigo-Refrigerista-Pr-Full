@@ -13,6 +13,11 @@ export interface AppSettings {
   stripe_publishable_key?: string;
   stripe_webhook_secret?: string;
   stripe_currency?: string;
+  credit_card_enabled?: boolean;
+  credit_card_recurring_enabled?: boolean;
+  credit_card_max_installments?: number;
+  credit_card_gateway?: string;
+  pix_enabled?: boolean;
   pro_plan_price: number;
   flex_plan_price?: number;
   maintenance_interval_months: number;
@@ -36,7 +41,12 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   stripe_secret_key: process.env.STRIPE_SECRET_KEY || '',
   stripe_publishable_key: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
   stripe_webhook_secret: process.env.STRIPE_WEBHOOK_SECRET || '',
-  stripe_currency: process.env.STRIPE_CURRENCY || 'USD',
+  stripe_currency: process.env.STRIPE_CURRENCY || 'BRL',
+  credit_card_enabled: true,
+  credit_card_recurring_enabled: true,
+  credit_card_max_installments: 12,
+  credit_card_gateway: 'auto',
+  pix_enabled: true,
   pro_plan_price: 39.9,
   flex_plan_price: 19.9,
   maintenance_interval_months: 6,
@@ -75,6 +85,29 @@ export async function getAppSettings(): Promise<AppSettings> {
           mercadopago_public_key:
             data.mercadopago_public_key || DEFAULT_APP_SETTINGS.mercadopago_public_key,
           webhook_secret: data.webhook_secret || DEFAULT_APP_SETTINGS.webhook_secret,
+          stripe_secret_key: data.stripe_secret_key || DEFAULT_APP_SETTINGS.stripe_secret_key,
+          stripe_publishable_key:
+            data.stripe_publishable_key || DEFAULT_APP_SETTINGS.stripe_publishable_key,
+          stripe_webhook_secret:
+            data.stripe_webhook_secret || DEFAULT_APP_SETTINGS.stripe_webhook_secret,
+          stripe_currency: data.stripe_currency || DEFAULT_APP_SETTINGS.stripe_currency,
+          credit_card_enabled:
+            data.credit_card_enabled !== undefined
+              ? Boolean(data.credit_card_enabled)
+              : DEFAULT_APP_SETTINGS.credit_card_enabled,
+          credit_card_recurring_enabled:
+            data.credit_card_recurring_enabled !== undefined
+              ? Boolean(data.credit_card_recurring_enabled)
+              : DEFAULT_APP_SETTINGS.credit_card_recurring_enabled,
+          credit_card_max_installments: data.credit_card_max_installments
+            ? Number(data.credit_card_max_installments)
+            : DEFAULT_APP_SETTINGS.credit_card_max_installments,
+          credit_card_gateway:
+            data.credit_card_gateway || DEFAULT_APP_SETTINGS.credit_card_gateway,
+          pix_enabled:
+            data.pix_enabled !== undefined
+              ? Boolean(data.pix_enabled)
+              : DEFAULT_APP_SETTINGS.pix_enabled,
           pro_plan_price: data.pro_plan_price
             ? Number(data.pro_plan_price)
             : DEFAULT_APP_SETTINGS.pro_plan_price,

@@ -43,6 +43,18 @@ export async function POST(req: NextRequest) {
       ...currentSettings,
       ...body,
       id: 1,
+      credit_card_enabled:
+        body.credit_card_enabled !== undefined
+          ? Boolean(body.credit_card_enabled)
+          : currentSettings.credit_card_enabled ?? true,
+      credit_card_recurring_enabled:
+        body.credit_card_recurring_enabled !== undefined
+          ? Boolean(body.credit_card_recurring_enabled)
+          : currentSettings.credit_card_recurring_enabled ?? true,
+      pix_enabled:
+        body.pix_enabled !== undefined
+          ? Boolean(body.pix_enabled)
+          : currentSettings.pix_enabled ?? true,
       pro_plan_price:
         body.pro_plan_price !== undefined
           ? Number(body.pro_plan_price) > 0
