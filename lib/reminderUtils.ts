@@ -130,6 +130,8 @@ export interface ServiceOrder {
   maintenanceIntervalMonths: number; // Ex: 6 meses
   autoScheduleReminder: boolean;
   reminderDaysBefore: number; // Quantos dias antes do vencimento avisar (ex: 3 dias)
+  alertDate?: string; // Data agendada no Supabase para disparo via WhatsApp (YYYY-MM-DD)
+  nextServiceDate?: string; // Data de vencimento da próxima manutenção preventiva (YYYY-MM-DD)
   status?: 'Pending' | 'In Progress' | 'Completed';
   customerSignature?: string;
   customerNotes?: string;

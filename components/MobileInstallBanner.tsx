@@ -130,43 +130,55 @@ export function MobileInstallBanner() {
           aria-label="Instalar aplicativo no dispositivo"
           className="w-full bg-gradient-to-r from-sky-950 via-slate-900 to-cyan-950 border border-sky-500/40 rounded-2xl p-3.5 sm:p-4 shadow-[0_8px_25px_rgba(14,165,233,0.2)] mb-4 animate-in fade-in slide-in-from-top-3 duration-300"
         >
-          <div className="flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-cyan-400 text-slate-950 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(14,165,233,0.45)]">
-                {installedNow ? (
-                  <CheckCircle2 size={20} strokeWidth={2.5} />
-                ) : (
-                  <Smartphone size={20} strokeWidth={2.5} />
-                )}
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-start sm:items-center justify-between gap-3 min-w-0">
+              <div className="flex items-center gap-3 min-w-0">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-sky-500 to-cyan-400 text-slate-950 flex items-center justify-center shrink-0 shadow-[0_0_15px_rgba(14,165,233,0.45)]">
+                  {installedNow ? (
+                    <CheckCircle2 size={20} strokeWidth={2.5} />
+                  ) : (
+                    <Smartphone size={20} strokeWidth={2.5} />
+                  )}
+                </div>
+
+                <div className="min-w-0">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="text-sm font-black text-white truncate">
+                      {installedNow ? 'Aplicativo Instalado com Sucesso!' : 'Amigo Refrigerista Pro'}
+                    </span>
+                    <span className="px-1.5 py-0.5 rounded text-[10px] font-black uppercase bg-sky-500/20 text-sky-300 border border-sky-400/30">
+                      {isIOS ? 'iOS PWA' : isAndroid ? 'Android PWA' : 'App PWA'}
+                    </span>
+                  </div>
+                  <p className="text-xs text-slate-200 leading-snug mt-0.5">
+                    {installedNow
+                      ? 'O aplicativo já está disponível na sua tela inicial.'
+                      : isInstallable
+                      ? 'Instalador nativo pronto! Toque abaixo para instalar direto no seu aparelho.'
+                      : 'Instale o aplicativo na sua tela inicial para acesso rápido e tela cheia.'}
+                  </p>
+                </div>
               </div>
 
-              <div className="min-w-0">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-xs sm:text-sm font-black text-white truncate">
-                    {installedNow ? 'Aplicativo Instalado com Sucesso!' : 'Amigo Refrigerista Pro'}
-                  </span>
-                  <span className="px-1.5 py-0.5 rounded text-[9px] font-black uppercase bg-sky-500/20 text-sky-300 border border-sky-400/30">
-                    {isIOS ? 'iOS PWA' : isAndroid ? 'Android PWA' : 'App PWA'}
-                  </span>
-                </div>
-                <p className="text-[11px] text-slate-300 leading-snug line-clamp-2 mt-0.5">
-                  {installedNow
-                    ? 'O aplicativo já está disponível na sua tela inicial.'
-                    : isInstallable
-                    ? 'Instalador nativo pronto! Toque ao lado para instalar direto no seu aparelho.'
-                    : 'Instale o aplicativo na sua tela inicial para acesso rápido e tela cheia.'}
-                </p>
-              </div>
+              <button
+                type="button"
+                onClick={() => setDismissed(true)}
+                className="sm:hidden p-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-300 hover:text-white transition cursor-pointer shrink-0"
+                title="Fechar"
+                aria-label="Fechar aviso de instalação"
+              >
+                <X size={16} />
+              </button>
             </div>
 
-            <div className="flex items-center gap-1.5 shrink-0">
+            <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={handleDirectInstall}
                 disabled={installing}
-                className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-md active:scale-95 cursor-pointer disabled:opacity-60"
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 font-black text-xs sm:text-sm transition flex items-center justify-center gap-1.5 shadow-md active:scale-95 cursor-pointer disabled:opacity-60"
               >
-                <Download size={14} strokeWidth={2.5} />
+                <Download size={15} strokeWidth={2.5} />
                 <span>
                   {installing
                     ? 'Instalando...'
@@ -179,11 +191,11 @@ export function MobileInstallBanner() {
               <button
                 type="button"
                 onClick={() => setDismissed(true)}
-                className="p-1.5 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
+                className="hidden sm:flex p-2 rounded-xl bg-slate-800/80 hover:bg-slate-800 text-slate-400 hover:text-white transition cursor-pointer"
                 title="Fechar"
                 aria-label="Fechar aviso de instalação"
               >
-                <X size={15} />
+                <X size={16} />
               </button>
             </div>
           </div>

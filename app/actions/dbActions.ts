@@ -579,3 +579,61 @@ export async function getPublicInstallationAction(orderNumberOrId: string): Prom
   if (!orderNumberOrId) return null;
   return await callDbApi<any>('getPublicInstallation', { orderNumberOrId }, null);
 }
+
+// -------------------------------------------------------------
+// AGENDAMENTO DE NOTIFICAÇÕES DE LEMBRETE NO SUPABASE (WHATSAPP)
+// -------------------------------------------------------------
+export async function scheduleMaintenanceReminderAction(reminderData: {
+  id?: string;
+  userUid: string;
+  orderNumber: string;
+  clientName: string;
+  clientPhone: string;
+  clientAddress?: string;
+  equipment: string;
+  serviceDate: string;
+  nextServiceDate: string;
+  alertDate: string;
+  monthsInterval: number;
+  reminderDaysBefore: number;
+  technicianName?: string;
+  companyName?: string;
+  notes?: string;
+  customTemplate?: string;
+  dispatchNow?: boolean;
+}) {
+  const localKey = `amigo_reminders_${reminderData.userUid}`;
+  const fallbackItem = {
+    id: reminderData.id || `rem-${Date.now()}`,
+    userUid: reminderData.userUid,
+    orderNumber: reminderData.orderNumber,
+    clientName: reminderData.clientName,
+    clientPhone: reminderData.clientPhone,
+    clientAddress: reminderData.clientAddress || '',
+    equipment: reminderData.equipment,
+    serviceDate: reminderData.serviceDate,
+    nextServiceDate: reminderData.nextServiceDate,
+    alertDate: reminderData.alertDate,
+    monthsInterval: reminderData.monthsInterval,
+    reminderDaysBefore: reminderData.reminderDaysBefore,
+    technicianName: reminderData.technicianName || 'Técnico Especialista',
+    companyName: reminderData.companyName || 'Amigo Refrigerista Pro',
+    notes: reminderData.notes || '',
+    status: (reminderData.dispatchNow ? 'sent' : 'pending') as 'pending' | 'sent' | 'completed',
+    createdAt: new Date().toISOString(),
+  };
+
+  if (typeof window !== 'undefined') {
+    const current = readLocalList<any>(localKey);
+    const next = [
+      fallbackItem,
+      ...current.filter(
+        (r) => r.id !== fallbackItem.id && r.orderNumber !== fallbackItem.orderNumber
+      ),
+    ];
+    writeLocalList(localKey, next);
+  }
+
+  return fallbackItem;
+}
+

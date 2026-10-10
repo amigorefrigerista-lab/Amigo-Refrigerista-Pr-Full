@@ -6,6 +6,10 @@
   :root {
     --background: 210 40% 98%;
     --foreground: 222.2 84% 4.9%;
+    --os-status-pending: 245, 158, 11;
+    --os-status-in-progress: 59, 130, 246;
+    --os-status-completed: 16, 185, 129;
+    --os-status-rgb: var(--os-status-completed);
   }
 
   html.dark {
@@ -249,8 +253,68 @@ html.light .shadow-xl {
   padding-top: env(safe-area-inset-top, 0.75rem);
 }
 
-/* Previne zoom automático do iOS em inputs e garante legibilidade harmoniosa */
+/* Transição suave e efeito de brilho (shadow pulse) no #service-order-container usando variáveis de cor CSS */
+#service-order-container {
+  --os-status-rgb: var(--os-status-completed);
+  border-color: rgba(var(--os-status-rgb), 0.62);
+  box-shadow:
+    0 20px 50px rgba(var(--os-status-rgb), 0.16),
+    0 0 0 1px rgba(var(--os-status-rgb), 0.14);
+  transition:
+    border-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    background-color 0.65s cubic-bezier(0.22, 1, 0.36, 1),
+    transform 0.55s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+#service-order-container[data-status="Pending"] {
+  --os-status-rgb: var(--os-status-pending);
+}
+
+#service-order-container[data-status="In Progress"] {
+  --os-status-rgb: var(--os-status-in-progress);
+}
+
+#service-order-container[data-status="Completed"] {
+  --os-status-rgb: var(--os-status-completed);
+}
+
+@keyframes os-shadow-pulse {
+  0% {
+    box-shadow:
+      0 20px 50px rgba(var(--os-status-rgb), 0.24),
+      0 0 0 0 rgba(var(--os-status-rgb), 0.75),
+      inset 0 0 0 rgba(var(--os-status-rgb), 0);
+  }
+  45% {
+    box-shadow:
+      0 30px 90px rgba(var(--os-status-rgb), 0.65),
+      0 0 65px 16px rgba(var(--os-status-rgb), 0.58),
+      0 0 0 4px rgba(var(--os-status-rgb), 0.45),
+      inset 0 0 32px rgba(var(--os-status-rgb), 0.24);
+  }
+  100% {
+    box-shadow:
+      0 20px 50px rgba(var(--os-status-rgb), 0.16),
+      0 0 0 22px rgba(var(--os-status-rgb), 0),
+      inset 0 0 0 rgba(var(--os-status-rgb), 0);
+  }
+}
+
+#service-order-container[data-status-transitioning="true"] {
+  border-color: rgba(var(--os-status-rgb), 1);
+  animation: os-shadow-pulse 0.95s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Previne zoom automático do iOS em inputs e garante legibilidade, contraste e ergonomia de toque em dispositivos móveis */
 @media (max-width: 640px) {
+  html,
+  body {
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+  }
+
   input[type="text"],
   input[type="number"],
   input[type="email"],
@@ -260,18 +324,74 @@ html.light .shadow-xl {
   select,
   textarea {
     font-size: 16px !important;
-    min-height: 44px;
+    min-height: 46px;
+    line-height: 1.4;
   }
 
-  /* Ajusta touch targets de botões e seletores em telas menores */
+  /* Eleva a escala tipográfica mínima para facilitar a leitura em campo sob luz intensa */
+  .text-\[9px\],
+  .text-\[10px\] {
+    font-size: 0.72rem !important; /* ~11.5px */
+    line-height: 1.35 !important;
+  }
+
+  .text-\[11px\] {
+    font-size: 0.78rem !important; /* ~12.5px */
+    line-height: 1.4 !important;
+  }
+
+  .text-xs {
+    font-size: 0.84rem !important; /* ~13.5px */
+    line-height: 1.45 !important;
+  }
+
+  /* Melhora o contraste de textos secundários em telas móveis no modo escuro */
+  html.dark .text-slate-400 {
+    color: #cbd5e1;
+  }
+
+  html.dark .text-slate-500 {
+    color: #94a3b8;
+  }
+
+  /* Ajusta touch targets de botões e links principais em telas menores */
   button, 
-  a {
+  a[role="button"] {
     min-height: 42px;
+    touch-action: manipulation;
+  }
+
+  /* Ergonomia de toque reforçada no #service-order-container (botões de ação e campos de texto) */
+  #service-order-container button,
+  #service-order-container a {
+    min-height: 48px;
+    padding-top: 0.75rem;
+    padding-bottom: 0.75rem;
+    touch-action: manipulation;
+  }
+
+  #service-order-container input:not([type="checkbox"]):not([type="radio"]),
+  #service-order-container select,
+  #service-order-container textarea {
+    min-height: 50px;
+    padding-top: 0.875rem;
+    padding-bottom: 0.875rem;
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  /* Esconde barra de rolagem horizontal mantendo swipe suave */
+  .scrollbar-hide {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;
   }
 
   /* Rolagem suave de modais e prevenção de estouro */
   .modal-mobile-body {
-    max-height: 80vh;
+    max-height: 82vh;
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }

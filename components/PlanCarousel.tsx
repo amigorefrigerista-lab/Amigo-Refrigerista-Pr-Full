@@ -41,22 +41,22 @@ export function PlanCarousel() {
   const Plan = PLANS[index];
 
   return (
-    <div className="w-full h-20 overflow-hidden relative">
+    <div className="w-full min-h-[76px] sm:h-20 overflow-hidden relative">
       <AnimatePresence mode="wait">
         <motion.div
           key={index}
-          initial={{ opacity: 0, y: 20 }}
+          initial={{ opacity: 0, y: 14 }}
           animate={{ opacity: 1, y: 0 }}
-          exit={{ opacity: 0, y: -20 }}
-          transition={{ duration: 0.5 }}
-          className={`h-full w-full rounded-2xl ${Plan.bg} border border-slate-700/50 p-4 flex items-center gap-4`}
+          exit={{ opacity: 0, y: -14 }}
+          transition={{ duration: 0.45 }}
+          className={`w-full rounded-2xl ${Plan.bg} border border-slate-700/50 p-3.5 sm:p-4 flex items-center gap-3.5`}
         >
-          <div className={`p-2 rounded-xl bg-slate-900 ${Plan.color}`}>
+          <div className={`p-2.5 rounded-xl bg-slate-900 shrink-0 ${Plan.color}`}>
             <Plan.icon size={20} />
           </div>
-          <div>
-            <h4 className={`text-sm font-bold ${Plan.color}`}>{Plan.title}</h4>
-            <p className="text-xs text-slate-300">{Plan.description}</p>
+          <div className="min-w-0">
+            <h4 className={`text-sm font-bold leading-snug ${Plan.color}`}>{Plan.title}</h4>
+            <p className="text-xs text-slate-200 leading-relaxed mt-0.5">{Plan.description}</p>
           </div>
         </motion.div>
       </AnimatePresence>

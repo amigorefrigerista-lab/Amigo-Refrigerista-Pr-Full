@@ -122,8 +122,10 @@ import {
   getStockAction,
   saveStockItemAction,
   updateStockQuantityAction,
-  deleteStockItemAction
+  deleteStockItemAction,
+  scheduleMaintenanceReminderAction
 } from '@/app/actions/dbActions';
+import { supabaseService } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
@@ -937,6 +939,8 @@ export default function AmigoApp() {
       maintenanceIntervalMonths: remMonths,
       autoScheduleReminder: autoScheduleReminder,
       reminderDaysBefore: remDaysBefore,
+      alertDate: alertDate,
+      nextServiceDate: targetDueDate,
       notes: remNotes.trim(),
       createdAt: new Date().toISOString()
     };
@@ -1015,10 +1019,12 @@ export default function AmigoApp() {
 
       setServiceOrders(prev => [newOS, ...prev]);
 
-      // Integração com o serviço de disparo de Lembrete de Manutenção via WhatsApp
+      // Integração com o serviço de agendamento no Supabase (usando alertDate) e disparo de Lembrete via WhatsApp (WHATSAPP_API_URL / WHATSAPP_API_KEY)
       if (autoScheduleReminder) {
+        const reminderId = `rem-${Date.now()}`;
+        const effectiveUid = user?.uid || 'public';
         const newReminder: MaintenanceReminder = {
-          id: `rem-${Date.now()}`,
+          id: reminderId,
           orderNumber,
           clientName: remClientName.trim(),
           clientPhone: remClientPhone.trim(),
@@ -1038,11 +1044,58 @@ export default function AmigoApp() {
 
         setReminders((prev) => [newReminder, ...prev]);
 
+        // 1. Dispara/agenda no serviço de backend (/api/whatsapp/send-reminder) que utiliza WHATSAPP_API_URL e WHATSAPP_API_KEY do ambiente e persiste no Supabase
         const dispatchRes = await dispatchWhatsAppMaintenanceReminder({
           reminder: newReminder,
           customTemplate: waTemplate,
           dispatchNow: sendWhatsAppImmediately,
         });
+
+        // 2. Agenda automaticamente a notificação no Supabase (client-side + fallback) usando o campo `alertDate`
+        await supabaseService
+          .scheduleMaintenanceNotification(
+            {
+              id: reminderId,
+              user_id: effectiveUid,
+              order_number: orderNumber,
+              client_name: newReminder.clientName,
+              client_phone: newReminder.clientPhone,
+              client_address: newReminder.clientAddress,
+              equipment: newReminder.equipment,
+              service_date: remServiceDate,
+              next_service_date: dispatchRes.nextServiceDate || targetDueDate,
+              alert_date: dispatchRes.alertDate || alertDate,
+              alertDate: dispatchRes.alertDate || alertDate,
+              months_interval: remMonths,
+              reminder_days_before: remDaysBefore,
+              message: dispatchRes.formattedMessage,
+              wa_link: dispatchRes.waLink,
+              status: dispatchRes.apiDispatched ? 'dispatched' : 'scheduled',
+              notes: newReminder.notes,
+            },
+            effectiveUid
+          )
+          .catch(() => null);
+
+        await scheduleMaintenanceReminderAction({
+          id: reminderId,
+          userUid: effectiveUid,
+          orderNumber,
+          clientName: newReminder.clientName,
+          clientPhone: newReminder.clientPhone,
+          clientAddress: newReminder.clientAddress,
+          equipment: newReminder.equipment,
+          serviceDate: remServiceDate,
+          nextServiceDate: dispatchRes.nextServiceDate || targetDueDate,
+          alertDate: dispatchRes.alertDate || alertDate,
+          monthsInterval: remMonths,
+          reminderDaysBefore: remDaysBefore,
+          technicianName: newReminder.technicianName,
+          companyName: newReminder.companyName,
+          notes: newReminder.notes,
+          customTemplate: waTemplate,
+          dispatchNow: sendWhatsAppImmediately,
+        }).catch(() => null);
 
         if (dispatchRes.apiDispatched) {
           toast.success(
@@ -1065,11 +1118,9 @@ export default function AmigoApp() {
         } else {
           toast.success(
             dispatchRes.message ||
-              `🔔 Lembrete de Manutenção agendado no WhatsApp para ${new Date(
-                alertDate + 'T12:00:00'
-              ).toLocaleDateString('pt-BR')} (${
-                remDaysBefore === 0 ? 'no dia da data' : `${remDaysBefore} dias antes da data`
-              })!`
+              `🔔 Notificação agendada no Supabase (alertDate: ${new Date(
+                (dispatchRes.alertDate || alertDate) + 'T12:00:00'
+              ).toLocaleDateString('pt-BR')}) para disparo via WhatsApp!`
           );
         }
       }
@@ -1300,7 +1351,7 @@ export default function AmigoApp() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
                   <label className="text-slate-300 font-semibold block mb-1">WhatsApp / Telefone</label>
                   <input
@@ -1308,7 +1359,7 @@ export default function AmigoApp() {
                     placeholder="(11) 99999-9999"
                     value={phoneInput}
                     onChange={(e) => setPhoneInput(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition"
+                    className="w-full px-3.5 py-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition"
                   />
                 </div>
                 <div>
@@ -1318,7 +1369,7 @@ export default function AmigoApp() {
                     placeholder="00.000.000/0000-00"
                     value={documentInput}
                     onChange={(e) => setDocumentInput(e.target.value)}
-                    className="w-full px-3 py-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition"
+                    className="w-full px-3.5 py-2.5 bg-slate-950/80 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-sky-500 transition"
                   />
                 </div>
               </div>
@@ -1527,7 +1578,7 @@ export default function AmigoApp() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-white pb-28 pt-16 transition-colors duration-200">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-white pb-32 pt-16 transition-colors duration-200">
       <Toaster position="top-center" richColors theme={isDark ? 'dark' : 'light'} />
       
       {/* Header com os botões de Suporte e Admin */}
@@ -1537,7 +1588,7 @@ export default function AmigoApp() {
         onOpenUpgradeModal={() => setShowUpgradeModal(true)}
       />
 
-      <main className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+      <main className="max-w-4xl mx-auto px-3 sm:px-5 py-4 sm:py-6 space-y-5 sm:space-y-6">
         {/* Banner de Instalação Mobile no topo da página inicial (standalone: false & iOS/Android) */}
         <MobileInstallBanner />
 
@@ -1572,97 +1623,98 @@ export default function AmigoApp() {
         <PlanCarousel />
 
         {/* Botões de Navegação entre Abas */}
-        <div className="flex gap-2 overflow-x-auto pb-2 scrollbar-hide">
+        <div className="grid grid-cols-3 sm:flex gap-2 pb-1">
           <button
             onClick={() => setActiveTab('dash')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'dash' ? 'bg-sky-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
+            className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition text-center truncate cursor-pointer ${ activeTab === 'dash' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
           >
             Dashboard
           </button>
 
           <button
             onClick={() => setActiveTab('estoque')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'estoque' ? 'bg-sky-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
+            className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition text-center truncate cursor-pointer ${ activeTab === 'estoque' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
           >
-            Estoque do Técnico
+            <span className="sm:hidden">Estoque</span>
+            <span className="hidden sm:inline">Estoque do Técnico</span>
           </button>
 
           <button
             onClick={() => setActiveTab('precos')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition whitespace-nowrap ${ activeTab === 'precos' ? 'bg-sky-500 text-white' : 'text-slate-600 dark:text-slate-400 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
+            className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition text-center truncate cursor-pointer ${ activeTab === 'precos' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
           >
-            Tabela de Preços / Orçamentos
+            <span className="sm:hidden">Orçamentos</span>
+            <span className="hidden sm:inline">Tabela de Preços / Orçamentos</span>
           </button>
         </div>
 
-
         {/* 1. ABA: DASHBOARD */}
         {activeTab === 'dash' && (
-          <div className="space-y-6">
+          <div className="space-y-5 sm:space-y-6">
             {/* Card de Destaque: Criar Novo Serviço (Botão de fácil identificação) */}
             <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
-              <div className="flex items-center gap-3.5">
+              <div className="flex items-start sm:items-center gap-3.5">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
                   <Wrench size={24} />
                 </div>
-                <div>
-                  <div className="flex items-center gap-2">
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
                     <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
                       AGILIDADE DE CAMPO
                     </span>
-                    <span className="text-[10px] font-mono font-bold text-slate-400">
+                    <span className="text-[11px] font-mono font-bold text-slate-300">
                       Próxima: <strong className="text-emerald-400">#{nextOrderNumber}</strong>
                     </span>
                   </div>
-                  <h3 className="text-base font-bold text-white mt-0.5">Criar Novo Serviço (Nova OS)</h3>
-                  <p className="text-xs text-slate-400">Gera número de OS sequencial automático, cadastra o cliente e agenda o lembrete de preventiva.</p>
+                  <h3 className="text-base sm:text-lg font-bold text-white mt-1 leading-snug">Criar Novo Serviço (Nova OS)</h3>
+                  <p className="text-xs sm:text-sm text-slate-300 mt-0.5 leading-relaxed">Gera número de OS sequencial automático, cadastra o cliente e agenda o lembrete de preventiva.</p>
                 </div>
               </div>
 
               <button
                 type="button"
                 onClick={() => setShowOSModal(true)}
-                className="px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(16,185,129,0.35)] cursor-pointer active:scale-95 shrink-0"
+                className="w-full sm:w-auto px-5 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(16,185,129,0.35)] cursor-pointer active:scale-95 shrink-0"
               >
                 <Plus size={18} strokeWidth={3} />
                 <span>Criar Novo Serviço Agora</span>
               </button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-xs font-semibold">Clientes Ativos</span>
-                  <Users size={16} className="text-sky-400" />
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4">
+                <div className="flex items-center justify-between text-slate-300 mb-1.5">
+                  <span className="text-xs font-bold">Clientes Ativos</span>
+                  <Users size={16} className="text-sky-400 shrink-0" />
                 </div>
-                <div className="text-2xl font-bold text-white">{clients.length}</div>
+                <div className="text-2xl font-black text-white font-mono">{clients.length}</div>
               </div>
 
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-xs font-semibold">Máquinas PMOC</span>
-                  <Wrench size={16} className="text-cyan-400" />
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4">
+                <div className="flex items-center justify-between text-slate-300 mb-1.5">
+                  <span className="text-xs font-bold">Máquinas PMOC</span>
+                  <Wrench size={16} className="text-cyan-400 shrink-0" />
                 </div>
-                <div className="text-2xl font-bold text-white">
+                <div className="text-2xl font-black text-white font-mono">
                   {clients.reduce((acc, c) => acc + (c.equipment?.length || 0), 0)}
                 </div>
               </div>
 
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-xs font-semibold">Receitas do Mês</span>
-                  <DollarSign size={16} className="text-emerald-400" />
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4">
+                <div className="flex items-center justify-between text-slate-300 mb-1.5">
+                  <span className="text-xs font-bold">Receitas do Mês</span>
+                  <DollarSign size={16} className="text-emerald-400 shrink-0" />
                 </div>
-                <div className="text-2xl font-bold text-emerald-400">
+                <div className="text-xl sm:text-2xl font-black text-emerald-400 font-mono truncate">
                   R$ {revenueItems.filter(i => i.type === 'in').reduce((a, b) => a + b.value, 0).toFixed(0)}
                 </div>
               </div>
 
-              <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
-                <div className="flex items-center justify-between text-slate-400 mb-2">
-                  <span className="text-xs font-semibold">Saldo Líquido</span>
-                  <TrendingUp size={16} className="text-amber-400" />
+              <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4">
+                <div className="flex items-center justify-between text-slate-300 mb-1.5">
+                  <span className="text-xs font-bold">Saldo Líquido</span>
+                  <TrendingUp size={16} className="text-amber-400 shrink-0" />
                 </div>
-                <div className="text-2xl font-bold text-white">
+                <div className="text-xl sm:text-2xl font-black text-white font-mono truncate">
                   R$ {(revenueItems.filter(i => i.type === 'in').reduce((a, b) => a + b.value, 0) - revenueItems.filter(i => i.type === 'out').reduce((a, b) => a + b.value, 0)).toFixed(0)}
                 </div>
               </div>
@@ -2028,42 +2080,36 @@ export default function AmigoApp() {
         {/* 3. ABA: CÁLCULO DE SUPERAQUECIMENTO, SUB-RESFRIAMENTO & CARGA TÉRMICA */}
         {activeTab === 'calc' && (
           <div className="space-y-6">
-            <div className="flex flex-wrap sm:flex-nowrap gap-1.5 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl">
+            <div className="grid grid-cols-3 gap-1.5 p-1.5 bg-slate-900 border border-slate-800 rounded-2xl">
               <button
                 type="button"
                 onClick={() => setCalcSubTab('sh_sub')}
-                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  calcSubTab === 'sh_sub' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-400 hover:text-white'
+                className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                  calcSubTab === 'sh_sub' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-300 hover:text-white'
                 }`}
               >
-                Superaquecimento & Sub-resfriamento
+                <span className="sm:hidden">SH & Sub</span>
+                <span className="hidden sm:inline">Superaquecimento & Sub-resfriamento</span>
               </button>
               <button
                 type="button"
                 onClick={() => setCalcSubTab('thermal')}
-                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  calcSubTab === 'thermal' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-400 hover:text-white'
+                className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                  calcSubTab === 'thermal' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-300 hover:text-white'
                 }`}
               >
-                Cálculo de BTU/h
+                <span className="sm:hidden">Carga BTU/h</span>
+                <span className="hidden sm:inline">Cálculo de BTU/h</span>
               </button>
               <button
                 type="button"
                 onClick={() => setCalcSubTab('pt_table')}
-                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  calcSubTab === 'pt_table' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-400 hover:text-white'
+                className={`py-2.5 px-2 sm:px-3 rounded-xl text-xs font-bold transition-all cursor-pointer text-center ${
+                  calcSubTab === 'pt_table' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-300 hover:text-white'
                 }`}
               >
-                Tabela PxT
-              </button>
-              <button
-                type="button"
-                onClick={() => setCalcSubTab('pt_table')}
-                className={`flex-1 py-2 px-3 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-                  calcSubTab === 'pt_table' ? 'bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Tabela PxT (Pressão x Temp)
+                <span className="sm:hidden">Tabela PxT</span>
+                <span className="hidden sm:inline">Tabela PxT (Pressão x Temp)</span>
               </button>
             </div>
 
@@ -2541,10 +2587,10 @@ export default function AmigoApp() {
                           <button
                             type="button"
                             onClick={() => handleDeleteTransaction(item.id)}
-                            className="p-1.5 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-500/30 transition opacity-0 group-hover:opacity-100 focus:opacity-100 cursor-pointer"
+                            className="p-2 rounded-lg bg-slate-950 border border-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-500/30 transition opacity-100 sm:opacity-0 sm:group-hover:opacity-100 focus:opacity-100 cursor-pointer"
                             title="Remover lançamento"
                           >
-                            <Trash2 className="w-3.5 h-3.5" />
+                            <Trash2 className="w-4 h-4" />
                           </button>
                         </div>
                       </div>
@@ -2578,11 +2624,11 @@ export default function AmigoApp() {
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 flex-wrap">
+                <div className="grid grid-cols-1 sm:flex sm:items-center gap-2 w-full sm:w-auto">
                   <button
                     type="button"
                     onClick={() => setShowTemplateModal(true)}
-                    className="px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 hover:text-white border border-slate-700 font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer shrink-0"
+                    className="w-full sm:w-auto px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 hover:text-white border border-slate-700 font-bold text-xs transition flex items-center justify-center gap-1.5 shadow-sm cursor-pointer shrink-0"
                     title="Configurar modelo do texto do WhatsApp com variáveis dinâmicas"
                   >
                     <SlidersHorizontal size={15} />
@@ -2592,7 +2638,7 @@ export default function AmigoApp() {
                   <button
                     type="button"
                     onClick={() => setShowOSModal(true)}
-                    className="px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-lg cursor-pointer shrink-0"
+                    className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-lg cursor-pointer shrink-0"
                   >
                     <Plus size={16} />
                     <span>Novo Lembrete / OS</span>
@@ -2686,8 +2732,8 @@ export default function AmigoApp() {
                           </div>
                         </div>
 
-                        <div className="flex items-center justify-between pt-2 border-t border-slate-800/80">
-                          <span className="text-[11px] text-slate-500 font-mono">Tel: {rem.clientPhone}</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2.5 border-t border-slate-800/80">
+                          <span className="text-xs text-slate-300 font-mono">Tel: {rem.clientPhone}</span>
                           <a
                             href={waLink}
                             target="_blank"
@@ -2717,7 +2763,7 @@ export default function AmigoApp() {
                                 'Disparando lembrete de manutenção via WhatsApp!'
                               );
                             }}
-                            className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-2 shadow-md cursor-pointer"
+                            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95"
                           >
                             <MessageSquare size={16} />
                             <span>Enviar Mensagem no WhatsApp</span>
@@ -2734,24 +2780,30 @@ export default function AmigoApp() {
             {(() => {
               const currentOs = serviceOrders[0];
               const activeContainerStatus = currentOs?.status || defaultOrderStatus;
+              const statusCssVar =
+                activeContainerStatus === 'Pending'
+                  ? 'var(--os-status-pending)'
+                  : activeContainerStatus === 'In Progress'
+                  ? 'var(--os-status-in-progress)'
+                  : 'var(--os-status-completed)';
               const containerBorderClass =
                 activeContainerStatus === 'Pending'
-                  ? 'border-amber-500/60 shadow-[0_20px_50px_rgba(245,158,11,0.16)]'
+                  ? 'border-amber-500/60 shadow-[0_20px_50px_rgba(var(--os-status-pending),0.18)]'
                   : activeContainerStatus === 'In Progress'
-                  ? 'border-blue-500/60 shadow-[0_20px_50px_rgba(59,130,246,0.16)]'
-                  : 'border-emerald-500/60 shadow-[0_20px_50px_rgba(16,185,129,0.16)]';
+                  ? 'border-blue-500/60 shadow-[0_20px_50px_rgba(var(--os-status-in-progress),0.18)]'
+                  : 'border-emerald-500/60 shadow-[0_20px_50px_rgba(var(--os-status-completed),0.18)]';
               const containerPulseRingClass =
                 activeContainerStatus === 'Pending'
-                  ? 'ring-2 ring-amber-400/50 scale-[1.003]'
+                  ? 'ring-2 ring-amber-400/80 scale-[1.005] shadow-[0_0_65px_14px_rgba(var(--os-status-pending),0.58)]'
                   : activeContainerStatus === 'In Progress'
-                  ? 'ring-2 ring-blue-400/50 scale-[1.003]'
-                  : 'ring-2 ring-emerald-400/50 scale-[1.003]';
+                  ? 'ring-2 ring-blue-400/80 scale-[1.005] shadow-[0_0_65px_14px_rgba(var(--os-status-in-progress),0.58)]'
+                  : 'ring-2 ring-emerald-400/80 scale-[1.005] shadow-[0_0_65px_14px_rgba(var(--os-status-completed),0.58)]';
               const containerHeaderBg =
                 activeContainerStatus === 'Pending'
-                  ? 'bg-amber-950/90 border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.2)]'
+                  ? 'bg-amber-950/90 border-amber-500/50 shadow-[0_0_30px_rgba(var(--os-status-pending),0.22)]'
                   : activeContainerStatus === 'In Progress'
-                  ? 'bg-sky-950/90 border-sky-500/50 shadow-[0_0_30px_rgba(14,165,233,0.2)]'
-                  : 'bg-emerald-950/90 border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.2)]';
+                  ? 'bg-sky-950/90 border-sky-500/50 shadow-[0_0_30px_rgba(var(--os-status-in-progress),0.22)]'
+                  : 'bg-emerald-950/90 border-emerald-500/50 shadow-[0_0_30px_rgba(var(--os-status-completed),0.22)]';
 
               const currentOsPdfData: ServiceOrderData = {
                 orderNumber: currentOs?.orderNumber || currentOs?.id || nextOrderNumber,
@@ -2787,7 +2839,8 @@ export default function AmigoApp() {
                   id="service-order-container"
                   data-status={activeContainerStatus}
                   data-status-transitioning={osStatusTransitioning ? 'true' : 'false'}
-                  className={`relative bg-slate-900 border-2 rounded-3xl p-6 space-y-4 transition-colors transition-all duration-700 ease-in-out ${containerBorderClass} ${
+                  style={{ '--os-status-rgb': statusCssVar } as React.CSSProperties}
+                  className={`relative bg-slate-900 border-2 rounded-3xl p-5 sm:p-7 space-y-5 sm:space-y-6 transition-colors transition-all duration-700 ease-in-out ${containerBorderClass} ${
                     osStatusTransitioning ? containerPulseRingClass : 'ring-0 ring-transparent scale-100'
                   }`}
                 >
@@ -2796,14 +2849,14 @@ export default function AmigoApp() {
                     id="service-order-step-progress"
                     role="group"
                     aria-label="Service Order Status Step Progress"
-                    className="p-3.5 sm:p-4 rounded-2xl bg-slate-950/85 border border-slate-800 space-y-2.5"
+                    className="p-4 sm:p-5 rounded-2xl bg-slate-950/85 border border-slate-800 space-y-3.5"
                   >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+                    <div className="flex flex-col min-[420px]:flex-row min-[420px]:items-center justify-between gap-1.5">
+                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-300 font-mono">
                         Step Progress · Status da OS
                       </span>
-                      <span className="text-[10px] font-mono font-bold text-sky-400">
-                        Clique em uma etapa para atualizar o status
+                      <span className="text-[11px] font-mono font-bold text-sky-400">
+                        Toque em uma etapa para atualizar o status
                       </span>
                     </div>
 
@@ -2820,7 +2873,7 @@ export default function AmigoApp() {
                         />
                       </div>
 
-                      <div className="grid grid-cols-3 gap-2 sm:gap-3 relative z-10">
+                      <div className="grid grid-cols-3 gap-2.5 sm:gap-3.5 relative z-10">
                         {(
                           [
                             {
@@ -2905,7 +2958,7 @@ export default function AmigoApp() {
                                 }
                                 toast.success(`Status atualizado para: ${newSt}`);
                               }}
-                              className={`flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-2 px-2.5 py-2.5 sm:px-3.5 sm:py-2.5 rounded-xl border text-left transition-all duration-500 cursor-pointer ${
+                              className={`min-h-[54px] flex flex-col sm:flex-row items-center justify-center sm:justify-start gap-2 px-3 py-3 sm:px-4 sm:py-3 rounded-xl border text-left transition-all duration-500 cursor-pointer ${
                                 isCurrent
                                   ? item.activeClass
                                   : isPassed
@@ -2945,19 +2998,19 @@ export default function AmigoApp() {
 
                   <header
                     id="service-order-header"
-                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border transition-colors transition-all duration-700 ease-in-out ${containerHeaderBg}`}
+                    className={`flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-4 sm:p-5 rounded-2xl border transition-colors transition-all duration-700 ease-in-out ${containerHeaderBg}`}
                   >
-                    <div className="flex items-center gap-3">
-                      <div className="p-2.5 rounded-xl bg-slate-950/60 border border-white/10 text-sky-400 transition-colors duration-700 ease-in-out">
+                    <div className="flex items-center gap-3.5">
+                      <div className="p-3 rounded-xl bg-slate-950/60 border border-white/10 text-sky-400 transition-colors duration-700 ease-in-out shrink-0">
                         <FileText size={22} />
                       </div>
                       <div>
                         <h3 className="text-base font-bold text-white">Histórico de Ordens de Serviço (OS)</h3>
-                        <p className="text-xs text-slate-300">Serviços executados com numeração automática e clientes vinculados</p>
+                        <p className="text-xs text-slate-300 mt-0.5">Serviços executados com numeração automática e clientes vinculados</p>
                       </div>
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2 shrink-0">
+                    <div className="grid grid-cols-1 min-[390px]:grid-cols-2 sm:flex sm:flex-wrap items-center gap-2.5 sm:gap-3 shrink-0 w-full sm:w-auto">
                       <select
                         aria-label="Status"
                         value={activeContainerStatus}
@@ -2973,7 +3026,7 @@ export default function AmigoApp() {
                           );
                           toast.success(`Status atualizado para: ${newSt}`);
                         }}
-                          className="px-3 py-2 rounded-xl bg-slate-950/90 border border-white/20 text-white font-bold text-xs transition-colors transition-all duration-700 ease-in-out focus:outline-none focus:border-sky-400 cursor-pointer"
+                          className="min-[390px]:col-span-2 sm:col-span-1 min-h-[46px] px-4 py-2.5 rounded-xl bg-slate-950/90 border border-white/20 text-white font-bold text-xs transition-colors transition-all duration-700 ease-in-out focus:outline-none focus:border-sky-400 cursor-pointer"
                         >
                           <option value="Pending">Pending</option>
                           <option value="In Progress">In Progress</option>
@@ -2991,11 +3044,11 @@ export default function AmigoApp() {
                               status: activeContainerStatus,
                             })
                           }
-                          className="px-3.5 py-2 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                          className="min-h-[46px] px-4 py-2.5 rounded-xl bg-indigo-500/20 hover:bg-indigo-500/30 border border-indigo-400/40 text-indigo-200 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shrink-0 active:scale-[0.98]"
                           title="Gerar QR Code exclusivo para a página pública desta OS"
                         >
-                          <QrCode size={14} className="text-indigo-300" />
-                          <span>Generate QR Code</span>
+                          <QrCode size={15} className="text-indigo-300 shrink-0" />
+                          <span className="truncate">Generate QR Code</span>
                         </button>
 
                         <button
@@ -3037,31 +3090,31 @@ export default function AmigoApp() {
                             a.click();
                             document.body.removeChild(a);
                           }}
-                          className="px-3.5 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
+                          className="min-h-[46px] px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-md cursor-pointer shrink-0 active:scale-[0.98]"
                           title="Compartilhar link da OS via Web Share API / WhatsApp para o celular do cliente"
                         >
-                          <MessageSquare size={14} />
-                          <span>Share via WhatsApp</span>
+                          <MessageSquare size={15} className="shrink-0" />
+                          <span className="truncate">Share via WhatsApp</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setIsOsQrScannerOpen(true)}
-                          className="px-3.5 py-2 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-sky-400/40 text-sky-300 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                          className="min-h-[46px] px-4 py-2.5 rounded-xl bg-slate-950/90 hover:bg-slate-900 border border-sky-400/40 text-sky-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shrink-0 active:scale-[0.98]"
                           title="Escanear QR Code da OS com a câmera para consultar status"
                         >
-                          <QrCode size={14} className="text-sky-400" />
-                          <span>Scan QR Code</span>
+                          <QrCode size={15} className="text-sky-400 shrink-0" />
+                          <span className="truncate">Scan QR Code</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setSigningOsId(currentOs?.id || '__default__')}
-                          className="px-3.5 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                          className="min-h-[46px] px-4 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-emerald-200 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shrink-0 active:scale-[0.98]"
                           title="Coletar assinatura do cliente"
                         >
-                          <Edit size={14} />
-                          <span>Customer Signature</span>
+                          <Edit size={15} className="shrink-0" />
+                          <span className="truncate">Customer Signature</span>
                         </button>
 
                         <button
@@ -3138,7 +3191,7 @@ export default function AmigoApp() {
                               setHeaderSaving(false);
                             }
                           }}
-                          className={`px-3.5 py-2 rounded-xl font-black text-xs transition-all duration-300 flex items-center gap-1.5 cursor-pointer shrink-0 ${
+                          className={`min-h-[46px] px-4 py-2.5 rounded-xl font-black text-xs transition-all duration-300 flex items-center justify-center gap-2 cursor-pointer shrink-0 active:scale-[0.98] ${
                             headerSavedSuccess
                               ? 'bg-emerald-400 text-slate-950 ring-2 ring-emerald-300/70 shadow-[0_0_20px_rgba(16,185,129,0.5)] scale-[1.03]'
                               : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950 shadow-md'
@@ -3155,7 +3208,7 @@ export default function AmigoApp() {
                                 transition={{ duration: 0.18 }}
                                 className="flex items-center gap-1.5"
                               >
-                                <RefreshCw size={14} className="animate-spin" />
+                                <RefreshCw size={15} className="animate-spin" />
                                 <span>Saving...</span>
                               </motion.span>
                             ) : headerSavedSuccess ? (
@@ -3167,7 +3220,7 @@ export default function AmigoApp() {
                                 transition={{ type: 'spring', stiffness: 420, damping: 18 }}
                                 className="flex items-center gap-1.5"
                               >
-                                <CheckCircle2 size={14} strokeWidth={2.8} />
+                                <CheckCircle2 size={15} strokeWidth={2.8} />
                                 <span>Saved!</span>
                               </motion.span>
                             ) : (
@@ -3179,7 +3232,7 @@ export default function AmigoApp() {
                                 transition={{ duration: 0.18 }}
                                 className="flex items-center gap-1.5"
                               >
-                                <CheckCircle2 size={14} />
+                                <CheckCircle2 size={15} />
                                 <span>Save</span>
                               </motion.span>
                             )}
@@ -3189,19 +3242,19 @@ export default function AmigoApp() {
                         <button
                           type="button"
                           onClick={() => osPdfExporterRef.current?.exportPdf()}
-                          className="px-3.5 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-md cursor-pointer shrink-0"
+                          className="min-h-[46px] px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-md cursor-pointer shrink-0 active:scale-[0.98]"
                           title="Exportar Ordem de Serviço atual para PDF"
                         >
-                          <Download size={14} />
-                          <span>Export to PDF</span>
+                          <Download size={15} className="shrink-0" />
+                          <span className="truncate">Export to PDF</span>
                         </button>
 
                         <button
                           type="button"
                           onClick={() => setShowOSModal(true)}
-                          className="px-3.5 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                          className="min-[390px]:col-span-2 sm:col-span-1 min-h-[46px] px-4 py-2.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shrink-0 active:scale-[0.98]"
                         >
-                          <Plus size={15} />
+                          <Plus size={16} />
                           <span>Nova OS</span>
                         </button>
                       </div>
@@ -3221,15 +3274,15 @@ export default function AmigoApp() {
                       const meetsMinRequirement = trimmedLength >= MIN_PROFESSIONAL_NOTE_LENGTH;
 
                       return (
-                        <div className="p-3.5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-2">
-                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                        <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3">
+                          <div className="flex items-center justify-between gap-2.5 flex-wrap">
                             <label
                               htmlFor="service-order-customer-notes"
-                              className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block"
+                              className="text-[10px] font-bold uppercase tracking-wider text-slate-300 block"
                             >
                               Customer Notes · Observações do Cliente e Condição do Equipamento
                             </label>
-                            <div className="flex items-center gap-2">
+                            <div className="flex items-center gap-2.5">
                               <span
                                 className={`text-[10px] font-mono font-bold transition-colors ${
                                   meetsMinRequirement ? 'text-emerald-400' : 'text-rose-400'
@@ -3262,7 +3315,7 @@ export default function AmigoApp() {
                                 }
                               }}
                               placeholder="Registre solicitações específicas do cliente ou observações sobre a condição do equipamento (mín. 20 caracteres para nota técnica profissional)..."
-                              className={`w-full pl-3 pr-11 py-2.5 pb-7 rounded-xl bg-slate-900 border text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none transition resize-y ${
+                              className={`w-full pl-4 pr-12 py-3.5 pb-9 rounded-xl bg-slate-900 border text-xs sm:text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none transition resize-y leading-relaxed ${
                                 meetsMinRequirement
                                   ? 'border-emerald-500/60 focus:border-emerald-400'
                                   : 'border-rose-500/50 focus:border-rose-400'
@@ -3330,25 +3383,25 @@ export default function AmigoApp() {
                     <section
                       id="customer-signature-section"
                       aria-label="Customer Signature"
-                      className="p-4 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3"
+                      className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-slate-800 space-y-3.5"
                     >
-                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                         <div>
-                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block">
+                          <span className="text-[10px] font-bold uppercase tracking-wider text-slate-300 block">
                             Customer Signature · Assinatura do Cliente
                           </span>
-                          <p className="text-xs text-slate-400 mt-0.5">
+                          <p className="text-xs text-slate-300 mt-0.5">
                             Abra o canvas para o cliente assinar o aceite do serviço e salvar o Base64 no banco de dados
                           </p>
                         </div>
 
-                        <div className="flex flex-wrap items-center gap-2 shrink-0">
+                        <div className="flex flex-wrap items-center gap-2.5 shrink-0 w-full sm:w-auto">
                           <button
                             type="button"
                             onClick={() => setSigningOsId(currentOs?.id || '__default__')}
-                            className="px-3.5 py-2 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer"
+                            className="w-full sm:w-auto min-h-[46px] px-4 py-2.5 rounded-xl bg-sky-500/20 hover:bg-sky-500/30 border border-sky-400/40 text-sky-200 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer active:scale-[0.98]"
                           >
-                            <Edit size={14} className="text-sky-400" />
+                            <Edit size={15} className="text-sky-400 shrink-0" />
                             <span>
                               {currentOs?.customerSignature || defaultCustomerSignature
                                 ? 'Update Signature'
@@ -3368,7 +3421,7 @@ export default function AmigoApp() {
                             setSigningOsId(currentOs?.id || '__default__');
                           }
                         }}
-                        className="w-full rounded-xl border border-dashed border-slate-700 hover:border-sky-500/50 bg-slate-900/70 p-3 flex flex-col items-center justify-center min-h-[84px] cursor-pointer transition group"
+                        className="w-full rounded-xl border border-dashed border-slate-700 hover:border-sky-500/50 bg-slate-900/70 p-4 flex flex-col items-center justify-center min-h-[96px] cursor-pointer transition group"
                       >
                         {currentOs?.customerSignature || defaultCustomerSignature ? (
                           <div className="flex flex-col items-center gap-1.5 w-full">
@@ -3398,7 +3451,7 @@ export default function AmigoApp() {
                       </div>
                     </section>
 
-              <div className="space-y-3 pt-2">
+              <div className="space-y-4 sm:space-y-5 pt-2">
                 {serviceOrders.length === 0 ? (
                   <div className="p-6 border border-dashed border-slate-800 rounded-2xl text-center">
                     <p className="text-xs text-slate-500">Nenhuma ordem de serviço registrada.</p>
@@ -3424,22 +3477,22 @@ export default function AmigoApp() {
                       <div
                         key={os.id}
                         data-order-number={os.orderNumber || os.id}
-                        className="p-3.5 min-[400px]:p-4 rounded-2xl bg-slate-950 border border-slate-800 space-y-3 hover:border-slate-700 transition"
+                        className="p-4 sm:p-5 rounded-2xl bg-slate-950 border border-slate-800 space-y-4 hover:border-slate-700 transition"
                       >
                         {/* Cabeçalho do Card da OS com cor de fundo dinâmica e transição CSS suave baseada no Status */}
                         <div
-                          className={`flex flex-col min-[400px]:flex-row min-[400px]:items-center justify-between gap-2.5 p-3 rounded-xl border transition-all duration-500 ease-in-out ${osHeaderBg}`}
+                          className={`flex flex-col sm:flex-row sm:items-center justify-between gap-3.5 p-3.5 sm:p-4 rounded-xl border transition-all duration-500 ease-in-out ${osHeaderBg}`}
                         >
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-black bg-slate-950/70 text-white border border-white/15">
+                          <div className="flex items-center gap-2.5 flex-wrap">
+                            <span className="px-2.5 py-1 rounded-lg text-[11px] font-mono font-black bg-slate-950/70 text-white border border-white/15">
                               #{os.orderNumber || os.id}
                             </span>
-                            <span className={`px-2 py-0.5 rounded-md text-[10px] font-mono font-bold border ${osBadgeClass}`}>
+                            <span className={`px-2.5 py-1 rounded-lg text-[11px] font-mono font-bold border ${osBadgeClass}`}>
                               {osStatus}
                             </span>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2.5 w-full sm:w-auto">
                             <label className="text-[10px] font-bold uppercase tracking-wider text-slate-300">
                               Status:
                             </label>
@@ -3448,6 +3501,9 @@ export default function AmigoApp() {
                               value={osStatus}
                               onChange={async (e) => {
                                 const nextStatus = e.target.value as 'Pending' | 'In Progress' | 'Completed';
+                                setDefaultOrderStatus(nextStatus);
+                                setOsStatusTransitioning(true);
+                                setTimeout(() => setOsStatusTransitioning(false), 850);
                                 setServiceOrders((prev) =>
                                   prev.map((item) =>
                                     item.id === os.id ? { ...item, status: nextStatus } : item
@@ -3464,7 +3520,7 @@ export default function AmigoApp() {
                                 } catch {}
                                 toast.success(`Status da OS #${os.orderNumber || os.id} alterado para ${nextStatus}`);
                               }}
-                              className="px-2.5 py-1 rounded-lg bg-slate-950/90 border border-white/20 text-white text-xs font-bold focus:outline-none focus:border-sky-400 cursor-pointer"
+                              className="flex-1 sm:flex-initial min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-950/90 border border-white/20 text-white text-xs font-bold focus:outline-none focus:border-sky-400 cursor-pointer"
                             >
                               <option value="Pending">Pending</option>
                               <option value="In Progress">In Progress</option>
@@ -3475,7 +3531,7 @@ export default function AmigoApp() {
                               <button
                                 type="button"
                                 onClick={() => setEditingOsId(null)}
-                                className="px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
+                                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-bold transition cursor-pointer"
                                 title="Cancelar edição"
                               >
                                 Cancel
@@ -3489,10 +3545,10 @@ export default function AmigoApp() {
                                   setEditOsAddress(os.clientAddress || '');
                                   setEditOsEquipment(os.equipment);
                                 }}
-                                className="px-2.5 py-1 rounded-lg bg-slate-950/90 hover:bg-slate-800 border border-white/20 text-white text-xs font-bold transition flex items-center gap-1 cursor-pointer"
+                                className="min-h-[44px] px-3.5 py-2 rounded-xl bg-slate-950/90 hover:bg-slate-800 border border-white/20 text-white text-xs font-bold transition flex items-center justify-center gap-1.5 cursor-pointer"
                                 title="Editar dados da OS"
                               >
-                                <Edit size={12} className="text-sky-400" />
+                                <Edit size={14} className="text-sky-400 shrink-0" />
                                 <span>Edit</span>
                               </button>
                             )}
@@ -3565,7 +3621,7 @@ export default function AmigoApp() {
                                   setSavingOsCardId(null);
                                 }
                               }}
-                              className={`px-2.5 py-1 rounded-lg font-black text-xs transition-all duration-300 flex items-center gap-1 cursor-pointer ${
+                              className={`min-h-[44px] px-4 py-2 rounded-xl font-black text-xs transition-all duration-300 flex items-center justify-center gap-1.5 cursor-pointer ${
                                 savedOsCardId === os.id
                                   ? 'bg-emerald-400 text-slate-950 ring-2 ring-emerald-300/70 shadow-[0_0_16px_rgba(16,185,129,0.45)] scale-[1.03]'
                                   : 'bg-emerald-500 hover:bg-emerald-400 text-slate-950'
@@ -3573,7 +3629,7 @@ export default function AmigoApp() {
                               title="Salvar Customer Notes e alterações no banco de dados"
                             >
                               <CheckCircle2
-                                size={13}
+                                size={14}
                                 className={
                                   savedOsCardId === os.id
                                     ? 'transition-transform duration-300 scale-110'
@@ -3591,21 +3647,21 @@ export default function AmigoApp() {
                           </div>
                         </div>
 
-                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-[1fr_auto] gap-3">
+                        <div className="grid grid-cols-1 min-[400px]:grid-cols-2 sm:grid-cols-[1fr_auto] gap-3.5">
                           {/* Dados do Cliente */}
-                          <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-1.5 min-w-0">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">
+                          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-2.5 min-w-0">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block">
                               Dados do Cliente
                             </span>
                             {editingOsId === os.id ? (
-                              <div className="space-y-1.5">
+                              <div className="space-y-2.5">
                                 <input
                                   type="text"
                                   aria-label="Nome do Cliente"
                                   value={editOsClientName}
                                   onChange={(e) => setEditOsClientName(e.target.value)}
                                   placeholder="Nome do Cliente"
-                                  className="w-full px-2.5 py-1.5 rounded-lg bg-slate-950 border border-sky-500/50 text-xs font-bold text-white focus:outline-none focus:border-sky-400"
+                                  className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl bg-slate-950 border border-sky-500/50 text-xs sm:text-sm font-bold text-white focus:outline-none focus:border-sky-400"
                                 />
                                 <input
                                   type="text"
@@ -3613,7 +3669,7 @@ export default function AmigoApp() {
                                   value={editOsAddress}
                                   onChange={(e) => setEditOsAddress(e.target.value)}
                                   placeholder="Endereço do Cliente"
-                                  className="w-full px-2.5 py-1 rounded-lg bg-slate-950 border border-slate-700 text-[11px] text-slate-200 focus:outline-none focus:border-sky-400"
+                                  className="w-full min-h-[46px] px-3.5 py-2.5 rounded-xl bg-slate-950 border border-slate-700 text-xs text-slate-200 focus:outline-none focus:border-sky-400"
                                 />
                               </div>
                             ) : (
@@ -3622,8 +3678,8 @@ export default function AmigoApp() {
                                   <h4 className="text-sm font-bold text-white break-words">{os.clientName}</h4>
                                 </div>
                                 {os.clientAddress && (
-                                  <p className="text-[11px] text-slate-400 flex items-start gap-1 mt-1 break-words">
-                                    <MapPin size={11} className="text-sky-400 shrink-0 mt-0.5" />
+                                  <p className="text-xs text-slate-300 flex items-start gap-1.5 mt-1 break-words">
+                                    <MapPin size={12} className="text-sky-400 shrink-0 mt-0.5" />
                                     <span>{os.clientAddress}</span>
                                   </p>
                                 )}
@@ -3632,9 +3688,9 @@ export default function AmigoApp() {
                           </div>
 
                           {/* Equipamento & Data */}
-                          <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 flex flex-col justify-between gap-2 min-w-0">
+                          <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900/70 border border-slate-800/80 flex flex-col justify-between gap-2.5 min-w-0">
                             <div>
-                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">
+                              <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block">
                                 Equipamento
                               </span>
                               {editingOsId === os.id ? (
@@ -3644,18 +3700,18 @@ export default function AmigoApp() {
                                   value={editOsEquipment}
                                   onChange={(e) => setEditOsEquipment(e.target.value)}
                                   placeholder="Equipamento"
-                                  className="w-full mt-1 px-2.5 py-1.5 rounded-lg bg-slate-950 border border-sky-500/50 text-xs font-semibold text-white focus:outline-none focus:border-sky-400"
+                                  className="w-full mt-1.5 min-h-[46px] px-3.5 py-2.5 rounded-xl bg-slate-950 border border-sky-500/50 text-xs sm:text-sm font-semibold text-white focus:outline-none focus:border-sky-400"
                                 />
                               ) : (
-                                <p className="text-xs font-semibold text-white flex items-center gap-1.5 mt-0.5 break-words">
-                                  <Wrench size={12} className="text-sky-400 shrink-0" />
+                                <p className="text-xs font-semibold text-white flex items-center gap-1.5 mt-1 break-words">
+                                  <Wrench size={13} className="text-sky-400 shrink-0" />
                                   <span>{os.equipment}</span>
                                 </p>
                               )}
                             </div>
-                            <div className="text-left sm:text-right text-xs pt-1 border-t border-slate-800/60">
-                              <span className="text-[10px] font-bold text-slate-500 uppercase mr-1.5">Data:</span>
-                              <span className="font-mono font-bold text-slate-300">{formattedDate}</span>
+                            <div className="text-left sm:text-right text-xs pt-2 border-t border-slate-800/60">
+                              <span className="text-[10px] font-bold text-slate-400 uppercase mr-1.5">Data:</span>
+                              <span className="font-mono font-bold text-slate-200">{formattedDate}</span>
                             </div>
                           </div>
                         </div>
@@ -3668,11 +3724,11 @@ export default function AmigoApp() {
                           const isOsNoteValid = osNoteTrimmedLen >= MIN_OS_NOTE_LENGTH;
 
                           return (
-                            <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-1.5">
+                            <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900/70 border border-slate-800/80 space-y-2.5">
                               <div className="flex items-center justify-between gap-2 flex-wrap">
                                 <label
                                   htmlFor={`customer-notes-${os.id}`}
-                                  className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block"
+                                  className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block"
                                 >
                                   Customer Notes · Observações do Cliente e Condição do Equipamento
                                 </label>
@@ -3707,7 +3763,7 @@ export default function AmigoApp() {
                                     );
                                   }}
                                   placeholder="Registre solicitações do cliente ou observações sobre a condição do equipamento (mín. 20 caracteres)..."
-                                  className={`w-full pl-2.5 pr-9 py-1.5 pb-6 rounded-lg bg-slate-950 border text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none transition resize-y ${
+                                  className={`w-full pl-3.5 pr-11 py-3 pb-7 rounded-xl bg-slate-950 border text-xs sm:text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none transition resize-y leading-relaxed ${
                                     isOsNoteValid
                                       ? 'border-emerald-500/60 focus:border-emerald-400'
                                       : 'border-rose-500/50 focus:border-rose-400'
@@ -3720,16 +3776,16 @@ export default function AmigoApp() {
                                       ? 'Nota técnica profissional válida'
                                       : `Mínimo de ${MIN_OS_NOTE_LENGTH} caracteres para nota profissional`
                                   }
-                                  className={`pointer-events-none absolute top-2 right-2 w-5 h-5 rounded-full flex items-center justify-center border transition-all duration-300 ${
+                                  className={`pointer-events-none absolute top-2.5 right-2.5 w-6 h-6 rounded-full flex items-center justify-center border transition-all duration-300 ${
                                     isOsNoteValid
                                       ? 'bg-emerald-500/20 border-emerald-500/50 text-emerald-400'
                                       : 'bg-rose-500/20 border-rose-500/50 text-rose-400'
                                   }`}
                                 >
                                   {isOsNoteValid ? (
-                                    <Check size={12} strokeWidth={3} />
+                                    <Check size={13} strokeWidth={3} />
                                   ) : (
-                                    <X size={12} strokeWidth={3} />
+                                    <X size={13} strokeWidth={3} />
                                   )}
                                 </div>
                               </div>
@@ -3738,26 +3794,26 @@ export default function AmigoApp() {
                         })()}
 
                         {/* Customer Signature Field dentro do Card da OS */}
-                        <div className="p-3 rounded-xl bg-slate-900/70 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                          <div className="space-y-0.5">
-                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-500 block">
+                        <div className="p-3.5 sm:p-4 rounded-xl bg-slate-900/70 border border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                          <div className="space-y-1">
+                            <span className="text-[9px] font-bold uppercase tracking-wider text-slate-400 block">
                               Customer Signature · Assinatura do Cliente
                             </span>
                             {os.customerSignature ? (
-                              <span className="text-[11px] font-semibold text-emerald-400 flex items-center gap-1">
-                                <CheckCircle2 size={12} />
+                              <span className="text-xs font-semibold text-emerald-400 flex items-center gap-1.5">
+                                <CheckCircle2 size={13} />
                                 <span>Assinatura registrada ({os.clientName})</span>
                               </span>
                             ) : (
-                              <span className="text-[11px] text-slate-400">
+                              <span className="text-xs text-slate-300">
                                 Aguardando assinatura de conformidade do cliente
                               </span>
                             )}
                           </div>
 
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center gap-2.5 w-full sm:w-auto">
                             {os.customerSignature && (
-                              <div className="bg-white rounded-md px-2.5 py-1 flex items-center justify-center">
+                              <div className="bg-white rounded-lg px-3 py-1.5 flex items-center justify-center shrink-0">
                                 {/* eslint-disable-next-line @next/next/no-img-element */}
                                 <img
                                   src={os.customerSignature}
@@ -3769,21 +3825,21 @@ export default function AmigoApp() {
                             <button
                               type="button"
                               onClick={() => setSigningOsId(os.id)}
-                              className="px-3 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/35 text-sky-300 font-bold text-xs transition flex items-center gap-1.5 cursor-pointer shrink-0"
+                              className="flex-1 sm:flex-initial min-h-[44px] px-4 py-2.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 border border-sky-500/35 text-sky-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer shrink-0 active:scale-[0.98]"
                             >
-                              <Edit size={12} />
+                              <Edit size={14} />
                               <span>{os.customerSignature ? 'Update Signature' : 'Customer Signature'}</span>
                             </button>
                           </div>
                         </div>
 
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-2 border-t border-slate-900 text-xs">
-                          <div className="flex items-center gap-1.5 text-slate-400">
-                            <Phone size={12} className="text-slate-500" />
-                            <span className="font-mono">{os.clientPhone}</span>
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-3 border-t border-slate-900 text-xs">
+                          <div className="flex items-center gap-2 text-slate-300">
+                            <Phone size={14} className="text-slate-400" />
+                            <span className="font-mono font-semibold">{os.clientPhone}</span>
                           </div>
 
-                          <div className="flex flex-wrap items-center gap-2">
+                          <div className="flex flex-wrap items-center gap-2.5">
                             <button
                               type="button"
                               onClick={() =>
@@ -3795,10 +3851,10 @@ export default function AmigoApp() {
                                   status: osStatus,
                                 })
                               }
-                              className="px-2.5 py-1.5 rounded-lg bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition flex items-center gap-1.5 font-bold text-[11px] cursor-pointer"
+                              className="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-indigo-500/15 hover:bg-indigo-500/25 text-indigo-300 border border-indigo-500/30 transition flex items-center justify-center gap-2 font-bold text-xs cursor-pointer active:scale-[0.98]"
                               title="Gerar QR Code exclusivo desta OS"
                             >
-                              <QrCode size={13} />
+                              <QrCode size={14} />
                               <span>QR Code</span>
                             </button>
                             <button
@@ -3835,10 +3891,10 @@ export default function AmigoApp() {
                                 a.click();
                                 document.body.removeChild(a);
                               }}
-                              className="px-2.5 py-1.5 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 transition flex items-center gap-1.5 font-bold text-[11px] cursor-pointer"
+                              className="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 transition flex items-center justify-center gap-2 font-bold text-xs cursor-pointer active:scale-[0.98]"
                               title="Share via WhatsApp (Web Share API)"
                             >
-                              <MessageSquare size={13} />
+                              <MessageSquare size={14} />
                               <span>Share via WhatsApp</span>
                             </button>
                             <button
@@ -3861,10 +3917,10 @@ export default function AmigoApp() {
                                 await navigator.clipboard.writeText(url);
                                 toast.success(`Link da OS #${os.orderNumber || os.id} copiado!`);
                               }}
-                              className="px-2.5 py-1.5 rounded-lg bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition flex items-center gap-1.5 font-bold text-[11px] cursor-pointer"
+                              className="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/25 text-sky-300 border border-sky-500/30 transition flex items-center justify-center gap-2 font-bold text-xs cursor-pointer active:scale-[0.98]"
                               title="Compartilhar Ordem de Serviço"
                             >
-                              <Share2 size={13} />
+                              <Share2 size={14} />
                               <span>Compartilhar</span>
                             </button>
                             <button
@@ -3875,26 +3931,52 @@ export default function AmigoApp() {
                                 navigator.clipboard.writeText(url);
                                 toast.success('Link direto da OS copiado para a área de transferência!');
                               }}
-                              className="p-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition cursor-pointer"
+                              className="min-h-[44px] min-w-[44px] p-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 transition flex items-center justify-center cursor-pointer active:scale-[0.98]"
                               title="Copiar Link Direto"
                             >
-                              <Copy size={14} />
+                              <Copy size={15} />
                             </button>
                             <Link
                               href={`/os/${encodeURIComponent(os.orderNumber || os.id)}`}
-                              className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center gap-1 font-bold text-[11px]"
+                              className="min-h-[44px] px-3.5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition flex items-center justify-center gap-1.5 font-bold text-xs active:scale-[0.98]"
                               title="Abrir Visualização Detalhada da OS"
                             >
-                              <ExternalLink size={12} />
+                              <ExternalLink size={14} />
                               <span>Ver OS</span>
                             </Link>
                             {os.autoScheduleReminder ? (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold">
+                              <span
+                                data-alert-date={
+                                  os.alertDate ||
+                                  calculateReminderAlertDate(
+                                    calculateNextMaintenanceDate(
+                                      os.serviceDate,
+                                      os.maintenanceIntervalMonths || 6
+                                    ),
+                                    os.reminderDaysBefore ?? 3
+                                  )
+                                }
+                                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-[10px] font-bold"
+                              >
                                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
-                                Lembrete Ativo ({os.maintenanceIntervalMonths}m • {os.reminderDaysBefore || 3}d antes)
+                                <span>
+                                  Lembrete Supabase ({os.maintenanceIntervalMonths}m •{' '}
+                                  {os.reminderDaysBefore ?? 3}d antes • Disparo:{' '}
+                                  {new Date(
+                                    (os.alertDate ||
+                                      calculateReminderAlertDate(
+                                        calculateNextMaintenanceDate(
+                                          os.serviceDate,
+                                          os.maintenanceIntervalMonths || 6
+                                        ),
+                                        os.reminderDaysBefore ?? 3
+                                      )) + 'T12:00:00'
+                                  ).toLocaleDateString('pt-BR')}
+                                  )
+                                </span>
                               </span>
                             ) : (
-                              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold">
+                              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-slate-800 text-slate-400 border border-slate-700 text-[10px] font-bold">
                                 Sem Lembrete Preventivo
                               </span>
                             )}
@@ -4285,27 +4367,28 @@ export default function AmigoApp() {
 
       {/* Modal: Agendamento de Lembrete Automático de Preventiva */}
       {showOSModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4">
-          <div className="max-w-md w-full bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-2xl relative">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-end sm:items-center justify-center p-0 sm:p-4">
+          <div className="max-w-md w-full bg-slate-900 border-t sm:border border-slate-800 rounded-t-3xl sm:rounded-3xl p-4 sm:p-6 space-y-4 sm:space-y-5 shadow-2xl relative max-h-[92vh] flex flex-col">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3.5 shrink-0">
               <div className="flex items-center gap-2.5">
                 <div className="p-2 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
                   <CalendarCheck size={20} />
                 </div>
                 <div>
                   <h3 className="text-base font-bold text-white">Criar Nova Ordem de Serviço (OS)</h3>
-                  <p className="text-xs text-slate-400">Geração automática de número de OS e cadastro de cliente</p>
+                  <p className="text-xs text-slate-300">Geração automática de número de OS e cadastro de cliente</p>
                 </div>
               </div>
               <button
                 onClick={() => setShowOSModal(false)}
-                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-400 hover:text-white text-xs transition cursor-pointer"
+                className="p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 hover:text-white text-xs transition cursor-pointer"
+                aria-label="Fechar modal"
               >
                 ✕
               </button>
             </div>
 
-            <form onSubmit={handleCreateReminder} className="space-y-4 text-xs text-left max-h-[75vh] overflow-y-auto pr-1">
+            <form onSubmit={handleCreateReminder} className="space-y-4 text-xs text-left overflow-y-auto pr-1 pb-2 flex-1">
               {/* Badge de Número Automático da OS */}
               <div className="p-3.5 rounded-2xl bg-gradient-to-r from-emerald-950/60 to-slate-950 border border-emerald-500/30 flex items-center justify-between">
                 <div>
@@ -4486,7 +4569,7 @@ export default function AmigoApp() {
                       </div>
                     </div>
 
-                    <div className="grid grid-cols-6 gap-1.5">
+                    <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                       {[
                         { days: 0, label: '0d', sub: 'no dia' },
                         { days: 1, label: '1d', sub: 'véspera' },
@@ -4499,14 +4582,14 @@ export default function AmigoApp() {
                           key={item.days}
                           type="button"
                           onClick={() => setRemDaysBefore(item.days)}
-                          className={`py-2 px-1 rounded-xl text-center border text-[11px] transition cursor-pointer flex flex-col items-center justify-center ${
+                          className={`py-2 px-1.5 rounded-xl text-center border text-xs transition cursor-pointer flex flex-col items-center justify-center ${
                             remDaysBefore === item.days
                               ? 'bg-emerald-500 text-slate-950 border-emerald-400 shadow-md font-black'
                               : 'bg-slate-900 border-slate-800 text-slate-300 hover:text-white'
                           }`}
                         >
                           <span className="font-bold">{item.label}</span>
-                          <span className="text-[9px] opacity-80">{item.sub}</span>
+                          <span className="text-[10px] opacity-85">{item.sub}</span>
                         </button>
                       ))}
                     </div>

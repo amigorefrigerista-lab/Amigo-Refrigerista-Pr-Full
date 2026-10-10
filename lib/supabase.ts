@@ -112,6 +112,27 @@ export interface SupabaseDiagnostic {
   created_at?: string;
 }
 
+export interface SupabaseMaintenanceNotification {
+  id?: string;
+  user_id?: string;
+  order_number: string;
+  client_name: string;
+  client_phone: string;
+  client_address?: string;
+  equipment: string;
+  service_date: string;
+  next_service_date: string;
+  alert_date: string;
+  alertDate?: string;
+  months_interval: number;
+  reminder_days_before: number;
+  message: string;
+  wa_link: string;
+  status: 'scheduled' | 'dispatched' | 'sent' | 'failed';
+  notes?: string;
+  created_at?: string;
+}
+
 /**
  * Serviços auxiliares de dados com suporte a modo LocalStorage e serviço de e-mail integrado
  */
@@ -348,5 +369,113 @@ export const supabaseService = {
       .limit(50);
     if (error) throw error;
     return data || [];
+  },
+
+  // Agendamento de Notificações de Lembrete de Manutenção no Supabase (para futuro disparo via WhatsApp)
+  async scheduleMaintenanceNotification(
+    notification: SupabaseMaintenanceNotification,
+    userId: string
+  ) {
+    const record: SupabaseMaintenanceNotification = {
+      ...notification,
+      id: notification.id || `rem-${Date.now()}`,
+      user_id: userId,
+      alert_date: notification.alertDate || notification.alert_date,
+      alertDate: notification.alertDate || notification.alert_date,
+      created_at: notification.created_at || new Date().toISOString(),
+    };
+
+    if (typeof window !== 'undefined') {
+      try {
+        const localKey = `amigo_supabase_notifications_${userId}`;
+        const existingRaw = localStorage.getItem(localKey);
+        const existing: SupabaseMaintenanceNotification[] = existingRaw
+          ? JSON.parse(existingRaw)
+          : [];
+        const updated = [
+          record,
+          ...existing.filter(
+            (n) => n.id !== record.id && n.order_number !== record.order_number
+          ),
+        ];
+        localStorage.setItem(localKey, JSON.stringify(updated));
+      } catch {
+        // ignore storage errors
+      }
+    }
+
+    if (!isSupabaseConfigured) {
+      return record;
+    }
+
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_reminders')
+        .upsert({
+          id: record.id,
+          user_id: userId,
+          order_number: record.order_number,
+          client_name: record.client_name,
+          client_phone: record.client_phone,
+          client_address: record.client_address || null,
+          equipment: record.equipment,
+          service_date: record.service_date,
+          next_service_date: record.next_service_date,
+          alert_date: record.alert_date,
+          months_interval: record.months_interval,
+          reminder_days_before: record.reminder_days_before,
+          message: record.message,
+          wa_link: record.wa_link,
+          status: record.status,
+          notes: record.notes || null,
+          updated_at: new Date().toISOString(),
+        })
+        .select()
+        .maybeSingle();
+
+      if (!error && data) {
+        return { ...record, ...data, alertDate: data.alert_date || record.alertDate };
+      }
+    } catch {
+      // Fallback para armazenamento local/servidor caso a tabela ainda não exista na instância remota
+    }
+
+    return record;
+  },
+
+  async getScheduledNotifications(userId: string): Promise<SupabaseMaintenanceNotification[]> {
+    if (!isSupabaseConfigured) {
+      if (typeof window === 'undefined') return [];
+      try {
+        const cached = localStorage.getItem(`amigo_supabase_notifications_${userId}`);
+        return cached ? JSON.parse(cached) : [];
+      } catch {
+        return [];
+      }
+    }
+    try {
+      const { data, error } = await supabase
+        .from('maintenance_reminders')
+        .select('*')
+        .eq('user_id', userId)
+        .order('alert_date', { ascending: true });
+      if (!error && Array.isArray(data)) {
+        return data.map((row: any) => ({
+          ...row,
+          alertDate: row.alert_date || row.alertDate,
+        })) as SupabaseMaintenanceNotification[];
+      }
+    } catch {
+      // fallback
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const cached = localStorage.getItem(`amigo_supabase_notifications_${userId}`);
+        return cached ? JSON.parse(cached) : [];
+      } catch {
+        return [];
+      }
+    }
+    return [];
   },
 };
