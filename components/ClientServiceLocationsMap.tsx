@@ -44,6 +44,10 @@ const GOOGLE_MAPS_API_KEY =
   process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY ||
   'AIzaSyB9iD_m9x11ZycoasoUgsETDynTQAuYzaE';
 
+// Safe Map ID for Advanced Markers (defaults to DEMO_MAP_ID to avoid unregistered mapId fetch errors)
+const GOOGLE_MAPS_MAP_ID =
+  process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID';
+
 export interface ServiceLocationItem {
   id: string;
   orderNumber?: string;
@@ -249,14 +253,19 @@ export function ClientServiceLocationsMap({
     const handleQuotaExceeded = () => setQuotaExceeded(true);
     window.addEventListener('gmp-quota-exceeded', handleQuotaExceeded);
 
+    let origError: typeof console.error | null = null;
     if (typeof window !== 'undefined') {
       (window as any).gm_authFailure = () => {
         window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
       };
-      const origError = console.error;
+      origError = console.error;
       console.error = (...args: unknown[]) => {
-        origError.apply(console, args);
         const msg = args.map((a) => String(a)).join(' ');
+        // Suppress non-breaking mapId styling configuration fetch warning
+        if (msg.includes('Unable to fetch configuration for mapId')) {
+          return;
+        }
+        origError?.apply(console, args);
         if (msg.includes('OverQuotaMapError') || msg.includes('QuotaExceededError')) {
           window.dispatchEvent(new CustomEvent('gmp-quota-exceeded'));
         }
@@ -265,6 +274,9 @@ export function ClientServiceLocationsMap({
 
     return () => {
       window.removeEventListener('gmp-quota-exceeded', handleQuotaExceeded);
+      if (origError && typeof window !== 'undefined') {
+        console.error = origError;
+      }
     };
   }, []);
 
@@ -707,7 +719,7 @@ export function ClientServiceLocationsMap({
       <div className="relative w-full h-[460px] sm:h-[540px] rounded-3xl overflow-hidden border border-slate-800 shadow-2xl bg-slate-950">
         <APIProvider apiKey={GOOGLE_MAPS_API_KEY} libraries={['marker', 'routes', 'places']}>
           <Map
-            mapId="bf51a910020fa25a"
+            mapId={GOOGLE_MAPS_MAP_ID}
             defaultCenter={DEFAULT_CENTER}
             defaultZoom={12}
             gestureHandling="greedy"
