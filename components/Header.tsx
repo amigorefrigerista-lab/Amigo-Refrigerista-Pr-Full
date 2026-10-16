@@ -130,7 +130,7 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenUpgradeModal
             className={`px-2 py-1.5 sm:px-3 sm:py-2 rounded-xl border text-[11px] sm:text-xs font-black transition-all flex items-center gap-1 cursor-pointer shadow-sm active:scale-95 ${planBadgeBg} hover:opacity-90`}
             title="Clique para ver detalhes do plano e fazer upgrade"
           >
-            <Crown size={14} className="shrink-0 animate-pulse text-amber-400" />
+            <Crown size={14} className="shrink-0 text-amber-400" />
             <span className="truncate max-w-[68px] min-[400px]:max-w-[95px] sm:max-w-none">
               {currentPlan === 'pro' || currentPlan === 'pro_paid' ? 'PRO' : currentPlan === 'flex' ? 'Flex' : 'Free'}
               <span className="hidden sm:inline">{currentPlan === 'pro' || currentPlan === 'pro_paid' ? ' Ativo' : currentPlan === 'flex' ? ' VIP' : ' (Grátis)'}</span>

@@ -1,10 +1,10 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo, memo } from 'react';
 import Link from 'next/link';
 import { 
   Crown, Key, Users, DollarSign, Sparkles, ShieldCheck, ArrowLeft, 
-  Plus, Copy, Share2, Power, Trash2, Search, CheckCircle2, 
+  Plus, Copy, Share2, Power, Trash2, Search, X, CheckCircle2, 
   AlertTriangle, Loader2, RefreshCw, Zap, Gift, Clock, Lock,
   Sliders, MessageSquare, TrendingUp
 } from 'lucide-react';
@@ -236,6 +236,73 @@ export default function AdminMasterPage() {
     window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(text)}`, '_blank');
   };
 
+  // Verificação Restrita Master
+  const isMaster = user?.email?.toLowerCase().trim() === MASTER_EMAIL;
+
+  // Cálculos de Métricas e MRR otimizados (processados estritamente quando 'subscribers' for atualizado)
+  const { totalUsers, proCount, flexCount, freeCount, mrrTotal, conversionRate, masterMrrTrend } = useMemo(() => {
+    let pro = 0;
+    let flex = 0;
+    let free = 0;
+
+    for (let i = 0; i < subscribers.length; i++) {
+      const plano = subscribers[i]?.plano;
+      if (plano === 'pro') pro++;
+      else if (plano === 'flex') flex++;
+      else free++;
+    }
+
+    const total = subscribers.length;
+    const mrr = (pro * 39.90) + (flex * 19.90);
+    const convRate = total > 0 ? (((pro + flex) / total) * 100).toFixed(1) : '0.0';
+
+    const trend: MonthlyRevenueData[] = [
+      { month: 'Nov/25', mrr: 1475.40, proRevenue: 1117.20, flexRevenue: 358.20, growthRate: 0, proCount: 28, flexCount: 18, arr: 17704.80 },
+      { month: 'Dez/25', mrr: 1993.80, proRevenue: 1516.20, flexRevenue: 477.60, growthRate: 35.1, proCount: 38, flexCount: 24, arr: 23925.60 },
+      { month: 'Jan/26', mrr: 2611.90, proRevenue: 1995.00, flexRevenue: 616.90, growthRate: 31.0, proCount: 50, flexCount: 31, arr: 31342.80 },
+      { month: 'Fev/26', mrr: 3329.70, proRevenue: 2553.60, flexRevenue: 776.10, growthRate: 27.5, proCount: 64, flexCount: 39, arr: 39956.40 },
+      { month: 'Mar/26', mrr: 4047.50, proRevenue: 3112.20, flexRevenue: 935.30, growthRate: 21.6, proCount: 78, flexCount: 47, arr: 48570.00 },
+      { month: 'Abr/26', mrr: 4865.00, proRevenue: 3750.60, flexRevenue: 1114.40, growthRate: 20.2, proCount: 94, flexCount: 56, arr: 58380.00 },
+      { month: 'Mai/26', mrr: 5682.50, proRevenue: 4389.00, flexRevenue: 1293.50, growthRate: 16.8, proCount: 110, flexCount: 65, arr: 68190.00 },
+      { month: 'Jun/26', mrr: 7417.30, proRevenue: 5785.50, flexRevenue: 1631.80, growthRate: 30.5, proCount: 145, flexCount: 82, arr: 89007.60 },
+      { month: 'Jul/26', mrr: 9132.20, proRevenue: 7182.00, flexRevenue: 1950.20, growthRate: 23.1, proCount: 180, flexCount: 98, arr: 109586.40 },
+      { month: 'Ago/26', mrr: 11066.50, proRevenue: 8778.00, flexRevenue: 2288.50, growthRate: 21.2, proCount: 220, flexCount: 115, arr: 132798.00 },
+      { month: 'Set/26', mrr: 12961.00, proRevenue: 10374.00, flexRevenue: 2587.00, growthRate: 17.1, proCount: 260, flexCount: 130, arr: 155532.00 },
+      {
+        month: 'Out/26',
+        mrr: mrr > 0 ? Number(mrr.toFixed(2)) : 14237.20,
+        proRevenue: mrr > 0 ? Number((pro * 39.90).toFixed(2)) : 11411.40,
+        flexRevenue: mrr > 0 ? Number((flex * 19.90).toFixed(2)) : 2825.80,
+        growthRate: 9.8,
+        proCount: pro > 0 ? pro : 286,
+        flexCount: flex > 0 ? flex : 142,
+        arr: mrr > 0 ? Number((mrr * 12).toFixed(2)) : 170846.40,
+      },
+    ];
+
+    return {
+      totalUsers: total,
+      proCount: pro,
+      flexCount: flex,
+      freeCount: free,
+      mrrTotal: mrr,
+      conversionRate: convRate,
+      masterMrrTrend: trend,
+    };
+  }, [subscribers]);
+
+  // Filtragem otimizada de assinantes
+  const filteredSubscribers = useMemo(() => {
+    if (!searchTerm.trim()) return subscribers;
+    const term = searchTerm.toLowerCase().trim();
+    return subscribers.filter((s) => {
+      const name = (s.name || s.nome || '').toLowerCase();
+      const email = (s.email || '').toLowerCase();
+      const empresa = (s.empresa || '').toLowerCase();
+      return name.includes(term) || email.includes(term) || empresa.includes(term);
+    });
+  }, [subscribers, searchTerm]);
+
   if (!mounted || authLoading) {
     return (
       <div className="min-h-screen bg-[#070e1c] flex items-center justify-center text-white">
@@ -243,9 +310,6 @@ export default function AdminMasterPage() {
       </div>
     );
   }
-
-  // Verificação Restrita Master
-  const isMaster = user?.email?.toLowerCase().trim() === MASTER_EMAIL;
 
   if (!isMaster) {
     return (
@@ -268,44 +332,6 @@ export default function AdminMasterPage() {
     );
   }
 
-  // Cálculos de Métricas
-  const totalUsers = subscribers.length;
-  const proCount = subscribers.filter(s => s.plano === 'pro').length;
-  const flexCount = subscribers.filter(s => s.plano === 'flex').length;
-  const freeCount = subscribers.filter(s => s.plano === 'free' || !s.plano).length;
-
-  const mrrTotal = (proCount * 39.90) + (flexCount * 19.90);
-  const conversionRate = totalUsers > 0 ? (((proCount + flexCount) / totalUsers) * 100).toFixed(1) : '0.0';
-
-  const masterMrrTrend: MonthlyRevenueData[] = [
-    { month: 'Nov/25', mrr: 1475.40, proRevenue: 1117.20, flexRevenue: 358.20, growthRate: 0, proCount: 28, flexCount: 18, arr: 17704.80 },
-    { month: 'Dez/25', mrr: 1993.80, proRevenue: 1516.20, flexRevenue: 477.60, growthRate: 35.1, proCount: 38, flexCount: 24, arr: 23925.60 },
-    { month: 'Jan/26', mrr: 2611.90, proRevenue: 1995.00, flexRevenue: 616.90, growthRate: 31.0, proCount: 50, flexCount: 31, arr: 31342.80 },
-    { month: 'Fev/26', mrr: 3329.70, proRevenue: 2553.60, flexRevenue: 776.10, growthRate: 27.5, proCount: 64, flexCount: 39, arr: 39956.40 },
-    { month: 'Mar/26', mrr: 4047.50, proRevenue: 3112.20, flexRevenue: 935.30, growthRate: 21.6, proCount: 78, flexCount: 47, arr: 48570.00 },
-    { month: 'Abr/26', mrr: 4865.00, proRevenue: 3750.60, flexRevenue: 1114.40, growthRate: 20.2, proCount: 94, flexCount: 56, arr: 58380.00 },
-    { month: 'Mai/26', mrr: 5682.50, proRevenue: 4389.00, flexRevenue: 1293.50, growthRate: 16.8, proCount: 110, flexCount: 65, arr: 68190.00 },
-    { month: 'Jun/26', mrr: 7417.30, proRevenue: 5785.50, flexRevenue: 1631.80, growthRate: 30.5, proCount: 145, flexCount: 82, arr: 89007.60 },
-    { month: 'Jul/26', mrr: 9132.20, proRevenue: 7182.00, flexRevenue: 1950.20, growthRate: 23.1, proCount: 180, flexCount: 98, arr: 109586.40 },
-    { month: 'Ago/26', mrr: 11066.50, proRevenue: 8778.00, flexRevenue: 2288.50, growthRate: 21.2, proCount: 220, flexCount: 115, arr: 132798.00 },
-    { month: 'Set/26', mrr: 12961.00, proRevenue: 10374.00, flexRevenue: 2587.00, growthRate: 17.1, proCount: 260, flexCount: 130, arr: 155532.00 },
-    {
-      month: 'Out/26',
-      mrr: mrrTotal > 0 ? Number(mrrTotal.toFixed(2)) : 14237.20,
-      proRevenue: mrrTotal > 0 ? Number((proCount * 39.90).toFixed(2)) : 11411.40,
-      flexRevenue: mrrTotal > 0 ? Number((flexCount * 19.90).toFixed(2)) : 2825.80,
-      growthRate: 9.8,
-      proCount: proCount > 0 ? proCount : 286,
-      flexCount: flexCount > 0 ? flexCount : 142,
-      arr: mrrTotal > 0 ? Number((mrrTotal * 12).toFixed(2)) : 170846.40,
-    },
-  ];
-
-  const filteredSubscribers = subscribers.filter(s => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    return (s.name?.toLowerCase().includes(term) || s.email?.toLowerCase().includes(term));
-  });
 
   return (
     <div className="min-h-screen bg-[#070e1c] text-slate-100 p-4 sm:p-8 space-y-8">
@@ -703,7 +729,7 @@ export default function AdminMasterPage() {
         </div>
 
         {/* 👤 MÓDULO 3: Controle Individual de Mensalidades & Alteração Direta de Plano */}
-        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-6 shadow-xl">
+        <div className="config-card-container max-[400px]:px-2 p-4 sm:p-6 bg-slate-900 border border-slate-800 rounded-3xl space-y-6 shadow-xl">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
               <h2 className="text-base font-bold text-white flex items-center gap-2">
@@ -722,8 +748,16 @@ export default function AdminMasterPage() {
                 placeholder="Buscar por nome ou e-mail..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
-                className="w-full pl-9 pr-3 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-sky-500"
+                className="w-full pl-9 pr-9 py-2 bg-slate-950 border border-slate-800 rounded-xl text-xs text-white focus:outline-none focus:border-sky-500"
               />
+              {searchTerm && (
+                <button
+                  onClick={() => setSearchTerm('')}
+                  className="absolute right-2 top-2 text-slate-500 hover:text-white"
+                >
+                  <X size={14} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -737,79 +771,92 @@ export default function AdminMasterPage() {
               Nenhum técnico encontrado.
             </div>
           ) : (
-            <div className="overflow-x-auto rounded-2xl border border-slate-800">
-              <table className="w-full text-left text-xs text-slate-300">
-                <thead className="bg-slate-950 text-slate-400 uppercase font-mono text-[10px]">
-                  <tr>
-                    <th className="p-3">Técnico / E-mail</th>
-                    <th className="p-3">Plano Atual</th>
-                    <th className="p-3">Perfil</th>
-                    <th className="p-3">Ações de Concessão de Plano</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-800/80 bg-slate-900/60 font-sans">
-                  {filteredSubscribers.map((sub) => {
-                    const currentPlan = sub.plano || 'free';
-                    const isModifying = modifyingUser === sub.id;
+            <div className="flex flex-col sm:flex-row flex-wrap gap-4">
+              {filteredSubscribers.map((sub) => {
+                const currentPlan = sub.plano || 'free';
+                const isModifying = modifyingUser === sub.id;
 
-                    return (
-                      <tr key={sub.id} className="hover:bg-slate-800/40 transition">
-                        <td className="p-3">
-                          <strong className="block text-white text-xs font-bold">{sub.name || 'Técnico sem nome'}</strong>
-                          <span className="text-[11px] text-slate-400 font-mono">{sub.email}</span>
-                        </td>
-                        <td className="p-3">
-                          <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold uppercase font-mono border ${
-                            currentPlan === 'pro'
-                              ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
-                              : currentPlan === 'flex'
-                              ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
-                              : 'bg-slate-800 text-slate-400 border-slate-700'
-                          }`}>
-                            {currentPlan === 'pro' ? '👑 Plano Pró' : currentPlan === 'flex' ? '⚡ Plano Flex' : '🛡️ Gratuito'}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <span className="text-[11px] text-slate-400">
-                            {sub.empresa || sub.telefone || 'Acesso Padrão'}
-                          </span>
-                        </td>
-                        <td className="p-3">
-                          <div className="flex items-center gap-1.5">
-                            {isModifying ? (
-                              <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
-                            ) : (
-                              <>
-                                <button
-                                  onClick={() => handleGrantDirectPlan(sub.id, 'pro', sub.email)}
-                                  disabled={currentPlan === 'pro'}
-                                  className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[10px] font-bold transition disabled:opacity-40 cursor-pointer"
-                                >
-                                  + Tornar Pró
-                                </button>
-                                <button
-                                  onClick={() => handleGrantDirectPlan(sub.id, 'flex', sub.email)}
-                                  disabled={currentPlan === 'flex'}
-                                  className="px-2.5 py-1 rounded-lg bg-sky-500/15 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-[10px] font-bold transition disabled:opacity-40 cursor-pointer"
-                                >
-                                  + Tornar Flex
-                                </button>
-                                <button
-                                  onClick={() => handleGrantDirectPlan(sub.id, 'free', sub.email)}
-                                  disabled={currentPlan === 'free'}
-                                  className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-400 border border-slate-700 text-[10px] font-bold transition disabled:opacity-40 cursor-pointer"
-                                >
-                                  Voltar Grátis
-                                </button>
-                              </>
-                            )}
+                return (
+                  <div
+                    key={sub.id}
+                    className="flex-1 min-w-full sm:min-w-[300px] lg:min-w-[320px] max-w-full lg:max-w-[calc(33.333%-0.75rem)] bg-slate-950/80 border border-slate-800/90 hover:border-slate-700/80 rounded-2xl p-4 flex flex-col justify-between gap-3.5 transition shadow-sm"
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="w-8 h-8 rounded-xl bg-slate-900 border border-slate-800 text-slate-300 flex items-center justify-center font-bold text-xs shrink-0">
+                            {(sub.name || sub.nome || sub.email || 'T')[0].toUpperCase()}
                           </div>
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
+                          <div className="min-w-0">
+                            <strong className="block text-white text-xs font-bold truncate">
+                              {sub.name || sub.nome || 'Técnico sem nome'}
+                            </strong>
+                            <span className="text-[11px] text-slate-400 font-mono truncate block">
+                              {sub.email}
+                            </span>
+                          </div>
+                        </div>
+
+                        <span className={`px-2.5 py-1 rounded-xl text-[10px] font-bold uppercase font-mono border shrink-0 ${
+                          currentPlan === 'pro'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : currentPlan === 'flex'
+                            ? 'bg-sky-500/20 text-sky-300 border-sky-500/40'
+                            : 'bg-slate-800 text-slate-400 border-slate-700'
+                        }`}>
+                          {currentPlan === 'pro' ? '👑 Pró' : currentPlan === 'flex' ? '⚡ Flex' : '🛡️ Grátis'}
+                        </span>
+                      </div>
+
+                      <div className="pt-2 border-t border-slate-800/60 flex items-center justify-between text-[11px] text-slate-400">
+                        <span className="truncate">
+                          {sub.empresa || sub.telefone || 'Acesso Padrão'}
+                        </span>
+                        <span className="text-[10px] font-mono text-slate-500 shrink-0">
+                          {sub.created_at ? new Date(sub.created_at).toLocaleDateString('pt-BR') : 'Ativo'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="pt-2.5 border-t border-slate-800/60 flex items-center gap-2">
+                      {isModifying ? (
+                        <div className="w-full py-2 flex items-center justify-center gap-2 text-xs text-amber-400">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Atualizando plano...</span>
+                        </div>
+                      ) : (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleGrantDirectPlan(sub.id, 'pro', sub.email)}
+                            disabled={currentPlan === 'pro'}
+                            className="flex-1 py-2 px-2.5 rounded-xl bg-amber-500/15 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-[11px] font-bold transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer text-center"
+                          >
+                            + Tornar Pró
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleGrantDirectPlan(sub.id, 'flex', sub.email)}
+                            disabled={currentPlan === 'flex'}
+                            className="flex-1 py-2 px-2.5 rounded-xl bg-sky-500/15 hover:bg-sky-500/30 text-sky-300 border border-sky-500/30 text-[11px] font-bold transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer text-center"
+                          >
+                            + Tornar Flex
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleGrantDirectPlan(sub.id, 'free', sub.email)}
+                            disabled={currentPlan === 'free'}
+                            className="py-2 px-2.5 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-400 border border-slate-700 text-[11px] font-bold transition disabled:opacity-30 disabled:pointer-events-none cursor-pointer text-center"
+                            title="Voltar para plano gratuito"
+                          >
+                            Grátis
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           )}
         </div>

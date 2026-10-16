@@ -38,7 +38,11 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
         setThemeState(saved);
         applyThemeToDom(saved);
       } else {
-        applyThemeToDom('dark');
+        const prefersLight = window.matchMedia('(prefers-color-scheme: light)').matches;
+        const initialTheme: ThemeMode = prefersLight ? 'light' : 'dark';
+        setThemeState(initialTheme);
+        applyThemeToDom(initialTheme);
+        localStorage.setItem(THEME_STORAGE_KEY, initialTheme);
       }
     } catch {
       applyThemeToDom('dark');

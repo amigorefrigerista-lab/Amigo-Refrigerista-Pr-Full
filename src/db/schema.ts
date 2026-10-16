@@ -164,6 +164,9 @@ export const appSettingsTable = pgTable('app_settings', {
   whatsapp_api_url: text('whatsapp_api_url').default(''),
   whatsapp_api_key: text('whatsapp_api_key').default(''),
   whatsapp_instance_name: text('whatsapp_instance_name').default(''),
+  stripe_connect_client_id: text('stripe_connect_client_id').default(''),
+  stripe_connect_secret_key: text('stripe_connect_secret_key').default(''),
+  stripe_webhook_url: text('stripe_webhook_url').default(''),
   updated_at: timestamp('updated_at').defaultNow(),
 });
 

@@ -395,4 +395,71 @@ html.light .shadow-xl {
     overflow-y: auto;
     -webkit-overflow-scrolling: touch;
   }
+
+  /* Estilos base para .config-card-container (Mobile First) */
+  .config-card-container {
+    transition: all 0.3s ease-in-out;
+  }
+
+  /* Redução do espaçamento lateral em telas < 400px para evitar quebra de layout */
+  @media (max-width: 400px) {
+    .config-card-container {
+      padding-left: 0.5rem !important; /* px-2 */
+      padding-right: 0.5rem !important; /* px-2 */
+    }
+  }
+
+  /* Ajustes para telas muito pequenas (< 375px) */
+  @media (max-width: 375px) {
+    .config-card-container input:not([type="checkbox"]):not([type="radio"]),
+    .config-card-container select,
+    .config-card-container textarea {
+      padding-left: 1rem !important;
+      padding-right: 1rem !important;
+    }
+  }
+}
+
+/* Touch targets para mobile */
+@media (max-width: 640px) {
+  .config-card-container input:not([type="checkbox"]):not([type="radio"]),
+  .config-card-container select,
+  .config-card-container textarea {
+    width: 100% !important;
+    min-height: 48px !important;
+    font-size: 16px !important;
+    line-height: 1.4 !important;
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+    touch-action: manipulation;
+  }
+
+  .config-card-container label {
+    min-height: 48px !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    touch-action: manipulation;
+  }
+
+  .config-card-container label:has(input[type="checkbox"]),
+  .config-card-container label:has(input[type="radio"]) {
+    min-height: 48px !important;
+    display: flex !important;
+    align-items: center !important;
+    touch-action: manipulation;
+  }
+
+  .config-card-container button,
+  .config-card-container a[role="button"] {
+    min-height: 48px !important;
+    padding-top: 0.75rem !important;
+    padding-bottom: 0.75rem !important;
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+    touch-action: manipulation;
+  }
+}
+
+.config-card-container {
+  transition: all 0.2s ease-in-out;
 }

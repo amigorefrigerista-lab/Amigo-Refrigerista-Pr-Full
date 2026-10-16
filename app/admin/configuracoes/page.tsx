@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
+import { ConfigAlert } from '@/components/ConfigAlert';
 import { 
   CreditCard, 
   Settings, 
@@ -58,7 +59,10 @@ export default function AdminSettingsPage() {
     free_trial_days: 7,
     whatsapp_api_url: '',
     whatsapp_api_key: '',
-    whatsapp_instance_name: ''
+    whatsapp_instance_name: '',
+    stripe_connect_client_id: '',
+    stripe_connect_secret_key: '',
+    stripe_webhook_url: ''
   });
 
   // Estados de Simulação / Escolha de Plano (Flex ou Pró) e Método de Pagamento na Integração
@@ -239,9 +243,48 @@ export default function AdminSettingsPage() {
         stripe_publishable_key: form.stripe_publishable_key,
         stripe_webhook_secret: form.stripe_webhook_secret,
         stripe_currency: form.stripe_currency,
+        stripe_connect_client_id: form.stripe_connect_client_id,
+        stripe_connect_secret_key: form.stripe_connect_secret_key,
+        stripe_webhook_url: form.stripe_webhook_url,
+        webhook_secret: form.webhook_secret,
       },
       'Configurações de Integração de Pagamentos e Cartão de Crédito'
     );
+  };
+
+  const handleGenerateWebhookSecret = () => {
+    const newSecret = `whsec_${crypto.randomUUID().replace(/-/g, '')}`;
+    setForm({ ...form, webhook_secret: newSecret });
+  };
+
+  const handleTestStripeConnection = async () => {
+    if (!form.stripe_secret_key) {
+      setMessage('Por favor, informe a Stripe Secret Key para testar.');
+      setMessageType('error');
+      return;
+    }
+
+    setSavingSection('payments'); // Reutiliza estado de loading
+    try {
+      const response = await fetch('/api/admin/payments/test-stripe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ secretKey: form.stripe_secret_key }),
+      });
+      const data = await response.json();
+      if (data.ok) {
+        setMessage(data.message);
+        setMessageType('success');
+      } else {
+        setMessage(data.error || 'Erro ao testar conexão.');
+        setMessageType('error');
+      }
+    } catch (err) {
+      setMessage('Erro de conexão com servidor.');
+      setMessageType('error');
+    } finally {
+      setSavingSection(null);
+    }
   };
 
   const handleTestCheckoutFlow = async (planToTest: 'flex' | 'pro', methodToTest: 'credit_card' | 'pix') => {
@@ -429,6 +472,7 @@ export default function AdminSettingsPage() {
   return (
     <div className="min-h-screen bg-[#070e1c] text-slate-100 p-4 sm:p-8">
       <div className="max-w-5xl mx-auto space-y-6">
+        <ConfigAlert />
         {/* Cabeçalho */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
           <div>
@@ -475,8 +519,8 @@ export default function AdminSettingsPage() {
 
         <form onSubmit={handleSave} className="space-y-6">
           {/* Bloco 1: Meios de Pagamento */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-6 shadow-xl">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div className="config-card-container grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 bg-slate-900/90 border border-slate-800 rounded-3xl max-[400px]:px-2 p-4 sm:p-6 shadow-xl">
+            <div className="col-span-full flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
               <div className="flex items-center gap-3">
                 <div className="p-2.5 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-400">
                   <CreditCard size={22} />
@@ -513,7 +557,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* 1.1 Escolha de Plano (Flex ou Pró) e Contratação / Checkout Rápido */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-4">
+            <div className="col-span-full p-4 sm:p-5 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
@@ -528,7 +572,7 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
                 {/* Card Plano Flex */}
                 <div
                   onClick={() => setSelectedPreviewPlan('flex')}
@@ -612,29 +656,29 @@ export default function AdminSettingsPage() {
 
               {/* Escolha do Método (Cartão de Crédito ou PIX) e Botão de Gerar Checkout */}
               <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <div className="flex items-center gap-2">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto">
                   <button
                     type="button"
                     onClick={() => setSelectedPreviewMethod('credit_card')}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                    className={`flex-1 sm:flex-none px-4 py-3 min-h-[48px] rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer touch-manipulation active:scale-98 ${
                       selectedPreviewMethod === 'credit_card'
                         ? 'bg-amber-500/20 border-amber-400 text-amber-300'
                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
                     }`}
                   >
-                    <CreditCard size={14} />
+                    <CreditCard size={16} />
                     <span>Pagar no Cartão de Crédito</span>
                   </button>
                   <button
                     type="button"
                     onClick={() => setSelectedPreviewMethod('pix')}
-                    className={`px-3.5 py-2 rounded-xl text-xs font-bold border transition flex items-center gap-1.5 cursor-pointer ${
+                    className={`flex-1 sm:flex-none px-4 py-3 min-h-[48px] rounded-xl text-xs font-bold border transition flex items-center justify-center gap-2 cursor-pointer touch-manipulation active:scale-98 ${
                       selectedPreviewMethod === 'pix'
                         ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300'
                         : 'bg-slate-900 border-slate-800 text-slate-400 hover:text-white'
                     }`}
                   >
-                    <DollarSign size={14} />
+                    <DollarSign size={16} />
                     <span>Pagar via PIX</span>
                   </button>
                 </div>
@@ -643,7 +687,7 @@ export default function AdminSettingsPage() {
                   type="button"
                   disabled={testingCheckout}
                   onClick={() => handleTestCheckoutFlow(selectedPreviewPlan, selectedPreviewMethod)}
-                  className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50"
+                  className="w-full sm:w-auto px-5 py-3.5 min-h-[50px] rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm transition flex items-center justify-center gap-2 cursor-pointer shadow-md disabled:opacity-50 touch-manipulation active:scale-98"
                 >
                   {testingCheckout ? (
                     <>
@@ -681,7 +725,7 @@ export default function AdminSettingsPage() {
                         href={checkoutPreviewResult.init_point}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-4 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs text-center transition"
+                        className="w-full sm:w-auto px-5 py-3.5 min-h-[48px] rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs sm:text-sm text-center transition flex items-center justify-center"
                       >
                         Abrir Pagamento no Cartão de Crédito →
                       </a>
@@ -692,12 +736,12 @@ export default function AdminSettingsPage() {
                       {checkoutPreviewResult.message && (
                         <p className="text-[11px] text-amber-300">{checkoutPreviewResult.message}</p>
                       )}
-                      <div className="flex flex-col sm:flex-row gap-2">
+                      <div className="flex flex-col sm:flex-row gap-2.5">
                         <input
                           type="text"
                           readOnly
                           value={checkoutPreviewResult.pix.copy_paste}
-                          className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3 py-2 text-[11px] font-mono text-slate-300"
+                          className="flex-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs font-mono text-slate-300 min-h-[48px]"
                         />
                         <button
                           type="button"
@@ -706,7 +750,7 @@ export default function AdminSettingsPage() {
                             setMessageType('success');
                             setMessage('Código PIX Copia e Cola copiado!');
                           }}
-                          className="px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs cursor-pointer shrink-0"
+                          className="w-full sm:w-auto px-5 py-3.5 min-h-[48px] rounded-xl bg-sky-500 hover:bg-sky-400 text-slate-950 font-black text-xs cursor-pointer shrink-0 flex items-center justify-center gap-2 active:scale-98"
                         >
                           Copiar Código PIX
                         </button>
@@ -718,15 +762,15 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* 1.2 Configuração de Preços e Gateway Principal */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="col-span-full grid grid-cols-1 md:grid-cols-3 gap-6">
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   Gateway Principal de Pagamento
                 </label>
                 <select
                   value={form.payment_provider}
                   onChange={(e) => setForm({ ...form, payment_provider: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px] cursor-pointer"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-medium focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px] cursor-pointer"
                 >
                   <option value="mercadopago">Mercado Pago (Cartão de Crédito & Pix)</option>
                   <option value="stripe">Stripe (Cartão de Crédito Nacional & Internacional)</option>
@@ -736,7 +780,7 @@ export default function AdminSettingsPage() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   Valor do Plano Flex (Mensal R$)
                 </label>
                 <div className="relative">
@@ -747,13 +791,13 @@ export default function AdminSettingsPage() {
                     required
                     value={form.flex_plan_price}
                     onChange={(e) => setForm({ ...form, flex_plan_price: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500/20 min-h-[50px]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   Valor do Plano Pró VIP (Mensal R$)
                 </label>
                 <div className="relative">
@@ -764,14 +808,14 @@ export default function AdminSettingsPage() {
                     required
                     value={form.pro_plan_price}
                     onChange={(e) => setForm({ ...form, pro_plan_price: parseFloat(e.target.value) || 0 })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl pl-9 pr-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px]"
                   />
                 </div>
               </div>
             </div>
 
             {/* 1.3 Configuração para Pagamento no Cartão de Crédito & Recorrência */}
-            <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-sky-500/30 space-y-4">
+            <div className="col-span-full p-4 sm:p-5 rounded-2xl bg-slate-950/80 border border-sky-500/30 space-y-4">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-wider text-sky-400 block">
@@ -786,8 +830,8 @@ export default function AdminSettingsPage() {
                   </p>
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2 shrink-0">
-                  <label className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer">
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2.5 w-full sm:w-auto shrink-0">
+                  <label className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer min-h-[48px] w-full sm:w-auto touch-manipulation">
                     <input
                       type="checkbox"
                       checked={Boolean(form.credit_card_enabled)}
@@ -797,7 +841,7 @@ export default function AdminSettingsPage() {
                     <span className="text-xs font-bold text-white">Habilitar Cartão de Crédito</span>
                   </label>
 
-                  <label className="flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-indigo-500/15 border border-indigo-500/40 cursor-pointer">
+                  <label className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-indigo-500/15 border border-indigo-500/40 cursor-pointer min-h-[48px] w-full sm:w-auto touch-manipulation">
                     <input
                       type="checkbox"
                       disabled={!form.credit_card_enabled}
@@ -814,16 +858,16 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Processador do Cartão de Crédito
                   </label>
                   <select
                     value={form.credit_card_gateway || 'auto'}
                     onChange={(e) => setForm({ ...form, credit_card_gateway: e.target.value })}
                     disabled={!form.credit_card_enabled}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-medium focus:outline-none focus:border-sky-500 disabled:opacity-50 cursor-pointer min-h-[42px]"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white font-medium focus:outline-none focus:border-sky-500 disabled:opacity-50 cursor-pointer min-h-[50px]"
                   >
                     <option value="auto">Automático (Segue Gateway Principal)</option>
                     <option value="stripe">Stripe (Cartão Recorrente Nacional & Internacional)</option>
@@ -832,7 +876,7 @@ export default function AdminSettingsPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Modo de Cobrança no Cartão
                   </label>
                   <select
@@ -844,7 +888,7 @@ export default function AdminSettingsPage() {
                       })
                     }
                     disabled={!form.credit_card_enabled}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-bold focus:outline-none focus:border-indigo-500 disabled:opacity-50 cursor-pointer min-h-[42px]"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white font-bold focus:outline-none focus:border-indigo-500 disabled:opacity-50 cursor-pointer min-h-[50px]"
                   >
                     <option value="recurring">Assinatura Recorrente Mensal (Automática)</option>
                     <option value="single_30d">Cobrança Avulsa de 30 Dias (Sem Recorrência)</option>
@@ -852,7 +896,7 @@ export default function AdminSettingsPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Parcelamento Máximo no Cartão
                   </label>
                   <select
@@ -861,7 +905,7 @@ export default function AdminSettingsPage() {
                       setForm({ ...form, credit_card_max_installments: Number(e.target.value) || 12 })
                     }
                     disabled={!form.credit_card_enabled}
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 disabled:opacity-50 cursor-pointer min-h-[42px]"
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 disabled:opacity-50 cursor-pointer min-h-[50px]"
                   >
                     <option value={1}>À vista (1x no Cartão / Assinatura Mensal)</option>
                     <option value={2}>Até 2x no Cartão</option>
@@ -873,10 +917,10 @@ export default function AdminSettingsPage() {
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Pagamento via PIX Instantâneo
                   </label>
-                  <label className="flex items-center gap-2.5 px-3.5 py-2.5 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer min-h-[42px]">
+                  <label className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-slate-900 border border-slate-800 cursor-pointer min-h-[50px]">
                     <input
                       type="checkbox"
                       checked={Boolean(form.pix_enabled)}
@@ -890,13 +934,13 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* 1.4 Credenciais Mercado Pago (Cartão & PIX) */}
-            <div className="space-y-4 pt-1">
+            <div className="col-span-full space-y-4 pt-1">
               <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400">
                 Credenciais Mercado Pago (Cartão de Crédito & PIX)
               </h4>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Mercado Pago Access Token (Privado)
                   </label>
                   <input
@@ -904,12 +948,12 @@ export default function AdminSettingsPage() {
                     placeholder="APP_USR-..."
                     value={form.mercadopago_access_token}
                     onChange={(e) => setForm({ ...form, mercadopago_access_token: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px]"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Mercado Pago Public Key (Pública - Checkout Cartão)
                   </label>
                   <input
@@ -917,13 +961,13 @@ export default function AdminSettingsPage() {
                     placeholder="APP_USR-..."
                     value={form.mercadopago_public_key}
                     onChange={(e) => setForm({ ...form, mercadopago_public_key: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px]"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   Segredo do Webhook Mercado Pago (Opcional)
                 </label>
                 <input
@@ -931,13 +975,13 @@ export default function AdminSettingsPage() {
                   placeholder="Segredo de validação de eventos do gateway"
                   value={form.webhook_secret}
                   onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[44px]"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px]"
                 />
               </div>
             </div>
 
             {/* 1.5 Credenciais Stripe (Cartão de Crédito Nacional & Internacional) */}
-            <div className="space-y-4 pt-3 border-t border-slate-800">
+            <div className="col-span-full space-y-4 pt-3 border-t border-slate-800">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h4 className="text-xs font-bold uppercase tracking-wider text-sky-400">
@@ -947,7 +991,7 @@ export default function AdminSettingsPage() {
                     Endpoint de Webhook Stripe: <code className="text-sky-300 font-mono bg-slate-950 px-1.5 py-0.5 rounded border border-slate-800">/api/webhooks/stripe</code>
                   </p>
                 </div>
-                <label className="flex items-center gap-2 px-3 py-1.5 rounded-xl bg-sky-500/10 border border-sky-500/30 cursor-pointer self-start sm:self-center">
+                <label className="flex items-center gap-2.5 px-3.5 py-3 rounded-xl bg-sky-500/10 border border-sky-500/30 cursor-pointer w-full sm:w-auto min-h-[48px] touch-manipulation">
                   <input
                     type="checkbox"
                     checked={Boolean(form.credit_card_recurring_enabled)}
@@ -956,15 +1000,15 @@ export default function AdminSettingsPage() {
                     }
                     className="w-4 h-4 rounded text-sky-500 bg-slate-950 border-slate-700"
                   />
-                  <span className="text-[11px] font-bold text-sky-300">
+                  <span className="text-xs sm:text-[11px] font-bold text-sky-300">
                     Habilitar Cobrança Recorrente no Cartão (Stripe)
                   </span>
                 </label>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Stripe Secret Key (Chave Secreta Cartão)
                   </label>
                   <input
@@ -972,12 +1016,12 @@ export default function AdminSettingsPage() {
                     placeholder="sk_live_... ou sk_test_..."
                     value={form.stripe_secret_key}
                     onChange={(e) => setForm({ ...form, stripe_secret_key: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[50px]"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Stripe Publishable Key (Chave Pública Cartão)
                   </label>
                   <input
@@ -985,12 +1029,12 @@ export default function AdminSettingsPage() {
                     placeholder="pk_live_... ou pk_test_..."
                     value={form.stripe_publishable_key}
                     onChange={(e) => setForm({ ...form, stripe_publishable_key: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[50px]"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Stripe Webhook Secret (whsec_...)
                   </label>
                   <input
@@ -998,18 +1042,18 @@ export default function AdminSettingsPage() {
                     placeholder="whsec_..."
                     value={form.stripe_webhook_secret}
                     onChange={(e) => setForm({ ...form, stripe_webhook_secret: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[50px]"
                   />
                 </div>
 
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                     Moeda de Cobrança no Cartão (Stripe)
                   </label>
                   <select
                     value={form.stripe_currency || 'BRL'}
                     onChange={(e) => setForm({ ...form, stripe_currency: e.target.value })}
-                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 min-h-[44px] cursor-pointer"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 min-h-[50px] cursor-pointer"
                   >
                     <option value="BRL">BRL (Real Brasileiro - R$)</option>
                     <option value="USD">USD (Dólar Americano - US$)</option>
@@ -1019,13 +1063,99 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
+            <div className="col-span-full bg-slate-900 border border-emerald-500/30 rounded-2xl sm:rounded-3xl p-4 sm:p-6 space-y-4 shadow-xl">
+              <h4 className="text-sm font-black text-emerald-300 flex items-center gap-2">
+                <Sparkles size={16} /> Stripe Connect (Configuração Personalizada)
+              </h4>
+              <p className="text-xs text-slate-400">
+                Configure suas próprias credenciais Stripe para receber pagamentos diretamente em sua conta Connect.
+              </p>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
+                    Stripe Connect Client ID
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="ca_..."
+                    value={form.stripe_connect_client_id}
+                    onChange={(e) => setForm({ ...form, stripe_connect_client_id: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[50px]"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
+                    Stripe Connect Secret Key
+                  </label>
+                  <input
+                    type="password"
+                    placeholder="sk_..."
+                    value={form.stripe_connect_secret_key}
+                    onChange={(e) => setForm({ ...form, stripe_connect_secret_key: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[50px]"
+                  />
+                </div>
+                
+                <div className="md:col-span-2">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
+                    Stripe Webhook URL
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="https://sua-url.com/api/webhooks/stripe"
+                    value={form.stripe_webhook_url}
+                    onChange={(e) => setForm({ ...form, stripe_webhook_url: e.target.value })}
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[50px]"
+                  />
+                </div>
+
+                <div className="md:col-span-2">
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
+                    Stripe Webhook Secret (whsec_...)
+                  </label>
+                  <div className="flex flex-col sm:flex-row gap-2.5">
+                    <input
+                      type="text"
+                      placeholder="whsec_..."
+                      value={form.webhook_secret}
+                      onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })}
+                      className="flex-1 w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[50px]"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleGenerateWebhookSecret}
+                      className="w-full sm:w-auto px-5 py-3.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs sm:text-sm font-bold transition shadow-md cursor-pointer min-h-[52px] flex items-center justify-center gap-2 active:scale-98 touch-manipulation"
+                    >
+                      <Sparkles size={16} />
+                      <span>Gerar Novo Segredo</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             {/* Botão de Salvar Exclusivo: Pagamentos */}
-            <div className="pt-2 border-t border-slate-800/80 flex justify-end">
+            <div className="col-span-full pt-3 border-t border-slate-800/80 flex flex-col sm:flex-row justify-end gap-3">
+              <button
+                type="button"
+                onClick={handleTestStripeConnection}
+                disabled={savingSection !== null}
+                className="w-full sm:w-auto py-3.5 px-6 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2.5 shadow-lg cursor-pointer disabled:opacity-50 min-h-[52px] touch-manipulation active:scale-98"
+              >
+                {savingSection === 'payments' ? (
+                  <Loader2 className="w-4 h-4 animate-spin text-white" />
+                ) : (
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                )}
+                <span>Testar Conexão Stripe</span>
+              </button>
+
               <button
                 type="button"
                 onClick={handleSavePayments}
                 disabled={savingSection !== null}
-                className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(245,158,11,0.25)] cursor-pointer disabled:opacity-50 min-h-[44px] active:scale-98"
+                className="w-full sm:w-auto py-3.5 px-6 rounded-xl bg-amber-500 hover:bg-amber-400 text-slate-950 font-black text-xs sm:text-sm transition flex items-center justify-center gap-2.5 shadow-[0_0_20px_rgba(245,158,11,0.25)] cursor-pointer disabled:opacity-50 min-h-[52px] touch-manipulation active:scale-98"
               >
                 {savingSection === 'payments' ? (
                   <>
@@ -1043,8 +1173,8 @@ export default function AdminSettingsPage() {
           </div>
 
           {/* Bloco 2: Regras e Prazos do Sistema */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-5 shadow-xl">
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+          <div className="config-card-container grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 bg-slate-900/90 border border-slate-800 rounded-3xl max-[400px]:px-2 p-4 sm:p-6 shadow-xl">
+            <div className="col-span-full flex items-center gap-3 border-b border-slate-800 pb-4">
               <div className="p-2.5 rounded-2xl bg-sky-500/15 border border-sky-500/30 text-sky-400">
                 <Settings size={22} />
               </div>
@@ -1056,9 +1186,9 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="col-span-full grid grid-cols-1 sm:grid-cols-2 gap-6">
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   Intervalo de Manutenção Preventiva (Meses)
                 </label>
                 <input
@@ -1068,7 +1198,7 @@ export default function AdminSettingsPage() {
                   max="24"
                   value={form.maintenance_interval_months}
                   onChange={(e) => setForm({ ...form, maintenance_interval_months: parseInt(e.target.value) || 6 })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[48px]"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
                   Padrão em meses para agendamento automático após conclusão do serviço.
@@ -1076,7 +1206,7 @@ export default function AdminSettingsPage() {
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   Dias de Teste Grátis (Trial)
                 </label>
                 <input
@@ -1086,7 +1216,7 @@ export default function AdminSettingsPage() {
                   max="90"
                   value={form.free_trial_days}
                   onChange={(e) => setForm({ ...form, free_trial_days: parseInt(e.target.value) || 0 })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[44px]"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono font-bold focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500/20 min-h-[48px]"
                 />
                 <p className="text-[11px] text-slate-500 mt-1">
                   Dias de degustação das funções VIP para novos cadastros.
@@ -1095,7 +1225,7 @@ export default function AdminSettingsPage() {
             </div>
 
             {/* Botão de Salvar Exclusivo: Automação e Regras */}
-            <div className="pt-2 border-t border-slate-800/80 flex justify-end">
+            <div className="col-span-full pt-2 border-t border-slate-800/80 flex justify-end">
               <button
                 type="button"
                 onClick={handleSaveAutomation}
@@ -1118,8 +1248,8 @@ export default function AdminSettingsPage() {
           </div>
 
           {/* Bloco 3: Disparo de WhatsApp do Sistema */}
-          <div className="bg-slate-900/90 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-5 shadow-xl">
-            <div className="flex items-center gap-3 border-b border-slate-800 pb-4">
+          <div className="config-card-container grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-8 bg-slate-900/90 border border-slate-800 rounded-3xl max-[400px]:px-2 p-4 sm:p-6 shadow-xl">
+            <div className="col-span-full flex items-center gap-3 border-b border-slate-800 pb-4">
               <div className="p-2.5 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
                 <MessageSquare size={22} />
               </div>
@@ -1131,9 +1261,9 @@ export default function AdminSettingsPage() {
               </div>
             </div>
 
-            <div className="space-y-4">
+            <div className="col-span-full grid grid-cols-1 gap-6">
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   URL do Servidor de WhatsApp
                 </label>
                 <input
@@ -1141,12 +1271,12 @@ export default function AdminSettingsPage() {
                   placeholder="https://api.seu-whatsapp.com"
                   value={form.whatsapp_api_url}
                   onChange={(e) => setForm({ ...form, whatsapp_api_url: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[44px]"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[48px]"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   Chave Global da API
                 </label>
                 <input
@@ -1154,12 +1284,12 @@ export default function AdminSettingsPage() {
                   placeholder="Chave secreta de autenticação do servidor"
                   value={form.whatsapp_api_key}
                   onChange={(e) => setForm({ ...form, whatsapp_api_key: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[44px]"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[48px]"
                 />
               </div>
 
               <div>
-                <label className="text-xs font-semibold text-slate-300 block mb-1.5">
+                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
                   Nome da Instância Master
                 </label>
                 <input
@@ -1167,18 +1297,18 @@ export default function AdminSettingsPage() {
                   placeholder="Ex: amigo_master_bot"
                   value={form.whatsapp_instance_name}
                   onChange={(e) => setForm({ ...form, whatsapp_instance_name: e.target.value })}
-                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[44px]"
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500/20 min-h-[48px]"
                 />
               </div>
             </div>
 
             {/* Botão de Salvar Exclusivo: WhatsApp Master */}
-            <div className="pt-2 border-t border-slate-800/80 flex justify-end">
+            <div className="col-span-full pt-2 border-t border-slate-800/80 flex justify-end">
               <button
                 type="button"
                 onClick={handleSaveWhatsApp}
                 disabled={savingSection !== null}
-                className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.25)] cursor-pointer disabled:opacity-50 min-h-[44px] active:scale-98"
+                className="w-full sm:w-auto py-2.5 px-5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-bold text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-[0_0_20px_rgba(16,185,129,0.25)] cursor-pointer disabled:opacity-50 min-h-[48px] active:scale-98"
               >
                 {savingSection === 'whatsapp' ? (
                   <>

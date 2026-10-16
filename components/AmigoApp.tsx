@@ -21,6 +21,7 @@ import {
   MapPin, 
   DollarSign, 
   Layers, 
+  ListFilter,
   Wrench, 
   Thermometer, 
   Gauge, 
@@ -81,11 +82,8 @@ import { WhatsAppTemplateModal } from '@/components/WhatsAppTemplateModal';
 import { GoogleConnectModal } from '@/components/GoogleConnectModal';
 import { ProfileUpdateModal } from '@/components/ProfileUpdateModal';
 import { RecurringRevenueCard } from '@/components/RecurringRevenueCard';
-import { PlanCarousel } from '@/components/PlanCarousel';
 import { PlanStatusBanner } from '@/components/PlanStatusBanner';
 import { UpgradeModal } from '@/components/UpgradeModal';
-import { InstallPrompt } from '@/components/InstallPrompt';
-import { MobileInstallBanner } from '@/components/MobileInstallBanner';
 import { ClientSupportModal } from '@/components/ClientSupportModal';
 import ServiceOrderPdfExporter, {
   ServiceOrderData,
@@ -94,6 +92,8 @@ import ServiceOrderPdfExporter, {
 import { CustomerSignatureModal } from '@/components/CustomerSignatureModal';
 import { ServiceOrderQrScannerModal } from '@/components/ServiceOrderQrScannerModal';
 import { ServiceOrderQrGeneratorModal } from '@/components/ServiceOrderQrGeneratorModal';
+import { ClientServiceLocationsMap } from '@/components/ClientServiceLocationsMap';
+import { MobileInstallBanner } from '@/components/MobileInstallBanner';
 import { Footer } from '@/components/Footer';
 import { AdminSupportChatView } from '@/components/AdminSupportChatView';
 import { motion, AnimatePresence } from 'motion/react';
@@ -394,6 +394,7 @@ export default function AmigoApp() {
   const [signingOsId, setSigningOsId] = useState<string | null>(null);
   const [defaultCustomerSignature, setDefaultCustomerSignature] = useState<string | null>(null);
   const [defaultCustomerNotes, setDefaultCustomerNotes] = useState<string>('');
+  const [clientsViewMode, setClientsViewMode] = useState<'map' | 'list' | 'both'>('both');
   const [headerSaving, setHeaderSaving] = useState(false);
   const [headerSavedSuccess, setHeaderSavedSuccess] = useState(false);
   const [osStatusTransitioning, setOsStatusTransitioning] = useState(false);
@@ -1188,9 +1189,6 @@ export default function AmigoApp() {
         <div className="fixed top-4 right-4 z-50">
           <ThemeToggle showLabel />
         </div>
-        <div className="max-w-md w-full">
-          <MobileInstallBanner />
-        </div>
         <div className="max-w-md w-full bg-white dark:bg-slate-900/90 border border-sky-500/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl backdrop-blur-xl relative overflow-hidden">
           <div className="text-center space-y-3">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-500 to-cyan-500 flex items-center justify-center text-white mx-auto shadow-[0_0_25px_rgba(14,165,233,0.4)]">
@@ -1589,9 +1587,6 @@ export default function AmigoApp() {
       />
 
       <main className="max-w-4xl mx-auto px-3 sm:px-5 py-4 sm:py-6 space-y-5 sm:space-y-6">
-        {/* Banner de Instalação Mobile no topo da página inicial (standalone: false & iOS/Android) */}
-        <MobileInstallBanner />
-
         {/* Alerta de Perfil Incompleto no Banco */}
         {isProfileIncomplete && (
           <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/10 animate-pulse">
@@ -1618,9 +1613,6 @@ export default function AmigoApp() {
 
         {/* Banner Visual do Plano Atual do Usuário com Botão Informativo para Upgrade */}
         <PlanStatusBanner onOpenUpgradeModal={() => setShowUpgradeModal(true)} />
-
-        {/* Banner de Boas-Vindas */}
-        <PlanCarousel />
 
         {/* Botões de Navegação entre Abas */}
         <div className="grid grid-cols-3 sm:flex gap-2 pb-1">
@@ -2606,8 +2598,79 @@ export default function AmigoApp() {
         {/* 5. ABA: CLIENTES & PMOC */}
         {activeTab === 'clients' && (
           <div className="space-y-6">
-            {/* Card de Lembrete Automático de Preventiva */}
-            <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 space-y-4 shadow-xl">
+            {/* Seletor de Modo de Visualização: Mapa de Rotas vs Lista */}
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 border border-slate-800 rounded-3xl p-3.5 sm:p-4 shadow-lg">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 shrink-0">
+                  <MapPin size={18} />
+                </div>
+                <div>
+                  <h4 className="text-xs sm:text-sm font-black text-white">
+                    Gestão Geográfica & Atendimentos
+                  </h4>
+                  <p className="text-[11px] text-slate-400">
+                    Alterne entre a visualização no mapa com rotas ou os lembretes preventivos
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-1.5 p-1 rounded-2xl bg-slate-950 border border-slate-800 shrink-0">
+                <button
+                  type="button"
+                  onClick={() => setClientsViewMode('map')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    clientsViewMode === 'map'
+                      ? 'bg-sky-500 text-slate-950 font-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <MapPin size={13} />
+                  <span>Mapa & Rotas</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClientsViewMode('both')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    clientsViewMode === 'both'
+                      ? 'bg-gradient-to-r from-sky-500 to-emerald-500 text-slate-950 font-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <Layers size={13} />
+                  <span>Ambos</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setClientsViewMode('list')}
+                  className={`px-3 py-1.5 rounded-xl text-xs font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                    clientsViewMode === 'list'
+                      ? 'bg-slate-800 text-white font-black shadow-sm'
+                      : 'text-slate-400 hover:text-white'
+                  }`}
+                >
+                  <ListFilter size={13} />
+                  <span>Lembretes & OS</span>
+                </button>
+              </div>
+            </div>
+
+            {/* Mapa Interativo e Otimizador de Rotas do Dia */}
+            {(clientsViewMode === 'map' || clientsViewMode === 'both') && (
+              <ClientServiceLocationsMap
+                serviceOrders={serviceOrders}
+                reminders={reminders}
+                technicianName={profile?.name || user?.displayName || 'Técnico Especialista'}
+                onSelectOrder={(orderId) => {
+                  setEditingOsId(orderId);
+                }}
+              />
+            )}
+
+            {/* Lista de Lembretes Preventivos e Ordens de Serviço */}
+            {(clientsViewMode === 'list' || clientsViewMode === 'both') && (
+              <>
+                {/* Card de Lembrete Automático de Preventiva */}
+                <div className="bg-slate-900 border border-emerald-500/30 rounded-3xl p-6 space-y-4 shadow-xl">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
                   <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
@@ -4145,6 +4208,8 @@ export default function AmigoApp() {
                 )))}
               </div>
             </div>
+              </>
+            )}
           </div>
         )}
 
@@ -4617,7 +4682,7 @@ export default function AmigoApp() {
                       };
 
                       return (
-                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800/80 text-[10px] space-y-2 font-mono">
+                        <div className="p-4 rounded-xl bg-slate-900 border border-slate-800/80 text-xs space-y-2 font-mono">
                           <div className="space-y-1">
                             <div className="flex items-center justify-between text-slate-300">
                               <span>🎯 Data da Próxima Manutenção:</span>
@@ -4703,7 +4768,7 @@ export default function AmigoApp() {
                   placeholder="Ex: Higienização profunda das serpentinas, teste de pressão e troca do capacitor."
                   value={remNotes}
                   onChange={(e) => setRemNotes(e.target.value)}
-                  className="w-full px-3.5 py-2 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition resize-none"
+                  className="w-full px-4 py-3 bg-slate-950 border border-slate-800 rounded-xl text-white placeholder-slate-600 focus:outline-none focus:border-emerald-500 transition resize-none min-h-[80px]"
                 />
               </div>
 
@@ -4810,7 +4875,6 @@ export default function AmigoApp() {
         onClose={() => setShowSupportModal(false)}
       />
 
-      <InstallPrompt />
       <Footer />
     </div>
   );

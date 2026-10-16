@@ -127,6 +127,9 @@ export async function POST(req: NextRequest) {
               whatsapp_api_url: updated.whatsapp_api_url,
               whatsapp_api_key: updated.whatsapp_api_key,
               whatsapp_instance_name: updated.whatsapp_instance_name,
+              stripe_connect_client_id: updated.stripe_connect_client_id,
+              stripe_connect_secret_key: updated.stripe_connect_secret_key,
+              stripe_webhook_url: updated.stripe_webhook_url,
               updated_at: new Date(),
             },
           });

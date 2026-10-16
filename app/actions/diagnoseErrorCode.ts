@@ -1,6 +1,5 @@
 'use server';
 
-import { GoogleGenAI } from '@google/genai';
 import { cookies } from 'next/headers';
 import {
   verifySessionToken,
@@ -933,8 +932,6 @@ export async function diagnoseErrorCode(brand: string, query: string, equipmentT
   // 2. DIAGNÓSTICO COM IA: RETENTATIVA AUTOMÁTICA DE ATÉ 2 VEZES E FORÇAMENTO DE JSON VÁLIDO
   if (apiKey && !apiKey.includes('your-') && !apiKey.includes('placeholder')) {
     try {
-      const ai = new GoogleGenAI({ apiKey });
-
       // Total de 3 tentativas (1 chamada inicial + até 2 retentativas automáticas)
       const MAX_RETRIES = 2;
       let lastMissingFields: string[] = [];
@@ -1003,17 +1000,33 @@ Retorne EXCLUSIVAMENTE um JSON puro válido com a seguinte estrutura obrigatóri
 }`;
 
         try {
-          const response = await ai.models.generateContent({
-            model: 'gemini-2.5-flash',
-            contents: prompt,
-            config: {
-              responseMimeType: 'application/json',
-              temperature: isRetry ? 0.05 : 0.1,
-            },
-          });
+          const geminiRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${encodeURIComponent(apiKey)}`,
+            {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: {
+                  responseMimeType: 'application/json',
+                  temperature: isRetry ? 0.05 : 0.1,
+                },
+              }),
+            }
+          );
+
+          if (!geminiRes.ok) {
+            const errData = await geminiRes.json().catch(() => ({}));
+            throw new Error(errData?.error?.message || `Gemini API HTTP ${geminiRes.status}`);
+          }
+
+          const geminiData = await geminiRes.json();
+          const responseText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text || '';
 
           // 1. Extrai e sanitiza a resposta forçando JSON puro
-          const parsed = parseStrictJson(response.text);
+          const parsed = parseStrictJson(responseText);
 
           // 2. Executa a validação rigorosa dos campos obrigatórios
           const validation = validateRequiredFields(parsed);
