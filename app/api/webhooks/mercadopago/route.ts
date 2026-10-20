@@ -2,6 +2,7 @@ import crypto from 'crypto';
 import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings } from '@/lib/getAppSettings';
 import { getSupabaseServiceClient, checkRateLimitAsync, getClientIp } from '@/lib/security';
+import { notifyTechnicianPaymentFailed } from '@/lib/paymentFailureNotifier';
 import { db, isSqlAvailable } from '@/src/db';
 import { users, processedPayments } from '@/src/db/schema';
 import { eq, and } from 'drizzle-orm';
@@ -385,11 +386,13 @@ function parseExternalReference(
   targetUid: string;
   targetPlan: 'flex' | 'pro';
   minimumExpectedAmount: number;
+  cycleDays: number;
 } {
   let targetEmail = '';
   let targetUid = '';
   let targetPlan: 'flex' | 'pro' = 'pro';
   let minimumExpectedAmount = 19.0;
+  let cycleDays = 30;
 
   if (typeof rawRef === 'string' && rawRef.startsWith('{')) {
     try {
@@ -399,12 +402,17 @@ function parseExternalReference(
       targetPlan = parsedRef.plan === 'flex' ? 'flex' : 'pro';
       minimumExpectedAmount =
         targetPlan === 'flex' ? 19.0 : Math.max(19.0, Number(defaultProPrice || 39.9) - 1);
+      if (parsedRef.cycleDays && Number(parsedRef.cycleDays) > 0) {
+        cycleDays = Number(parsedRef.cycleDays);
+      } else if (parsedRef.billingInterval === 'annual') {
+        cycleDays = 365;
+      }
     } catch {
       // ignore malformed JSON
     }
   }
 
-  return { targetEmail, targetUid, targetPlan, minimumExpectedAmount };
+  return { targetEmail, targetUid, targetPlan, minimumExpectedAmount, cycleDays };
 }
 
 export async function POST(req: NextRequest) {
@@ -500,7 +508,7 @@ export async function POST(req: NextRequest) {
 
       const preData = await preRes.json();
       const preStatus = String(preData.status || '').toLowerCase();
-      const { targetEmail, targetUid, targetPlan, minimumExpectedAmount } = parseExternalReference(
+      const { targetEmail, targetUid, targetPlan, minimumExpectedAmount, cycleDays } = parseExternalReference(
         preData.external_reference,
         Number(settings.pro_plan_price || 39.9)
       );
@@ -517,6 +525,12 @@ export async function POST(req: NextRequest) {
         const approvedDate = Number.isNaN(parsedBaseDate.getTime()) ? new Date() : parsedBaseDate;
         const cycleKey = `preapproval:${resourceId}:${approvedDate.toISOString().slice(0, 10)}`;
 
+        const isAnnualCycle =
+          cycleDays >= 365 ||
+          Number(preData.auto_recurring?.frequency) === 12 ||
+          recurringAmount > 100;
+        const effectiveCycleDays = isAnnualCycle ? 365 : 32;
+
         await applyApprovedPaymentIdempotent({
           paymentId: cycleKey,
           preapprovalId: resourceId,
@@ -525,16 +539,32 @@ export async function POST(req: NextRequest) {
           plan: targetPlan,
           amount: recurringAmount,
           approvedAt: approvedDate,
-          cycleDays: 32,
+          cycleDays: effectiveCycleDays,
         });
       } else if ((preStatus === 'cancelled' || preStatus === 'paused') && targetUid) {
+        // Notificação automática via WhatsApp para o técnico quando a assinatura recorrente for suspensa por falha
+        if (preStatus === 'paused') {
+          try {
+            await notifyTechnicianPaymentFailed({
+              targetUid,
+              targetEmail,
+              plan: targetPlan,
+              amount: recurringAmount || (targetPlan === 'flex' ? 19.9 : 39.9),
+              failureReason: 'Cobrança recorrente no cartão suspensa após tentativas sem sucesso',
+              provider: 'mercadopago',
+              subscriptionId: resourceId,
+            });
+          } catch (notifErr) {
+            console.error('Erro ao notificar técnico sobre preapproval pausado:', notifErr);
+          }
+        }
         // Quando a recorrência é cancelada no Mercado Pago, mantém o plano atual até plan_expires_at e marca apenas subscription_status = 'cancelled'
         const serviceSb = getSupabaseServiceClient();
         if (serviceSb) {
           const { error: cancelErr } = await serviceSb
             .from('profiles')
             .update({
-              subscription_status: 'cancelled',
+              subscription_status: preStatus === 'paused' ? 'past_due' : 'cancelled',
               active_preapproval_id: null,
               updated_at: new Date().toISOString(),
             })
@@ -549,7 +579,7 @@ export async function POST(req: NextRequest) {
           await db
             .update(users)
             .set({
-              subscriptionStatus: 'cancelled',
+              subscriptionStatus: preStatus === 'paused' ? 'past_due' : 'cancelled',
               activePreapprovalId: null,
             })
             .where(and(eq(users.uid, targetUid), eq(users.activePreapprovalId, resourceId)));
@@ -585,13 +615,13 @@ export async function POST(req: NextRequest) {
     const statusDetail = String(paymentData.status_detail || '').toLowerCase();
     const transactionAmount = Number(paymentData.transaction_amount || 0);
 
-    const { targetEmail, targetUid, targetPlan, minimumExpectedAmount } = parseExternalReference(
+    const { targetEmail, targetUid, targetPlan, minimumExpectedAmount, cycleDays } = parseExternalReference(
       paymentData.external_reference,
       Number(settings.pro_plan_price || 39.9)
     );
     const isAmountValid = transactionAmount >= minimumExpectedAmount;
 
-    // Aprovação idempotente: exige targetUid autenticado no checkout e usa date_approved do pagamento (+30 dias)
+    // Aprovação idempotente: exige targetUid autenticado no checkout e usa date_approved do pagamento (+cycleDays dias)
     if (status === 'approved' && isAmountValid && targetUid) {
       const rawApprovedDate =
         paymentData.date_approved || paymentData.date_last_updated || paymentData.date_created;
@@ -605,7 +635,7 @@ export async function POST(req: NextRequest) {
         plan: targetPlan,
         amount: transactionAmount,
         approvedAt,
-        cycleDays: 30,
+        cycleDays: cycleDays || (transactionAmount > 100 ? 365 : 30),
       });
 
       return NextResponse.json({
@@ -645,11 +675,37 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    // Notificação Automática via WhatsApp para o Técnico quando o pagamento falhar
+    let notificationResult = null;
+    const isPaymentRejectedOrFailed =
+      status === 'rejected' ||
+      status === 'cancelled' ||
+      statusDetail.includes('reject') ||
+      statusDetail.includes('insufficient_amount');
+
+    if (isPaymentRejectedOrFailed && (targetUid || targetEmail)) {
+      try {
+        notificationResult = await notifyTechnicianPaymentFailed({
+          targetUid: targetUid || undefined,
+          targetEmail: targetEmail || undefined,
+          plan: targetPlan,
+          amount: transactionAmount,
+          failureReason: paymentData.status_detail || paymentData.status || 'Falha no débito do cartão de crédito',
+          provider: 'mercadopago',
+          paymentId: resourceId,
+        });
+      } catch (notifyErr) {
+        console.error('Erro ao disparar notificação de falha de pagamento via WhatsApp:', notifyErr);
+      }
+    }
+
     return NextResponse.json({
       received: true,
       status: paymentData.status,
       amount_verified: isAmountValid,
       ignored_non_revoking_status: status === 'rejected' || status === 'cancelled',
+      technician_notified: Boolean(notificationResult?.notified),
+      notification_dispatched: Boolean(notificationResult?.providerDispatched),
     });
   } catch (error) {
     console.error('Erro no Webhook Mercado Pago:', error);

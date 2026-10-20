@@ -216,6 +216,30 @@ export default function AmigoApp() {
     return () => { isCancelled = true; };
   }, [user, authLoading, profile?.name, profile?.email]);
 
+  // Processa links automáticos recebidos via WhatsApp de falha de pagamento (?tab=settings&action=update_payment)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    try {
+      const searchParams = new URLSearchParams(window.location.search);
+      const tabParam = searchParams.get('tab');
+      const actionParam = searchParams.get('action');
+
+      if (tabParam === 'settings') {
+        setActiveTab('settings');
+      }
+
+      if (actionParam === 'update_payment') {
+        setShowUpgradeModal(true);
+        toast.warning(
+          'Atualização de Assinatura: Selecione seu plano (mensal ou anual c/ 5% OFF) e regularize o pagamento para restabelecer o acesso total.',
+          { duration: 10000, id: 'whatsapp-update-payment-toast' }
+        );
+      }
+    } catch {
+      // ignora eventuais falhas de leitura de url
+    }
+  }, []);
+
   // HVAC Error Diagnoses State
   const [errorBrand, setErrorBrand] = useState('Daikin');
   const [errorCodeInput, setErrorCodeInput] = useState('');

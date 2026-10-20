@@ -21,7 +21,9 @@ import {
   Power,
   ShieldCheck,
   Webhook,
-  BellRing
+  BellRing,
+  AlertTriangle,
+  ExternalLink
 } from 'lucide-react';
 import { toast, Toaster } from 'sonner';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
@@ -311,6 +313,72 @@ export default function AdminWhatsAppConfigPage() {
       ...prev,
       [fieldKey]: (prev[fieldKey] as string) + ' ' + variable
     }));
+  };
+
+  // Estados para Notificação Automática de Falha de Pagamento do Técnico
+  const [testPayPhone, setTestPayPhone] = useState<string>('');
+  const [testPayName, setTestPayName] = useState<string>('Técnico Amigo');
+  const [testPayReason, setTestPayReason] = useState<string>('cc_rejected_insufficient_amount');
+  const [testPayPlan, setTestPayPlan] = useState<'pro' | 'flex'>('pro');
+  const [testingPayFailure, setTestingPayFailure] = useState<boolean>(false);
+  const [payFailureResult, setPayFailureResult] = useState<any>(null);
+  const [payFailureLogs, setPayFailureLogs] = useState<any[]>([]);
+  const [loadingPayLogs, setLoadingPayLogs] = useState<boolean>(false);
+
+  const loadPaymentFailureLogs = async () => {
+    try {
+      setLoadingPayLogs(true);
+      const res = await fetch('/api/whatsapp/payment-failure');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.logs)) {
+        setPayFailureLogs(data.logs);
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar logs de falha de pagamento:', err);
+    } finally {
+      setLoadingPayLogs(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPaymentFailureLogs();
+  }, []);
+
+  const handleTestPaymentFailureNotification = async () => {
+    setTestingPayFailure(true);
+    setPayFailureResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/payment-failure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          testDirectNumber: testPayPhone || form.phone_number || undefined,
+          technicianName: testPayName || 'Técnico Especialista',
+          failureReason: testPayReason,
+          plan: testPayPlan,
+          amount: testPayPlan === 'flex' ? 19.9 : 39.9,
+          provider: 'mercadopago',
+        }),
+      });
+      const data = await res.json();
+      setPayFailureResult(data);
+
+      if (data.success) {
+        toast.success(
+          data.result?.providerDispatched
+            ? `Notificação enviada com sucesso via WhatsApp para +${data.result.phone}!`
+            : 'Notificação gerada com sucesso! Link wa.me pronto para envio.'
+        );
+        loadPaymentFailureLogs();
+      } else {
+        toast.error('Erro ao processar notificação: ' + (data.error || 'Falha'));
+      }
+    } catch (err: any) {
+      console.error('Erro ao testar notificação de falha:', err);
+      toast.error('Falha de conexão com a API de notificação.');
+    } finally {
+      setTestingPayFailure(false);
+    }
   };
 
   if (loading) {
@@ -848,6 +916,216 @@ export default function AdminWhatsAppConfigPage() {
                 className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-green-500 resize-none font-sans"
               />
             </div>
+          </div>
+
+          {/* Card: Notificação Automática de Falha no Pagamento Recorrente (Cobrança Falhou) */}
+          <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-5 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    Cobrança Recorrente: Notificação Automática de Falha
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-bold uppercase">
+                      Ativo no Webhook
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Dispara automaticamente via WhatsApp para o técnico quando o débito da assinatura falhar (Mercado Pago ou Stripe), solicitando atualização da forma de pagamento.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={loadPaymentFailureLogs}
+                disabled={loadingPayLogs}
+                className="self-start sm:self-auto px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <RefreshCw size={12} className={loadingPayLogs ? 'animate-spin' : ''} />
+                <span>Atualizar Logs</span>
+              </button>
+            </div>
+
+            {/* Simulador de Teste de Disparo */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-3">
+              <div className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <Sparkles size={14} className="text-amber-400" />
+                <span>Testar / Simular Disparo de Falha para Técnico:</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    WhatsApp do Técnico
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 5511999998888"
+                    value={testPayPhone}
+                    onChange={(e) => setTestPayPhone(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    Nome do Técnico
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Nome"
+                    value={testPayName}
+                    onChange={(e) => setTestPayName(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    Plano da Assinatura
+                  </label>
+                  <select
+                    value={testPayPlan}
+                    onChange={(e) => setTestPayPlan(e.target.value as 'pro' | 'flex')}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="pro">Plano PRO (R$ 39,90 / mês)</option>
+                    <option value="flex">Plano Flex VIP (R$ 19,90 / mês)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    Motivo da Recusa / Erro
+                  </label>
+                  <select
+                    value={testPayReason}
+                    onChange={(e) => setTestPayReason(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="cc_rejected_insufficient_amount">Saldo / Limite insuficiente</option>
+                    <option value="cc_rejected_call_for_authorize">Autorização pendente no banco</option>
+                    <option value="cc_rejected_bad_filled_security_code">Código de segurança incorreto</option>
+                    <option value="expired_card">Cartão de crédito expirado</option>
+                    <option value="card_declined">Transação recusada pela operadora</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={handleTestPaymentFailureNotification}
+                  disabled={testingPayFailure}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md"
+                >
+                  {testingPayFailure ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>Processando Disparo e Gerando Link...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={14} className="text-amber-400" />
+                      <span>Simular Falha e Disparar Notificação WhatsApp</span>
+                    </>
+                  )}
+                </button>
+                <span className="text-[11px] text-slate-500 text-center sm:text-right">
+                  Links apontam para <code>/?tab=settings&action=update_payment</code> com regularização imediata
+                </span>
+              </div>
+
+              {/* Resultado do Teste */}
+              {payFailureResult && (
+                <div className="mt-3 p-3.5 rounded-xl bg-slate-900/90 border border-slate-700 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${payFailureResult.result?.providerDispatched ? 'bg-green-400' : 'bg-amber-400'}`} />
+                      <span className="text-xs font-bold text-white">
+                        {payFailureResult.result?.providerDispatched
+                          ? 'Enviado com Sucesso via API WhatsApp'
+                          : 'Notificação Formatada (Link wa.me pronto para envio)'}
+                      </span>
+                    </div>
+                    {payFailureResult.result?.waLink && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(payFailureResult.result.message);
+                            toast.success('Texto da mensagem copiado!');
+                          }}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy size={12} />
+                          <span>Copiar Texto</span>
+                        </button>
+                        <a
+                          href={payFailureResult.result.waLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1 rounded bg-green-600 hover:bg-green-500 text-slate-950 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                        >
+                          <ExternalLink size={12} />
+                          <span>Abrir WhatsApp</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                  <pre className="p-3 bg-slate-950 rounded-lg text-[11px] text-slate-300 font-sans whitespace-pre-wrap leading-relaxed border border-slate-800">
+                    {payFailureResult.result?.message}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            {/* Histórico Recente de Notificações de Falha de Pagamento */}
+            {payFailureLogs.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Histórico Recente de Falhas Notificadas ({payFailureLogs.length})
+                </span>
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                  {payFailureLogs.slice(0, 10).map((log: any) => (
+                    <div
+                      key={log.id}
+                      className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white truncate">{log.technicianName}</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                            {log.phone ? `+${log.phone}` : 'Sem WhatsApp'}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold uppercase">
+                            {log.plan}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                          Motivo: {log.reason} · R$ {Number(log.amount).toFixed(2).replace('.', ',')}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${log.dispatched ? 'bg-green-500/20 text-green-300' : 'bg-slate-800 text-slate-300'}`}>
+                          {log.dispatched ? 'Enviado via API' : 'Link Pronto'}
+                        </span>
+                        {log.waLink && (
+                          <a
+                            href={log.waLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-green-400 border border-slate-700"
+                            title="Reenviar pelo WhatsApp"
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <button

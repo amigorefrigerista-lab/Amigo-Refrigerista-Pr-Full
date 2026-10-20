@@ -11,7 +11,8 @@ export interface GatewayCheckoutParams {
   planTitle: string;
   amount: number;
   currency?: string;
-  billingCycle: 'recurring' | 'single_30d';
+  billingCycle: 'recurring' | 'single_30d' | 'annual';
+  cycleDays?: number;
   successUrl: string;
   cancelUrl: string;
   externalReference: string;
@@ -27,8 +28,71 @@ export interface GatewayCheckoutResult {
   preference_id?: string;
   amount: number;
   currency: string;
-  billing_model: 'recurring_subscription' | 'cycle_30_days';
+  billing_model: 'recurring_subscription' | 'cycle_30_days' | 'annual_plan' | 'annual_subscription';
+  billing_interval?: 'monthly' | 'annual';
+  original_amount?: number;
+  discount_applied?: number;
+  discount_percent?: number;
+  monthly_equivalent?: number;
   error?: string;
+}
+
+export interface PlanPricingCalculation {
+  plan: 'flex' | 'pro';
+  billingInterval: 'recurring' | 'annual';
+  monthlyBasePrice: number;
+  annualOriginalTotal: number;
+  discountPercent: number;
+  discountAmount: number;
+  finalTotalAmount: number;
+  monthlyEquivalent: number;
+  cycleDays: number;
+}
+
+/**
+ * Calcula os valores e o desconto de 5% no valor total para o plano anual,
+ * diferenciando-o do plano recorrente mensal.
+ */
+export function calculatePlanPricing(
+  plan: 'flex' | 'pro',
+  billingInterval: 'recurring' | 'annual' | 'monthly',
+  monthlyPrice?: number
+): PlanPricingCalculation {
+  const isAnnual = billingInterval === 'annual';
+  const defaultPrice = plan === 'flex' ? 19.9 : 39.9;
+  const monthlyBasePrice = Number(monthlyPrice) > 0 ? Number(monthlyPrice) : defaultPrice;
+  const annualOriginalTotal = Math.round(monthlyBasePrice * 12 * 100) / 100;
+
+  if (isAnnual) {
+    const discountPercent = 5;
+    const finalTotalAmount = Math.round(annualOriginalTotal * 0.95 * 100) / 100; // 5% de desconto no valor total
+    const discountAmount = Math.round((annualOriginalTotal - finalTotalAmount) * 100) / 100;
+    const monthlyEquivalent = Math.round((finalTotalAmount / 12) * 100) / 100;
+
+    return {
+      plan,
+      billingInterval: 'annual',
+      monthlyBasePrice,
+      annualOriginalTotal,
+      discountPercent,
+      discountAmount,
+      finalTotalAmount,
+      monthlyEquivalent,
+      cycleDays: 365,
+    };
+  }
+
+  return {
+    plan,
+    billingInterval: 'recurring',
+    monthlyBasePrice,
+    annualOriginalTotal,
+    discountPercent: 0,
+    discountAmount: 0,
+    finalTotalAmount: monthlyBasePrice,
+    monthlyEquivalent: monthlyBasePrice,
+    cycleDays: 30,
+  };
 }
 
 /**
@@ -85,7 +149,9 @@ export async function createStripeCheckoutSession(
 ): Promise<GatewayCheckoutResult> {
   const normalizedCurrency = currency.toLowerCase();
   const unitAmountCents = Math.round(Number(params.amount) * 100);
-  const isRecurring = params.billingCycle === 'recurring';
+  const isAnnual = params.billingCycle === 'annual';
+  const isRecurring = params.billingCycle === 'recurring' || isAnnual;
+  const cycleDays = params.cycleDays || (isAnnual ? 365 : 30);
 
   const formBody = new URLSearchParams();
   formBody.append('mode', isRecurring ? 'subscription' : 'payment');
@@ -100,7 +166,8 @@ export async function createStripeCheckoutSession(
   formBody.append('metadata[plan]', params.plan);
   formBody.append('metadata[expected_amount]', String(params.amount));
   formBody.append('metadata[currency]', currency.toUpperCase());
-  formBody.append('metadata[cycle_days]', '30');
+  formBody.append('metadata[cycle_days]', String(cycleDays));
+  formBody.append('metadata[billing_interval]', isAnnual ? 'annual' : 'monthly');
   formBody.append('metadata[external_reference]', params.externalReference);
 
   if (isRecurring) {
@@ -108,6 +175,8 @@ export async function createStripeCheckoutSession(
     formBody.append('subscription_data[metadata][email]', params.payerEmail);
     formBody.append('subscription_data[metadata][plan]', params.plan);
     formBody.append('subscription_data[metadata][expected_amount]', String(params.amount));
+    formBody.append('subscription_data[metadata][cycle_days]', String(cycleDays));
+    formBody.append('subscription_data[metadata][billing_interval]', isAnnual ? 'annual' : 'monthly');
     formBody.append('subscription_data[metadata][external_reference]', params.externalReference);
   }
 
@@ -119,16 +188,18 @@ export async function createStripeCheckoutSession(
     'line_items[0][price_data][product_data][name]',
     params.planTitle ||
       (params.plan === 'flex'
-        ? 'Amigo Refrigerista Pro - Flex VIP Plan'
-        : 'Amigo Refrigerista Pro - PRO Plan')
+        ? (isAnnual ? 'Amigo Refrigerista Pro - Flex VIP (Plano Anual 5% OFF)' : 'Amigo Refrigerista Pro - Flex VIP Plan')
+        : (isAnnual ? 'Amigo Refrigerista Pro - PRO Plan (Plano Anual 5% OFF)' : 'Amigo Refrigerista Pro - PRO Plan'))
   );
   formBody.append(
     'line_items[0][price_data][product_data][description]',
-    'International HVAC-R & PMOC Management Platform Subscription'
+    isAnnual
+      ? 'Acesso Anual VIP HVAC-R & PMOC com 5% de desconto no valor total'
+      : 'International HVAC-R & PMOC Management Platform Subscription'
   );
 
   if (isRecurring) {
-    formBody.append('line_items[0][price_data][recurring][interval]', 'month');
+    formBody.append('line_items[0][price_data][recurring][interval]', isAnnual ? 'year' : 'month');
     formBody.append('line_items[0][price_data][recurring][interval_count]', '1');
   }
 

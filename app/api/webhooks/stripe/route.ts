@@ -9,6 +9,7 @@ import {
   checkRateLimitAsync,
   getClientIp,
 } from '@/lib/security';
+import { notifyTechnicianPaymentFailed } from '@/lib/paymentFailureNotifier';
 import { db, isSqlAvailable } from '@/src/db';
 import { users, processedPayments } from '@/src/db/schema';
 import { eq, and } from 'drizzle-orm';
@@ -352,6 +353,21 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      if (newSubStatus === 'past_due' && (targetUid || subscriptionId)) {
+        try {
+          await notifyTechnicianPaymentFailed({
+            targetUid: targetUid || undefined,
+            plan: 'pro',
+            amount: 39.9,
+            failureReason: 'Cobrança recorrente no cartão não autorizada (assinatura com pagamento pendente)',
+            provider: 'stripe',
+            subscriptionId,
+          });
+        } catch (notifErr) {
+          console.error('Erro ao notificar técnico sobre assinatura past_due no Stripe:', notifErr);
+        }
+      }
+
       return NextResponse.json({
         received: true,
         status: newSubStatus,
@@ -364,7 +380,13 @@ export async function POST(req: NextRequest) {
     if (eventType === 'invoice.payment_failed') {
       const subscriptionId =
         typeof obj.subscription === 'string' ? obj.subscription.trim() : '';
-      const { targetUid } = extractStripeMetadata(obj);
+      const { targetUid, targetEmail, plan } = extractStripeMetadata(obj);
+      const rawAmount = Number(obj.amount_due || obj.total || 0) / 100;
+      const amountDue = rawAmount > 0 ? rawAmount : (plan === 'flex' ? 19.9 : 39.9);
+      const failureReason =
+        obj.last_finalization_error?.message ||
+        obj.charge?.failure_message ||
+        'Falha no débito do cartão de crédito na renovação automática';
 
       const serviceSb = getSupabaseServiceClient();
       if (serviceSb) {
@@ -401,10 +423,28 @@ export async function POST(req: NextRequest) {
         }
       }
 
+      // Notificação Automática via WhatsApp para o Técnico solicitando atualização do método de pagamento
+      let notificationResult = null;
+      try {
+        notificationResult = await notifyTechnicianPaymentFailed({
+          targetUid: targetUid || undefined,
+          targetEmail: targetEmail || undefined,
+          plan: plan || 'pro',
+          amount: amountDue,
+          failureReason,
+          provider: 'stripe',
+          subscriptionId,
+        });
+      } catch (notifyErr) {
+        console.error('Erro ao disparar WhatsApp de falha no Stripe:', notifyErr);
+      }
+
       return NextResponse.json({
         received: true,
         status: 'past_due',
         event: eventType,
+        technician_notified: Boolean(notificationResult?.notified),
+        notification_dispatched: Boolean(notificationResult?.providerDispatched),
       });
     }
 

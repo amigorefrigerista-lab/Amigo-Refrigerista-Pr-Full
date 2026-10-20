@@ -3,6 +3,7 @@ import { getAppSettings } from '@/lib/getAppSettings';
 import {
   resolveStripeCredentials,
   createStripeCheckoutSession,
+  calculatePlanPricing,
 } from '@/lib/paymentGateway';
 import {
   authenticateRequest,
@@ -25,19 +26,35 @@ export async function GET() {
         settings.mercadopago_access_token.trim().startsWith('APP_USR')
     );
 
+    const flexMonthly = Number(settings.flex_plan_price) > 0 ? Number(settings.flex_plan_price) : 19.9;
+    const proMonthly = Number(settings.pro_plan_price) > 0 ? Number(settings.pro_plan_price) : 39.9;
+
+    const flexAnnualPricing = calculatePlanPricing('flex', 'annual', flexMonthly);
+    const proAnnualPricing = calculatePlanPricing('pro', 'annual', proMonthly);
+
     return NextResponse.json({
       ok: true,
       plans: {
         flex: {
           id: 'flex',
           title: 'Plano Flex VIP',
-          price: Number(settings.flex_plan_price) > 0 ? Number(settings.flex_plan_price) : 19.9,
+          price: flexMonthly,
+          annualPrice: flexAnnualPricing.finalTotalAmount,
+          annualOriginal: flexAnnualPricing.annualOriginalTotal,
+          annualSavings: flexAnnualPricing.discountAmount,
+          annualMonthlyEquiv: flexAnnualPricing.monthlyEquivalent,
+          discountPercent: flexAnnualPricing.discountPercent,
           description: 'Ferramentas essenciais de campo, Calculadora SH/Sub e Gestão de OS',
         },
         pro: {
           id: 'pro',
           title: 'Plano Amigo PRO',
-          price: Number(settings.pro_plan_price) > 0 ? Number(settings.pro_plan_price) : 39.9,
+          price: proMonthly,
+          annualPrice: proAnnualPricing.finalTotalAmount,
+          annualOriginal: proAnnualPricing.annualOriginalTotal,
+          annualSavings: proAnnualPricing.discountAmount,
+          annualMonthlyEquiv: proAnnualPricing.monthlyEquivalent,
+          discountPercent: proAnnualPricing.discountPercent,
           description: 'IA ilimitada, PMOC, Leitor OCR de Placas, QR Code e Automação WhatsApp',
         },
       },
@@ -54,11 +71,32 @@ export async function GET() {
       },
     });
   } catch (err) {
+    const defaultFlex = calculatePlanPricing('flex', 'annual', 19.9);
+    const defaultPro = calculatePlanPricing('pro', 'annual', 39.9);
+
     return NextResponse.json({
       ok: true,
       plans: {
-        flex: { id: 'flex', title: 'Plano Flex VIP', price: 19.9 },
-        pro: { id: 'pro', title: 'Plano Amigo PRO', price: 39.9 },
+        flex: {
+          id: 'flex',
+          title: 'Plano Flex VIP',
+          price: 19.9,
+          annualPrice: defaultFlex.finalTotalAmount,
+          annualOriginal: defaultFlex.annualOriginalTotal,
+          annualSavings: defaultFlex.discountAmount,
+          annualMonthlyEquiv: defaultFlex.monthlyEquivalent,
+          discountPercent: defaultFlex.discountPercent,
+        },
+        pro: {
+          id: 'pro',
+          title: 'Plano Amigo PRO',
+          price: 39.9,
+          annualPrice: defaultPro.finalTotalAmount,
+          annualOriginal: defaultPro.annualOriginalTotal,
+          annualSavings: defaultPro.discountAmount,
+          annualMonthlyEquiv: defaultPro.monthlyEquivalent,
+          discountPercent: defaultPro.discountPercent,
+        },
       },
       paymentConfig: {
         provider: 'mercadopago',
@@ -101,7 +139,8 @@ export async function POST(req: NextRequest) {
       planType = 'pro',
       paymentMethod = 'credit_card', // 'credit_card' | 'pix'
       installments = 1,
-      billingCycle = 'recurring', // 'recurring' (preapproval mensal) ou 'single_30d' (ciclo de 30 dias)
+      billingCycle = 'recurring', // 'recurring' | 'annual' | 'single_30d'
+      billingInterval = 'monthly', // 'monthly' | 'annual' | 'recurring'
       provider: requestedProvider,
       currency: requestedCurrency,
       returnUrl,
@@ -112,6 +151,7 @@ export async function POST(req: NextRequest) {
     const payerName = String(userName || 'Técnico Refrigerista').trim().slice(0, 100);
 
     const normalizedPlan = planType === 'flex' ? 'flex' : 'pro';
+    const isAnnual = billingInterval === 'annual' || billingCycle === 'annual';
 
     const safeOrigin = req.nextUrl.origin;
     const safeReturnSuccess = sanitizeReturnUrl(returnUrl, safeOrigin);
@@ -121,17 +161,50 @@ export async function POST(req: NextRequest) {
     const settings = await getAppSettings();
 
     const accessToken = settings.mercadopago_access_token;
-    const proPrice = Number(settings.pro_plan_price) > 0 ? Number(settings.pro_plan_price) : 39.9;
-    const flexPrice = Number(settings.flex_plan_price) > 0 ? Number(settings.flex_plan_price) : 19.9;
-    const planPrice = normalizedPlan === 'flex' ? flexPrice : proPrice;
+    const proMonthlyPrice = Number(settings.pro_plan_price) > 0 ? Number(settings.pro_plan_price) : 39.9;
+    const flexMonthlyPrice = Number(settings.flex_plan_price) > 0 ? Number(settings.flex_plan_price) : 19.9;
+    const monthlyBasePrice = normalizedPlan === 'flex' ? flexMonthlyPrice : proMonthlyPrice;
+
+    // LÓGICA NO CHECKOUT: Calcula e aplica o desconto de 5% no valor total quando 'anual' é selecionado
+    const pricing = calculatePlanPricing(
+      normalizedPlan,
+      isAnnual ? 'annual' : 'recurring',
+      monthlyBasePrice
+    );
+
+    const planPrice = pricing.finalTotalAmount;
+    const cycleDays = pricing.cycleDays;
+    const discountAmount = pricing.discountAmount;
+    const discountPercent = pricing.discountPercent;
+    const originalAmount = isAnnual ? pricing.annualOriginalTotal : monthlyBasePrice;
+    const monthlyEquiv = pricing.monthlyEquivalent;
+
+    let planTitle: string;
+    let planDescription: string;
+    let billingModel: string;
+
+    if (isAnnual) {
+      planTitle =
+        normalizedPlan === 'flex'
+          ? 'Plano Flex VIP - Plano Anual (5% OFF)'
+          : 'Plano Amigo Refrigerista PRO - Plano Anual (5% OFF)';
+      planDescription =
+        'Acesso Anual VIP por 12 meses (365 dias) com 5% de desconto no valor total - Ferramenta de Refrigeração e PMOC Pro';
+      billingModel = 'annual_plan';
+    } else {
+      planTitle =
+        normalizedPlan === 'flex'
+          ? 'Plano Flex VIP - Mensal Recorrente'
+          : 'Plano Amigo Refrigerista PRO - Mensal Recorrente';
+      planDescription =
+        'Acesso por 30 dias (renovável mensalmente) - Ferramenta de Refrigeração e PMOC Pro';
+      billingModel = 'recurring_subscription';
+    }
+
     const maxInstallments =
       Number(settings.credit_card_max_installments) > 0
         ? Math.min(12, Math.max(1, Number(settings.credit_card_max_installments)))
         : 12;
-    const planTitle =
-      normalizedPlan === 'flex'
-        ? 'Plano Flex VIP - Ciclo 30 Dias'
-        : 'Plano Amigo Refrigerista PRO - Ciclo 30 Dias';
 
     const externalReference = JSON.stringify({
       uid: payerUid,
@@ -139,13 +212,21 @@ export async function POST(req: NextRequest) {
       plan: normalizedPlan,
       paymentMethod,
       expectedAmount: planPrice,
-      cycleDays: 30,
+      cycleDays,
+      billingInterval: isAnnual ? 'annual' : 'monthly',
+      originalAmount,
+      discountAmount,
+      discountPercent,
     });
 
     const stripeCreds = resolveStripeCredentials(settings);
     const isRecurringEnabled = settings.credit_card_recurring_enabled ?? true;
-    const effectiveBillingCycle: 'recurring' | 'single_30d' =
-      billingCycle === 'recurring' && isRecurringEnabled ? 'recurring' : 'single_30d';
+    const effectiveBillingCycle: 'recurring' | 'single_30d' | 'annual' = isAnnual
+      ? 'annual'
+      : billingCycle === 'recurring' && isRecurringEnabled
+      ? 'recurring'
+      : 'single_30d';
+
     const activeProvider =
       requestedProvider ||
       (paymentMethod === 'credit_card' &&
@@ -157,22 +238,34 @@ export async function POST(req: NextRequest) {
 
     // Se o usuário escolheu PIX Direto explícito e não há gateway forçado, ou se pediu paymentMethod === 'pix' sem token MP
     if (paymentMethod === 'pix' && activeProvider === 'manual') {
+      const pixTxid = isAnnual
+        ? `ARP${normalizedPlan.toUpperCase()}ANUAL`
+        : `ARP${normalizedPlan.toUpperCase()}30D`;
       const pixCopyAndPaste = buildValidPixBrCode({
         pixKey: 'amigorefrigerista@gmail.com',
         merchantName: 'AMIGO REFRIGERISTA PRO',
         merchantCity: 'SAO PAULO',
         amount: planPrice,
-        txid: `ARP${normalizedPlan.toUpperCase()}30D`,
+        txid: pixTxid,
       });
 
       return NextResponse.json({
         success: true,
         init_point: null,
-        message: 'QR Code PIX gerado com sucesso para o ' + (normalizedPlan === 'flex' ? 'Plano Flex' : 'Plano PRO'),
+        message:
+          'QR Code PIX gerado com sucesso para o ' +
+          (normalizedPlan === 'flex' ? 'Plano Flex' : 'Plano PRO') +
+          (isAnnual ? ' (Plano Anual c/ 5% de desconto no valor total)' : ' (Plano Recorrente Mensal)'),
         amount: planPrice,
+        original_amount: originalAmount,
+        discount_applied: discountAmount,
+        discount_percent: discountPercent,
+        monthly_equivalent: monthlyEquiv,
+        cycle_days: cycleDays,
         plan: normalizedPlan,
         payment_method: 'pix',
-        billing_model: 'cycle_30_days',
+        billing_model: isAnnual ? 'annual_plan' : 'cycle_30_days',
+        billing_interval: isAnnual ? 'annual' : 'monthly',
         pix: {
           copy_paste: pixCopyAndPaste,
           qr_code_url: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
@@ -202,6 +295,7 @@ export async function POST(req: NextRequest) {
             amount: planPrice,
             currency: requestedCurrency || stripeCreds.currency || 'BRL',
             billingCycle: effectiveBillingCycle,
+            cycleDays,
             successUrl: `${safeReturnSuccess}${safeReturnSuccess.includes('?') ? '&' : '?'}session_id={CHECKOUT_SESSION_ID}`,
             cancelUrl: safeReturnFailure,
             externalReference,
@@ -215,6 +309,12 @@ export async function POST(req: NextRequest) {
             ...stripeResult,
             plan: normalizedPlan,
             payment_method: 'credit_card',
+            billing_interval: isAnnual ? 'annual' : 'monthly',
+            original_amount: originalAmount,
+            discount_applied: discountAmount,
+            discount_percent: discountPercent,
+            monthly_equivalent: monthlyEquiv,
+            cycle_days: cycleDays,
           });
         } else if (requestedProvider === 'stripe') {
           return NextResponse.json(
@@ -232,8 +332,8 @@ export async function POST(req: NextRequest) {
 
     if (accessToken && accessToken.startsWith('APP_USR')) {
       try {
-        // 1. Tenta criar Assinatura Recorrente Mensal Real no Mercado Pago (/preapproval) quando effectiveBillingCycle === 'recurring' e método for cartão
-        if (effectiveBillingCycle === 'recurring' && paymentMethod === 'credit_card') {
+        // 1. Tenta criar Assinatura Recorrente no Mercado Pago (/preapproval) quando effectiveBillingCycle === 'recurring' e método for cartão
+        if (effectiveBillingCycle === 'recurring' && paymentMethod === 'credit_card' && !isAnnual) {
           const preapprovalRes = await fetch('https://api.mercadopago.com/preapproval', {
             method: 'POST',
             headers: {
@@ -340,16 +440,22 @@ export async function POST(req: NextRequest) {
                 init_point: preapprovalData.init_point || preapprovalData.sandbox_init_point,
                 preapproval_id: preapprovalId,
                 amount: planPrice,
+                original_amount: originalAmount,
+                discount_applied: discountAmount,
+                discount_percent: discountPercent,
+                monthly_equivalent: monthlyEquiv,
+                cycle_days: cycleDays,
                 plan: normalizedPlan,
                 payment_method: 'credit_card',
                 billing_model: 'recurring_subscription',
+                billing_interval: 'monthly',
                 provider: 'mercadopago',
               });
             }
           }
         }
 
-        // 2. Checkout de Ciclo de 30 Dias no Mercado Pago (configurado para Cartão de Crédito ou PIX)
+        // 2. Checkout de Ciclo no Mercado Pago (configurado para Cartão de Crédito ou PIX)
         const paymentMethodsConfig =
           paymentMethod === 'credit_card'
             ? {
@@ -370,10 +476,9 @@ export async function POST(req: NextRequest) {
           body: JSON.stringify({
             items: [
               {
-                id: `plan-${normalizedPlan}-30d`,
+                id: `plan-${normalizedPlan}-${isAnnual ? 'annual' : '30d'}`,
                 title: planTitle,
-                description:
-                  'Acesso por 30 dias (renovável) - Ferramenta de Refrigeração e PMOC Pro',
+                description: planDescription,
                 quantity: 1,
                 currency_id: 'BRL',
                 unit_price: Number(planPrice),
@@ -402,9 +507,15 @@ export async function POST(req: NextRequest) {
             init_point: preferenceData.init_point || preferenceData.sandbox_init_point,
             preference_id: preferenceData.id,
             amount: planPrice,
+            original_amount: originalAmount,
+            discount_applied: discountAmount,
+            discount_percent: discountPercent,
+            monthly_equivalent: monthlyEquiv,
+            cycle_days: cycleDays,
             plan: normalizedPlan,
             payment_method: paymentMethod,
-            billing_model: 'cycle_30_days',
+            billing_model: isAnnual ? 'annual_plan' : 'cycle_30_days',
+            billing_interval: isAnnual ? 'annual' : 'monthly',
             provider: 'mercadopago',
           });
         }
@@ -413,13 +524,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 3. Fallback Pix Direto (Ciclo de 30 dias) com CRC16-CCITT dinâmico
+    // 3. Fallback Pix Direto com CRC16-CCITT dinâmico
+    const fallbackPixTxid = isAnnual
+      ? `ARP${normalizedPlan.toUpperCase()}ANUAL`
+      : `ARP${normalizedPlan.toUpperCase()}30D`;
     const pixCopyAndPaste = buildValidPixBrCode({
       pixKey: 'amigorefrigerista@gmail.com',
       merchantName: 'AMIGO REFRIGERISTA PRO',
       merchantCity: 'SAO PAULO',
       amount: planPrice,
-      txid: `ARP${normalizedPlan.toUpperCase()}30D`,
+      txid: fallbackPixTxid,
     });
 
     return NextResponse.json({
@@ -428,11 +542,19 @@ export async function POST(req: NextRequest) {
       message:
         paymentMethod === 'credit_card'
           ? 'Para checkout automático no cartão de crédito, configure as chaves do Mercado Pago ou Stripe em Configurações Master. Você também pode concluir via PIX abaixo:'
-          : 'Checkout de ciclo de 30 dias gerado com CRC16-CCITT dinâmico validado',
+          : isAnnual
+          ? 'Checkout de Plano Anual (12 meses com 5% de desconto no valor total) gerado com sucesso via PIX:'
+          : 'Checkout de ciclo mensal gerado com sucesso via PIX:',
       amount: planPrice,
+      original_amount: originalAmount,
+      discount_applied: discountAmount,
+      discount_percent: discountPercent,
+      monthly_equivalent: monthlyEquiv,
+      cycle_days: cycleDays,
       plan: normalizedPlan,
       payment_method: paymentMethod,
-      billing_model: 'cycle_30_days',
+      billing_model: isAnnual ? 'annual_plan' : 'cycle_30_days',
+      billing_interval: isAnnual ? 'annual' : 'monthly',
       pix: {
         copy_paste: pixCopyAndPaste,
         qr_code_url: `https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(

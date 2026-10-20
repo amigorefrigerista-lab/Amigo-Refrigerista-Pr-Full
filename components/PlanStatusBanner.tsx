@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Crown, Zap, Shield, Sparkles, ArrowUpRight, CheckCircle2, Gift } from 'lucide-react';
+import { Crown, Zap, Shield, Sparkles, ArrowUpRight, CheckCircle2, Gift, AlertCircle } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 
 interface PlanStatusBannerProps {
@@ -12,13 +12,31 @@ export function PlanStatusBanner({ onOpenUpgradeModal }: PlanStatusBannerProps) 
   const { profile, isAdmin } = useAuth();
 
   const rawPlan = isAdmin ? 'pro' : profile?.subscription?.plan || 'free';
+  const isPastDue = profile?.subscription?.status === 'past_due';
   const endDate = profile?.subscription?.endDate;
 
   const isPro = rawPlan === 'pro' || rawPlan === 'pro_paid' || rawPlan === 'pro_trial';
   const isFlex = rawPlan === 'flex';
   const isFree = !isPro && !isFlex;
 
-  const planConfig = isPro
+  const planConfig = isPastDue
+    ? {
+        badge: 'PAGAMENTO RECORRENTE PENDENTE',
+        title: 'Falha no Débito da Assinatura',
+        subtitle:
+          'Identificamos uma falha no débito do seu cartão. Atualize sua forma de pagamento para evitar a interrupção do acesso aos recursos PRO.',
+        buttonText: 'Regularizar Pagamento Agora (Mensal ou Anual 5% OFF)',
+        icon: AlertCircle,
+        containerClass:
+          'from-rose-950/90 via-slate-900 to-slate-900 border-rose-500/50 shadow-[0_10px_30px_rgba(244,63,94,0.18)]',
+        iconBoxClass:
+          'bg-rose-500/20 border-rose-500/40 text-rose-400 shadow-[0_0_20px_rgba(244,63,94,0.25)]',
+        badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse',
+        btnClass:
+          'bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-400 hover:to-amber-400 text-slate-950 font-black shadow-[0_0_25px_rgba(244,63,94,0.35)]',
+        highlights: ['Cobrança Recorrente Falhou', 'Opção Anual c/ 5% OFF', 'Regularize Já'],
+      }
+    : isPro
     ? {
         badge: rawPlan === 'pro_trial' ? 'PLANO PRO (TRIAL ATIVO)' : 'PLANO PRO ATIVO',
         title: 'Você está no Plano Amigo PRO',
@@ -87,15 +105,18 @@ export function PlanStatusBanner({ onOpenUpgradeModal }: PlanStatusBannerProps) 
             <PlanIcon size={14} />
           </div>
 
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <h2 className="text-xs font-black text-white leading-tight truncate">
               {planConfig.title}
             </h2>
-            <div className="flex flex-wrap items-center gap-1">
+            <div className="flex flex-wrap items-center gap-1.5 mt-0.5">
               <span
-                className={`text-[8px] font-black uppercase px-1 py-0 rounded border tracking-wider inline-flex items-center gap-0.5 ${planConfig.badgeClass}`}
+                className={`text-[8px] font-black uppercase px-1 py-0.5 rounded border tracking-wider inline-flex items-center gap-0.5 ${planConfig.badgeClass}`}
               >
                 {planConfig.badge}
+              </span>
+              <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                Opção Anual c/ 5% OFF
               </span>
             </div>
           </div>

@@ -15,10 +15,12 @@ import {
   AlertCircle,
   Lock,
   DollarSign,
-  Calendar,
   Sparkles,
   ShieldAlert,
-  Shield
+  Shield,
+  RefreshCw,
+  CalendarCheck,
+  BadgePercent
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -65,8 +67,9 @@ export default function AdminSettingsPage() {
     stripe_webhook_url: ''
   });
 
-  // Estados de Simulação / Escolha de Plano (Flex ou Pró) e Método de Pagamento na Integração
+  // Estados de Simulação / Escolha de Plano (Flex ou Pró), Intervalo (Recorrente vs Anual 5% OFF) e Método
   const [selectedPreviewPlan, setSelectedPreviewPlan] = useState<'flex' | 'pro'>('pro');
+  const [selectedPreviewInterval, setSelectedPreviewInterval] = useState<'recurring' | 'annual'>('annual');
   const [selectedPreviewMethod, setSelectedPreviewMethod] = useState<'credit_card' | 'pix'>('credit_card');
   const [testingCheckout, setTestingCheckout] = useState(false);
   const [checkoutPreviewResult, setCheckoutPreviewResult] = useState<{
@@ -246,7 +249,6 @@ export default function AdminSettingsPage() {
         stripe_connect_client_id: form.stripe_connect_client_id,
         stripe_connect_secret_key: form.stripe_connect_secret_key,
         stripe_webhook_url: form.stripe_webhook_url,
-        webhook_secret: form.webhook_secret,
       },
       'Configurações de Integração de Pagamentos e Cartão de Crédito'
     );

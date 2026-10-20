@@ -33,7 +33,9 @@ import {
   Zap,
   ArrowRight,
   Copy,
-  Loader2
+  Loader2,
+  CalendarCheck,
+  BadgePercent
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { SmtpConfig, SmtpEmailLog, testSmtpConnectionAction } from '@/app/actions/smtpActions';
@@ -146,8 +148,9 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
   // Estados de Dados da Empresa
   const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
 
-  // Estados de Integração de Pagamentos (Plano Flex ou PRO + Cartão de Crédito / PIX)
+  // Estados de Integração de Pagamentos (Plano Flex ou PRO + Recorrente / Anual 5% OFF + Cartão / PIX)
   const [selectedPlanOption, setSelectedPlanOption] = useState<'flex' | 'pro'>('pro');
+  const [billingIntervalOption, setBillingIntervalOption] = useState<'recurring' | 'annual'>('annual');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'credit_card' | 'pix'>('credit_card');
   const [enableCreditCardConfig, setEnableCreditCardConfig] = useState(true);
   const [enableRecurringCreditCard, setEnableRecurringCreditCard] = useState(true);
@@ -203,6 +206,22 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
       .catch(() => {});
   }, []);
 
+  const isSettingsAnnual = billingIntervalOption === 'annual';
+
+  const flexAnnualOriginal = Math.round(planPrices.flexPrice * 12 * 100) / 100;
+  const flexAnnualPrice = Math.round(flexAnnualOriginal * 0.95 * 100) / 100; // 5% de desconto no valor total
+  const flexAnnualSavings = Math.round((flexAnnualOriginal - flexAnnualPrice) * 100) / 100;
+  const flexAnnualMonthlyEquiv = Math.round((flexAnnualPrice / 12) * 100) / 100;
+
+  const proAnnualOriginal = Math.round(planPrices.proPrice * 12 * 100) / 100;
+  const proAnnualPrice = Math.round(proAnnualOriginal * 0.95 * 100) / 100; // 5% de desconto no valor total
+  const proAnnualSavings = Math.round((proAnnualOriginal - proAnnualPrice) * 100) / 100;
+  const proAnnualMonthlyEquiv = Math.round((proAnnualPrice / 12) * 100) / 100;
+
+  const currentFinalPrice = isSettingsAnnual
+    ? (selectedPlanOption === 'pro' ? proAnnualPrice : flexAnnualPrice)
+    : (selectedPlanOption === 'pro' ? planPrices.proPrice : planPrices.flexPrice);
+
   const handleTriggerPaymentCheckout = async () => {
     if (!user) {
       toast.error('Faça login para assinar ou alterar seu plano.');
@@ -233,11 +252,13 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
           planType: selectedPlanOption,
           plan: selectedPlanOption,
           paymentMethod: selectedPaymentMethod,
-          installments: maxInstallmentsConfig,
-          billingCycle:
-            selectedPaymentMethod === 'credit_card' && enableRecurringCreditCard
-              ? 'recurring'
-              : 'single_30d',
+          billingInterval: isSettingsAnnual ? 'annual' : 'monthly',
+          billingCycle: isSettingsAnnual
+            ? 'annual'
+            : selectedPaymentMethod === 'credit_card' && enableRecurringCreditCard
+            ? 'recurring'
+            : 'single_30d',
+          installments: isSettingsAnnual ? maxInstallmentsConfig : (selectedPaymentMethod === 'credit_card' ? maxInstallmentsConfig : 1),
           provider: selectedPaymentMethod === 'credit_card' ? selectedCardGateway : undefined,
           returnUrl: typeof window !== 'undefined' ? window.location.origin : undefined,
         }),
@@ -248,9 +269,12 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
         throw new Error(data.error || 'Erro ao iniciar pagamento.');
       }
 
+      const planTitle = selectedPlanOption === 'pro' ? 'Plano PRO' : 'Plano Flex';
+      const intervalTitle = isSettingsAnnual ? 'Anual (5% OFF)' : 'Recorrente';
+
       if (data.init_point) {
         toast.success(
-          `Redirecionando para pagamento seguro com Cartão de Crédito (${selectedCardGateway === 'stripe' ? 'Stripe' : 'Mercado Pago'} - Plano ${selectedPlanOption.toUpperCase()})...`
+          `Redirecionando para pagamento seguro (${planTitle} - ${intervalTitle})...`
         );
         window.location.href = data.init_point;
         return;
@@ -262,12 +286,10 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
           qr_code: copyPaste,
           qr_code_base64: data.qr_code_base64,
           qr_code_url: data.pix?.qr_code_url,
-          amount: Number(
-            data.amount || (selectedPlanOption === 'flex' ? planPrices.flexPrice : planPrices.proPrice)
-          ),
+          amount: Number(data.amount || currentFinalPrice),
           plan: selectedPlanOption,
         });
-        toast.success(`QR Code PIX gerado para o Plano ${selectedPlanOption.toUpperCase()}!`);
+        toast.success(`QR Code PIX gerado para o ${planTitle} (${intervalTitle})!`);
       }
     } catch (err: any) {
       toast.error(err.message || 'Não foi possível iniciar o checkout.');
@@ -987,6 +1009,59 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
             </span>
           </div>
 
+          {/* 3.0 Escolha da Modalidade: Recorrente vs Anual (5% OFF) */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <label className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                <BadgePercent size={14} className="text-emerald-400" />
+                <span>Modalidade de Faturamento</span>
+              </label>
+              <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
+                <Sparkles size={11} className="text-emerald-400 animate-pulse" />
+                5% de Desconto no Plano Anual
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 p-1.5 rounded-2xl bg-slate-950/90 border border-slate-800 gap-1.5 shadow-inner">
+              <button
+                type="button"
+                onClick={() => {
+                  setBillingIntervalOption('recurring');
+                  setPixCheckoutData(null);
+                }}
+                className={`py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer ${
+                  !isSettingsAnnual
+                    ? 'bg-amber-500 text-slate-950 shadow-md shadow-amber-500/25 ring-1 ring-amber-400/50'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <RefreshCw size={13} className={!isSettingsAnnual ? 'text-slate-950' : 'text-slate-400'} />
+                <span>Plano Recorrente</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setBillingIntervalOption('annual');
+                  setPixCheckoutData(null);
+                }}
+                className={`py-2.5 px-3 rounded-xl text-xs font-black transition flex items-center justify-center gap-1.5 cursor-pointer relative overflow-hidden ${
+                  isSettingsAnnual
+                    ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 shadow-md shadow-emerald-500/30 ring-2 ring-emerald-400/50'
+                    : 'text-slate-400 hover:text-white hover:bg-slate-900'
+                }`}
+              >
+                <CalendarCheck size={14} />
+                <span>Plano Anual</span>
+                <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
+                  isSettingsAnnual ? 'bg-slate-950 text-emerald-300 border border-emerald-400/30' : 'bg-emerald-500/20 text-emerald-300'
+                }`}>
+                  5% OFF
+                </span>
+              </button>
+            </div>
+          </div>
+
           {/* 3.1 Escolha do Plano: Flex vs PRO */}
           <div className="space-y-3">
             <div className="flex items-center justify-between">
@@ -996,7 +1071,9 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
               </label>
               <span className="text-[11px] font-bold text-slate-400">
                 Selecionado: <strong className={selectedPlanOption === 'pro' ? 'text-amber-400' : 'text-sky-400'}>
-                  {selectedPlanOption === 'pro' ? 'Plano PRO Ilimitado' : 'Plano Flex Intermediário'}
+                  {selectedPlanOption === 'pro'
+                    ? isSettingsAnnual ? 'Plano PRO Anual (5% OFF)' : 'Plano PRO Ilimitado'
+                    : isSettingsAnnual ? 'Plano Flex Anual (5% OFF)' : 'Plano Flex Intermediário'}
                 </strong>
               </span>
             </div>
@@ -1025,13 +1102,43 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                     </span>
                   )}
                 </div>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-xs text-slate-400 font-bold">R$</span>
-                  <span className="text-2xl font-black text-white">
-                    {planPrices.flexPrice.toFixed(2).replace('.', ',')}
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-semibold">/mês</span>
-                </div>
+
+                {isSettingsAnnual ? (
+                  <div>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xs text-slate-400 font-bold">R$</span>
+                      <span className="text-2xl font-black text-white font-mono">
+                        {flexAnnualPrice.toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-semibold">/ano</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[11px] text-slate-500 line-through">
+                        R$ {flexAnnualOriginal.toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        5% OFF (Poupa R$ {flexAnnualSavings.toFixed(2).replace('.', ',')})
+                      </span>
+                    </div>
+                    <p className="text-[10px] font-bold text-sky-300 mt-1">
+                      Equivale a R$ {flexAnnualMonthlyEquiv.toFixed(2).replace('.', ',')}/mês
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xs text-slate-400 font-bold">R$</span>
+                      <span className="text-2xl font-black text-white font-mono">
+                        {planPrices.flexPrice.toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-semibold">/mês</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Cobrança mensal recorrente sem fidelidade
+                    </p>
+                  </div>
+                )}
+
                 <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
                   Ideal para técnicos em expansão: até 25 clientes, 30 Ordens de Serviço/mês, Superaquecimento e Orçamentos PDF.
                 </p>
@@ -1055,16 +1162,46 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                     <Crown size={11} /> PLANO PRO
                   </span>
                   <span className="px-2 py-0.5 rounded bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-[9px] font-black uppercase">
-                    MAIS COMPLETO
+                    {isSettingsAnnual ? '12 MESES VIP' : 'MAIS COMPLETO'}
                   </span>
                 </div>
-                <div className="flex items-baseline gap-1 mt-1">
-                  <span className="text-xs text-slate-400 font-bold">R$</span>
-                  <span className="text-2xl font-black text-white">
-                    {planPrices.proPrice.toFixed(2).replace('.', ',')}
-                  </span>
-                  <span className="text-[11px] text-slate-400 font-semibold">/mês</span>
-                </div>
+
+                {isSettingsAnnual ? (
+                  <div>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xs text-slate-400 font-bold">R$</span>
+                      <span className="text-2xl font-black text-white font-mono">
+                        {proAnnualPrice.toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-semibold">/ano</span>
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      <span className="text-[11px] text-slate-500 line-through">
+                        R$ {proAnnualOriginal.toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                        5% OFF (Poupa R$ {proAnnualSavings.toFixed(2).replace('.', ',')})
+                      </span>
+                    </div>
+                    <p className="text-[10px] font-bold text-amber-300 mt-1">
+                      Equivale a R$ {proAnnualMonthlyEquiv.toFixed(2).replace('.', ',')}/mês
+                    </p>
+                  </div>
+                ) : (
+                  <div>
+                    <div className="flex items-baseline gap-1 mt-1">
+                      <span className="text-xs text-slate-400 font-bold">R$</span>
+                      <span className="text-2xl font-black text-white font-mono">
+                        {planPrices.proPrice.toFixed(2).replace('.', ',')}
+                      </span>
+                      <span className="text-[11px] text-slate-400 font-semibold">/mês</span>
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-0.5">
+                      Cobrança mensal recorrente sem fidelidade
+                    </p>
+                  </div>
+                )}
+
                 <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
                   Acesso 100% ilimitado: Clientes e OS sem limites, IA Diagnóstico, Leitor OCR de Placas, PMOC e Lembretes WhatsApp.
                 </p>
@@ -1227,16 +1364,38 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                       onChange={(e) => setMaxInstallmentsConfig(Number(e.target.value))}
                       className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-white font-bold focus:outline-none focus:border-indigo-500"
                     >
-                      <option value={1}>
-                        {enableRecurringCreditCard
-                          ? 'Assinatura Mensal Recorrente (1x)'
-                          : 'Ciclo Avulso 30 Dias (1x sem recorrência)'}
-                      </option>
-                      <option value={2}>Até 2x no cartão</option>
-                      <option value={3}>Até 3x no cartão</option>
-                      <option value={6}>Até 6x no cartão</option>
-                      <option value={10}>Até 10x no cartão</option>
-                      <option value={12}>Até 12x no cartão</option>
+                      {isSettingsAnnual ? (
+                        <>
+                          <option value={1}>
+                            1x de R$ {currentFinalPrice.toFixed(2).replace('.', ',')} à vista (5% OFF no total)
+                          </option>
+                          <option value={2}>
+                            2x de R$ {(currentFinalPrice / 2).toFixed(2).replace('.', ',')} sem acréscimo
+                          </option>
+                          <option value={3}>
+                            3x de R$ {(currentFinalPrice / 3).toFixed(2).replace('.', ',')} sem acréscimo
+                          </option>
+                          <option value={6}>
+                            6x de R$ {(currentFinalPrice / 6).toFixed(2).replace('.', ',')} sem acréscimo
+                          </option>
+                          <option value={12}>
+                            12x de R$ {(currentFinalPrice / 12).toFixed(2).replace('.', ',')} (Equivalente mensal c/ 5% OFF)
+                          </option>
+                        </>
+                      ) : (
+                        <>
+                          <option value={1}>
+                            {enableRecurringCreditCard
+                              ? 'Assinatura Mensal Recorrente (1x)'
+                              : 'Ciclo Avulso 30 Dias (1x sem recorrência)'}
+                          </option>
+                          <option value={2}>Até 2x no cartão</option>
+                          <option value={3}>Até 3x no cartão</option>
+                          <option value={6}>Até 6x no cartão</option>
+                          <option value={10}>Até 10x no cartão</option>
+                          <option value={12}>Até 12x no cartão</option>
+                        </>
+                      )}
                     </select>
                   </div>
                 </div>
@@ -1248,7 +1407,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
               <div className="p-4 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-3 text-center">
                 <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-2">
                   <span className="font-bold text-emerald-400">
-                    QR Code PIX — Plano {pixCheckoutData.plan.toUpperCase()}
+                    QR Code PIX — Plano {pixCheckoutData.plan.toUpperCase()} {isSettingsAnnual ? '(Anual 5% OFF)' : '(Recorrente)'}
                   </span>
                   <span className="font-mono font-black text-white">
                     R$ {pixCheckoutData.amount.toFixed(2).replace('.', ',')}
@@ -1293,6 +1452,74 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
               </div>
             )}
 
+            {/* Resumo da Cobrança e Desconto no Checkout */}
+            <div className={`p-3.5 rounded-2xl border space-y-2 text-xs relative overflow-hidden transition-all duration-300 ${
+              isSettingsAnnual
+                ? 'bg-emerald-950/20 border-emerald-500/40'
+                : 'bg-amber-950/20 border-amber-500/30'
+            }`}>
+              <div className="flex items-center justify-between">
+                <span className="font-bold text-slate-300 flex items-center gap-1.5">
+                  {isSettingsAnnual ? <CalendarCheck size={14} className="text-emerald-400" /> : <RefreshCw size={13} className="text-amber-400" />}
+                  <span>Resumo do Faturamento ({isSettingsAnnual ? 'Plano Anual' : 'Plano Recorrente'}):</span>
+                </span>
+                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full border ${
+                  isSettingsAnnual
+                    ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                    : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                }`}>
+                  {isSettingsAnnual ? '5% de Desconto no Total' : 'Mensal Sem Fidelidade'}
+                </span>
+              </div>
+
+              {isSettingsAnnual ? (
+                <div className="space-y-1.5 pt-1 text-[11px]">
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span>Subtotal 12 meses (12x de R$ {(selectedPlanOption === 'flex' ? planPrices.flexPrice : planPrices.proPrice).toFixed(2).replace('.', ',')}):</span>
+                    <span className="font-mono line-through">
+                      R$ {(selectedPlanOption === 'flex' ? flexAnnualOriginal : proAnnualOriginal).toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between text-emerald-400 font-bold">
+                    <span className="flex items-center gap-1">
+                      <BadgePercent size={13} />
+                      Desconto Especial Anual (5% sobre o total):
+                    </span>
+                    <span className="font-mono">
+                      - R$ {(selectedPlanOption === 'flex' ? flexAnnualSavings : proAnnualSavings).toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                  <div className="pt-2 border-t border-emerald-500/20 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-black text-white block uppercase">Total a Pagar (12 Meses):</span>
+                      <span className="text-[10px] font-bold text-emerald-300">
+                        Equivalente a apenas R$ {(selectedPlanOption === 'flex' ? flexAnnualMonthlyEquiv : proAnnualMonthlyEquiv).toFixed(2).replace('.', ',')}/mês
+                      </span>
+                    </div>
+                    <span className="text-lg font-black font-mono text-emerald-400">
+                      R$ {currentFinalPrice.toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                </div>
+              ) : (
+                <div className="space-y-1.5 pt-1 text-[11px]">
+                  <div className="flex items-center justify-between text-slate-400">
+                    <span>Período de Renovação:</span>
+                    <span className="text-slate-300">Ciclo a cada 30 dias</span>
+                  </div>
+                  <div className="pt-2 border-t border-amber-500/20 flex items-center justify-between">
+                    <div>
+                      <span className="text-xs font-black text-white block uppercase">Valor Mensal:</span>
+                      <span className="text-[10px] text-slate-400">Sem fidelidade ou carência</span>
+                    </div>
+                    <span className="text-lg font-black font-mono text-amber-400">
+                      R$ {currentFinalPrice.toFixed(2).replace('.', ',')}/mês
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+
             {/* Botão Principal de Pagamento */}
             <button
               type="button"
@@ -1313,11 +1540,9 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                 <>
                   <CreditCard size={16} />
                   <span>
-                    Pagar Plano {selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} no Cartão de Crédito (R${' '}
-                    {(selectedPlanOption === 'pro' ? planPrices.proPrice : planPrices.flexPrice)
-                      .toFixed(2)
-                      .replace('.', ',')}
-                    )
+                    {isSettingsAnnual
+                      ? `Pagar Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Anual (5% OFF) no Cartão — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}`
+                      : `Pagar Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Recorrente no Cartão — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}/mês`}
                   </span>
                   <ArrowRight size={15} />
                 </>
@@ -1325,11 +1550,9 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                 <>
                   <QrCode size={16} />
                   <span>
-                    Gerar PIX do Plano {selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} (R${' '}
-                    {(selectedPlanOption === 'pro' ? planPrices.proPrice : planPrices.flexPrice)
-                      .toFixed(2)
-                      .replace('.', ',')}
-                    )
+                    {isSettingsAnnual
+                      ? `Gerar PIX do Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Anual (5% OFF) — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}`
+                      : `Gerar PIX do Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Recorrente — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}`}
                   </span>
                   <ArrowRight size={15} />
                 </>
