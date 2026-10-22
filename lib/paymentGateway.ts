@@ -1,3 +1,4 @@
+import { ANNUAL_PRICE_FACTOR } from './pricing';
 import crypto from 'crypto';
 import { AppSettings } from '@/lib/getAppSettings';
 
@@ -65,7 +66,7 @@ export function calculatePlanPricing(
 
   if (isAnnual) {
     const discountPercent = 5;
-    const finalTotalAmount = Math.round(annualOriginalTotal * 0.95 * 100) / 100; // 5% de desconto no valor total
+    const finalTotalAmount = Math.round(annualOriginalTotal * ANNUAL_PRICE_FACTOR * 100) / 100; // 2 meses grátis (paga 10, usa 12)
     const discountAmount = Math.round((annualOriginalTotal - finalTotalAmount) * 100) / 100;
     const monthlyEquivalent = Math.round((finalTotalAmount / 12) * 100) / 100;
 
@@ -188,13 +189,13 @@ export async function createStripeCheckoutSession(
     'line_items[0][price_data][product_data][name]',
     params.planTitle ||
       (params.plan === 'flex'
-        ? (isAnnual ? 'Amigo Refrigerista Pro - Flex VIP (Plano Anual 5% OFF)' : 'Amigo Refrigerista Pro - Flex VIP Plan')
-        : (isAnnual ? 'Amigo Refrigerista Pro - PRO Plan (Plano Anual 5% OFF)' : 'Amigo Refrigerista Pro - PRO Plan'))
+        ? (isAnnual ? 'Amigo Refrigerista Pro - Flex VIP (Plano Anual 2 meses grátis)' : 'Amigo Refrigerista Pro - Flex VIP Plan')
+        : (isAnnual ? 'Amigo Refrigerista Pro - PRO Plan (Plano Anual 2 meses grátis)' : 'Amigo Refrigerista Pro - PRO Plan'))
   );
   formBody.append(
     'line_items[0][price_data][product_data][description]',
     isAnnual
-      ? 'Acesso Anual VIP HVAC-R & PMOC com 5% de desconto no valor total'
+      ? 'Acesso Anual VIP HVAC-R & PMOC com 2 meses grátis (paga 10, usa 12)'
       : 'International HVAC-R & PMOC Management Platform Subscription'
   );
 

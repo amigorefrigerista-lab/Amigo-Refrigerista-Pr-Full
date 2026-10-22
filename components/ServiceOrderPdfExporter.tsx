@@ -53,13 +53,15 @@ interface CompanyProfile {
   companyEmail: string;
 }
 
+// Perfil padrão NEUTRO: nunca imprimir CNPJ/registro/telefone de terceiros no documento do técnico.
+// O técnico preenche seus dados em "Dados da empresa" (salvos localmente).
 const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
-  companyName: 'Amigo Refrigerista Pro — Engenharia & Climatização',
-  companyDocument: 'CNPJ: 48.291.730/0001-92',
-  technicianName: 'Responsável Técnico Credenciado',
-  technicianRegistry: 'Registro CFT/CRT: 20268914-SP',
-  companyPhone: '(11) 99824-5100',
-  companyEmail: 'atendimento@amigorefrigerista.com.br',
+  companyName: 'Prestador de Serviços de Climatização',
+  companyDocument: '',
+  technicianName: 'Técnico Responsável',
+  technicianRegistry: '',
+  companyPhone: '',
+  companyEmail: '',
 };
 
 const COMPANY_STORAGE_KEY = 'amigo_os_pdf_company_profile_v1';
@@ -160,12 +162,12 @@ export const ServiceOrderPdfExporter = forwardRef<
       doc.setFontSize(8.5);
       doc.setTextColor(203, 213, 225);
       doc.text(
-        `${company.companyDocument}  |  ${company.technicianRegistry}`,
+        [company.companyDocument, company.technicianRegistry].filter(Boolean).join('  |  ') || ' ',
         margin + 5,
         cursorY + 14
       );
       doc.text(
-        `Responsável: ${company.technicianName}  |  Tel: ${company.companyPhone}  |  ${company.companyEmail}`,
+        [`Responsável: ${company.technicianName}`, company.companyPhone ? `Tel: ${company.companyPhone}` : '', company.companyEmail].filter(Boolean).join('  |  '),
         margin + 5,
         cursorY + 19.5
       );

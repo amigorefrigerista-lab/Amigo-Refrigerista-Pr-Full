@@ -67,7 +67,7 @@ export default function AdminSettingsPage() {
     stripe_webhook_url: ''
   });
 
-  // Estados de Simulação / Escolha de Plano (Flex ou Pró), Intervalo (Recorrente vs Anual 5% OFF) e Método
+  // Estados de Simulação / Escolha de Plano (Flex ou Pró), Intervalo (Recorrente vs Anual 2 meses grátis) e Método
   const [selectedPreviewPlan, setSelectedPreviewPlan] = useState<'flex' | 'pro'>('pro');
   const [selectedPreviewInterval, setSelectedPreviewInterval] = useState<'recurring' | 'annual'>('annual');
   const [selectedPreviewMethod, setSelectedPreviewMethod] = useState<'credit_card' | 'pix'>('credit_card');

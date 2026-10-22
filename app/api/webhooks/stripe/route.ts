@@ -424,7 +424,7 @@ export async function POST(req: NextRequest) {
       }
 
       // Notificação Automática via WhatsApp para o Técnico solicitando atualização do método de pagamento
-      let notificationResult = null;
+      let notificationResult: any = null;
       try {
         notificationResult = await notifyTechnicianPaymentFailed({
           targetUid: targetUid || undefined,

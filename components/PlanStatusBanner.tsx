@@ -25,7 +25,7 @@ export function PlanStatusBanner({ onOpenUpgradeModal }: PlanStatusBannerProps) 
         title: 'Falha no Débito da Assinatura',
         subtitle:
           'Identificamos uma falha no débito do seu cartão. Atualize sua forma de pagamento para evitar a interrupção do acesso aos recursos PRO.',
-        buttonText: 'Regularizar Pagamento Agora (Mensal ou Anual 5% OFF)',
+        buttonText: 'Regularizar Pagamento Agora (Mensal ou Anual 2 meses grátis)',
         icon: AlertCircle,
         containerClass:
           'from-rose-950/90 via-slate-900 to-slate-900 border-rose-500/50 shadow-[0_10px_30px_rgba(244,63,94,0.18)]',
@@ -34,7 +34,7 @@ export function PlanStatusBanner({ onOpenUpgradeModal }: PlanStatusBannerProps) 
         badgeClass: 'bg-rose-500/20 text-rose-300 border-rose-500/40 animate-pulse',
         btnClass:
           'bg-gradient-to-r from-rose-500 to-amber-500 hover:from-rose-400 hover:to-amber-400 text-slate-950 font-black shadow-[0_0_25px_rgba(244,63,94,0.35)]',
-        highlights: ['Cobrança Recorrente Falhou', 'Opção Anual c/ 5% OFF', 'Regularize Já'],
+        highlights: ['Cobrança Recorrente Falhou', 'Opção Anual c/ 2 meses grátis', 'Regularize Já'],
       }
     : isPro
     ? {
@@ -116,7 +116,7 @@ export function PlanStatusBanner({ onOpenUpgradeModal }: PlanStatusBannerProps) 
                 {planConfig.badge}
               </span>
               <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                Opção Anual c/ 5% OFF
+                Opção Anual c/ 2 meses grátis
               </span>
             </div>
           </div>

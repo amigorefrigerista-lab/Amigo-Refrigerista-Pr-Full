@@ -170,7 +170,7 @@ export async function notifyTechnicianPaymentFailed(
 
     if ((!phone || !name) && isSqlAvailable() && (targetUid || targetEmail)) {
       try {
-        let dbUser = null;
+        let dbUser: any = null;
         if (targetUid) {
           const rows = await db
             .select()

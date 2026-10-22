@@ -137,7 +137,28 @@ export function CustomerSignatureModal({
   const handleConfirm = () => {
     const canvas = canvasRef.current;
     if (!canvas || !hasContent) return;
-    const dataUrl = canvas.toDataURL('image/png');
+    // Reduz a assinatura para no máx. 480px de largura antes de salvar (a versão em alta densidade
+    // de tela gera dezenas de KB por OS e é enviada a cada abertura da lista). Mantém PNG p/ o PDF.
+    const MAX_W = 480;
+    let dataUrl: string;
+    if (canvas.width > MAX_W) {
+      const scale = MAX_W / canvas.width;
+      const small = document.createElement('canvas');
+      small.width = MAX_W;
+      small.height = Math.max(1, Math.round(canvas.height * scale));
+      const sctx = small.getContext('2d');
+      if (sctx) {
+        sctx.fillStyle = '#ffffff';
+        sctx.fillRect(0, 0, small.width, small.height);
+        sctx.imageSmoothingQuality = 'high';
+        sctx.drawImage(canvas, 0, 0, small.width, small.height);
+        dataUrl = small.toDataURL('image/png');
+      } else {
+        dataUrl = canvas.toDataURL('image/png');
+      }
+    } else {
+      dataUrl = canvas.toDataURL('image/png');
+    }
     onSave(dataUrl);
     onClose();
   };

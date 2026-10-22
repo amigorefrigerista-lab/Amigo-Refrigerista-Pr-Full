@@ -133,6 +133,8 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { useTheme } from '@/contexts/ThemeContext';
 import SettingsTab from '@/components/tabs/SettingsTab';
 import StockTab from '@/components/tabs/StockTab';
+import { SHOW_STOCK_MODULE } from '@/lib/pricing';
+import { GAS_LABELS, GasId, isGasId, psigFromTemp, psigToBar, satTempFromPsig } from '@/lib/refrigerants';
 import { sendOrderEmailAction, SmtpConfig } from '@/app/actions/smtpActions';
 import { diagnoseErrorCode } from '@/app/actions/diagnoseErrorCode';
 import { parseEquipmentPlate } from '@/app/actions/parsePlateImage';
@@ -231,7 +233,7 @@ export default function AmigoApp() {
       if (actionParam === 'update_payment') {
         setShowUpgradeModal(true);
         toast.warning(
-          'Atualização de Assinatura: Selecione seu plano (mensal ou anual c/ 5% OFF) e regularize o pagamento para restabelecer o acesso total.',
+          'Atualização de Assinatura: Selecione seu plano (mensal ou anual c/ 2 meses grátis) e regularize o pagamento para restabelecer o acesso total.',
           { duration: 10000, id: 'whatsapp-update-payment-toast' }
         );
       }
@@ -694,57 +696,46 @@ export default function AmigoApp() {
   // Clients State (Inicia 100% limpo para novos usuários)
   const [clients, setClients] = useState<any[]>([]);
 
-  // Superheating Calculation
+  // Superaquecimento / Sub-resfriamento — usa tabela PT real (lib/refrigerants.ts, gerada via CoolProp).
+  // Superaquecimento usa o ponto de ORVALHO (dew) na sucção; sub-resfriamento usa o ponto de BOLHA (bubble) na linha de líquido.
   const shCalculations = useMemo(() => {
-    // Tabela simplificada de Pressão (psig) vs Temp Saturação (°C)
-    // Valores aproximados para R410A e R22 para fins didáticos.
-    const ptTable: any = {
-      'R410A': {
-        suction: { 100: -8.8, 110: -6.7, 120: -4.7, 130: -2.8, 140: -1.0 },
-        liquid: { 300: 48.7, 320: 51.5, 340: 54.2, 360: 56.8, 380: 59.3 }
-      },
-      'R22': {
-        suction: { 50: -5.4, 60: -1.6, 70: 1.8, 80: 4.8, 90: 7.5 },
-        liquid: { 200: 33.3, 220: 37.0, 240: 40.4, 260: 43.6, 280: 46.5 }
-      }
-    };
+    const parse = (v: string) => (v.trim() === '' ? NaN : parseFloat(v));
+    const pSuction = parse(suctionPressure);
+    const tSuction = parse(suctionTemp);
+    const pLiquid = parse(liquidPressure);
+    const tLiquid = parse(liquidTemp);
 
-    const pSuction = parseFloat(suctionPressure) || 0;
-    const tSuction = parseFloat(suctionTemp) || 0;
-    const pLiquid = parseFloat(liquidPressure) || 0;
-    const tLiquid = parseFloat(liquidTemp) || 0;
+    const evapSat = satTempFromPsig(selectedGas, pSuction, 'dew');
+    const condSat = satTempFromPsig(selectedGas, pLiquid, 'bubble');
 
-    // Função de busca simples ou interpolação linear básica
-    const getSatTemp = (gas: string, type: 'suction' | 'liquid', pressure: number) => {
-      const data = ptTable[gas]?.[type] || {};
-      const pressures = Object.keys(data).map(Number).sort((a, b) => a - b);
-      
-      if (pressure <= pressures[0]) return data[pressures[0]];
-      if (pressure >= pressures[pressures.length - 1]) return data[pressures[pressures.length - 1]];
+    const superheat = evapSat !== null && Number.isFinite(tSuction) ? tSuction - evapSat : null;
+    const subcooling = condSat !== null && Number.isFinite(tLiquid) ? condSat - tLiquid : null;
 
-      for (let i = 0; i < pressures.length - 1; i++) {
-        if (pressure >= pressures[i] && pressure <= pressures[i+1]) {
-          const p1 = pressures[i]; const p2 = pressures[i+1];
-          const t1 = data[p1]; const t2 = data[p2];
-          return t1 + (t2 - t1) * (pressure - p1) / (p2 - p1);
-        }
-      }
-      return 0;
-    };
-
-    const evapSatTemp = getSatTemp(selectedGas, 'suction', pSuction);
-    const condSatTemp = getSatTemp(selectedGas, 'liquid', pLiquid);
-
-    const superheat = tSuction - evapSatTemp;
-    const subcooling = condSatTemp - tLiquid;
+    const fmt = (n: number | null) => (n === null ? '—' : n.toFixed(1));
+    const rangeMsg = (p: number, sat: number | null) =>
+      Number.isFinite(p) && sat === null ? 'Pressão fora da faixa da tabela' : 'Informe pressão e temperatura';
 
     return {
-      evapSatTemp: evapSatTemp.toFixed(1),
-      condSatTemp: condSatTemp.toFixed(1),
-      superheat: superheat.toFixed(1),
-      subcooling: subcooling.toFixed(1),
-      shStatus: superheat >= 4 && superheat <= 8 ? 'Ideal (4°C a 8°C)' : superheat < 4 ? 'Baixo' : 'Alto',
-      scStatus: subcooling >= 5 && subcooling <= 10 ? 'Ideal (5°C a 10°C)' : subcooling < 5 ? 'Baixo' : 'Alto'
+      evapSatTemp: fmt(evapSat),
+      condSatTemp: fmt(condSat),
+      superheat: fmt(superheat),
+      subcooling: fmt(subcooling),
+      shStatus:
+        superheat === null
+          ? rangeMsg(pSuction, evapSat)
+          : superheat >= 4 && superheat <= 8
+            ? 'Ideal (4°C a 8°C)'
+            : superheat < 4
+              ? 'Baixo'
+              : 'Alto',
+      scStatus:
+        subcooling === null
+          ? rangeMsg(pLiquid, condSat)
+          : subcooling >= 5 && subcooling <= 10
+            ? 'Ideal (5°C a 10°C)'
+            : subcooling < 5
+              ? 'Baixo'
+              : 'Alto',
     };
   }, [suctionPressure, suctionTemp, liquidPressure, liquidTemp, selectedGas]);
 
@@ -1647,6 +1638,7 @@ export default function AmigoApp() {
             Dashboard
           </button>
 
+          {SHOW_STOCK_MODULE && (
           <button
             onClick={() => setActiveTab('estoque')}
             className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition text-center truncate cursor-pointer ${ activeTab === 'estoque' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
@@ -1654,13 +1646,14 @@ export default function AmigoApp() {
             <span className="sm:hidden">Estoque</span>
             <span className="hidden sm:inline">Estoque do Técnico</span>
           </button>
+          )}
 
           <button
             onClick={() => setActiveTab('precos')}
             className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition text-center truncate cursor-pointer ${ activeTab === 'precos' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
           >
             <span className="sm:hidden">Orçamentos</span>
-            <span className="hidden sm:inline">Tabela de Preços / Orçamentos</span>
+            <span className="hidden sm:inline">Orçamentos</span>
           </button>
         </div>
 
@@ -2152,10 +2145,7 @@ export default function AmigoApp() {
                         onChange={(e) => setSelectedGas(e.target.value)}
                         className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white"
                       >
-                        <option value="R410A">R410A</option>
-                        <option value="R32">R32</option>
-                        <option value="R22">R22</option>
-                        <option value="R134a">R134a</option>
+                        {(Object.keys(GAS_LABELS) as GasId[]).map((g) => (<option key={g} value={g}>{GAS_LABELS[g]}</option>))}
                       </select>
                     </div>
 
@@ -2303,10 +2293,7 @@ export default function AmigoApp() {
                       onChange={(e) => setSelectedGas(e.target.value)}
                       className="bg-slate-950 border border-slate-800 rounded-xl px-3 py-1.5 text-xs text-sky-300 font-bold focus:outline-none focus:border-sky-500"
                     >
-                      <option value="R410A">R-410A</option>
-                      <option value="R32">R-32</option>
-                      <option value="R22">R-22</option>
-                      <option value="R134a">R-134a</option>
+                      {(Object.keys(GAS_LABELS) as GasId[]).map((g) => (<option key={g} value={g}>{GAS_LABELS[g]}</option>))}
                     </select>
                   </div>
                 </div>
@@ -2316,58 +2303,47 @@ export default function AmigoApp() {
                   <table className="w-full text-left text-xs">
                     <thead className="bg-slate-950 text-slate-400 font-mono text-[11px] uppercase border-b border-slate-800">
                       <tr>
-                        <th className="p-3">Pressão (PSIG)</th>
-                        <th className="p-3">Pressão (Bar)</th>
-                        <th className="p-3">Temp. Saturação (°C)</th>
-                        <th className="p-3">Aplicação Típica</th>
+                        <th className="p-3">Temp. Saturação</th>
+                        <th className="p-3">Pressão (psig)</th>
+                        <th className="p-3">Pressão (bar manom.)</th>
+                        <th className="p-3">Lado</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-800/60 font-mono">
                       {(() => {
-                        const ptData: Record<string, Array<{ psig: number; bar: number; temp: string; note: string }>> = {
-                          R410A: [
-                            { psig: 102, bar: 7.0, temp: '-1.0 °C', note: 'Evaporação Baixa (Risco de Gelo)' },
-                            { psig: 118, bar: 8.1, temp: '3.3 °C', note: 'Evaporação Ideal Ar Condicionado' },
-                            { psig: 130, bar: 9.0, temp: '6.7 °C', note: 'Evaporação Alta / Carga Térmica Alta' },
-                            { psig: 145, bar: 10.0, temp: '10.5 °C', note: 'Retorno Quente / Sobrecarga' },
-                            { psig: 335, bar: 23.1, temp: '40.0 °C', note: 'Condensação Típica (Ambiente 30°C)' },
-                            { psig: 390, bar: 26.9, temp: '48.0 °C', note: 'Condensação Alta / Condensador Sujo' },
-                          ],
-                          R32: [
-                            { psig: 105, bar: 7.2, temp: '-1.8 °C', note: 'Evaporação Baixa' },
-                            { psig: 125, bar: 8.6, temp: '4.2 °C', note: 'Evaporação Ideal Ar Condicionado' },
-                            { psig: 140, bar: 9.6, temp: '8.0 °C', note: 'Evaporação Alta' },
-                            { psig: 340, bar: 23.4, temp: '41.0 °C', note: 'Condensação Normal (Ambiente 30°C)' },
-                            { psig: 400, bar: 27.6, temp: '49.0 °C', note: 'Condensação Elevada' },
-                          ],
-                          R22: [
-                            { psig: 58, bar: 4.0, temp: '0.8 °C', note: 'Evaporação Baixa (Gelo no Tubo)' },
-                            { psig: 68, bar: 4.7, temp: '4.5 °C', note: 'Evaporação Ideal Ar Condicionado' },
-                            { psig: 75, bar: 5.2, temp: '7.2 °C', note: 'Evaporação Alta' },
-                            { psig: 225, bar: 15.5, temp: '43.0 °C', note: 'Condensação Típica' },
-                            { psig: 260, bar: 17.9, temp: '50.0 °C', note: 'Condensação Alta' },
-                          ],
-                          R134a: [
-                            { psig: 18, bar: 1.2, temp: '-5.0 °C', note: 'Congelador / Baixa' },
-                            { psig: 28, bar: 1.9, temp: '2.0 °C', note: 'Refrigerador Comercial Médio' },
-                            { psig: 35, bar: 2.4, temp: '6.5 °C', note: 'Climatizador Automotivo' },
-                            { psig: 135, bar: 9.3, temp: '41.0 °C', note: 'Condensação Normal' },
-                          ],
-                        };
-
-                        const rows = ptData[selectedGas] || ptData['R410A'];
-                        return rows.map((r, idx) => (
-                          <tr key={idx} className="hover:bg-slate-800/40 transition">
-                            <td className="p-3 text-sky-400 font-bold">{r.psig} psig</td>
-                            <td className="p-3 text-slate-300">{r.bar.toFixed(1)} bar</td>
-                            <td className="p-3 text-white font-bold">{r.temp}</td>
-                            <td className="p-3 text-slate-400 font-sans text-[11px]">{r.note}</td>
-                          </tr>
-                        ));
+                        const gas = isGasId(selectedGas) ? selectedGas : 'R410A';
+                        const temps = [-10, -5, 0, 2, 4, 6, 8, 10, 15, 30, 35, 40, 45, 50, 55];
+                        return temps.map((t) => {
+                          const dew = psigFromTemp(gas, t, 'dew');
+                          const bub = psigFromTemp(gas, t, 'bubble');
+                          if (dew === null || bub === null) return null;
+                          const glide = Math.abs(dew - bub) >= 1;
+                          const note = t <= 15 ? 'Evaporação (lado baixa)' : 'Condensação (lado alta)';
+                          return (
+                            <tr key={t} className="hover:bg-slate-800/40 transition">
+                              <td className="p-3 text-white font-bold">{t} °C</td>
+                              <td className="p-3 text-sky-400 font-bold">
+                                {glide ? `${bub.toFixed(0)} / ${dew.toFixed(0)}` : dew.toFixed(0)} psig
+                              </td>
+                              <td className="p-3 text-slate-300">
+                                {glide
+                                  ? `${psigToBar(bub).toFixed(1)} / ${psigToBar(dew).toFixed(1)}`
+                                  : psigToBar(dew).toFixed(1)}{' '}
+                                bar
+                              </td>
+                              <td className="p-3 text-slate-400 font-sans text-[11px]">{note}</td>
+                            </tr>
+                          );
+                        });
                       })()}
                     </tbody>
                   </table>
                 </div>
+                <p className="text-[11px] text-slate-500 leading-relaxed">
+                  Valores em pressão manométrica ao nível do mar, calculados por equação de estado. Em R-404A e R-407C
+                  (misturas com glide) a coluna mostra bolha / orvalho: use orvalho para superaquecimento e bolha para
+                  sub-resfriamento. Em altitude elevada a leitura do manifold muda; confirme com o manual do fabricante.
+                </p>
               </div>
             )}
           </div>

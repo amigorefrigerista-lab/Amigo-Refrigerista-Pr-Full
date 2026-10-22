@@ -676,7 +676,7 @@ export async function POST(req: NextRequest) {
     }
 
     // Notificação Automática via WhatsApp para o Técnico quando o pagamento falhar
-    let notificationResult = null;
+    let notificationResult: any = null;
     const isPaymentRejectedOrFailed =
       status === 'rejected' ||
       status === 'cancelled' ||

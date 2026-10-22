@@ -1,0 +1,1152 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { 
+  ArrowLeft, 
+  MessageSquare, 
+  Save, 
+  CheckCircle2, 
+  RefreshCw, 
+  Smartphone, 
+  Zap, 
+  Key, 
+  Globe, 
+  Send, 
+  Sparkles, 
+  Copy, 
+  HelpCircle,
+  Loader2,
+  Check,
+  Power,
+  ShieldCheck,
+  Webhook,
+  BellRing,
+  AlertTriangle,
+  ExternalLink
+} from 'lucide-react';
+import { toast, Toaster } from 'sonner';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
+import { useAuth } from '@/hooks/useAuth';
+
+export interface WhatsAppSettingsForm {
+  api_provider: string;
+  api_url: string;
+  api_key: string;
+  instance_name: string;
+  phone_number: string;
+  is_active: boolean;
+  webhook_url: string;
+  webhook_secret: string;
+  listen_confirmations: boolean;
+  webhook_events: string[];
+  template_orcamento: string;
+  template_agendamento: string;
+  template_lembrete: string;
+  template_pos_venda: string;
+  smtp_host: string;
+  smtp_port: string;
+  smtp_user: string;
+  smtp_pass: string;
+  smtp_from: string;
+}
+
+const DEFAULT_FORM: WhatsAppSettingsForm = {
+  api_provider: 'evolution_api',
+  api_url: '',
+  api_key: '',
+  instance_name: '',
+  phone_number: '',
+  is_active: true,
+  webhook_url: '',
+  webhook_secret: 'wh_secret_' + Math.random().toString(36).substring(2, 9),
+  listen_confirmations: true,
+  webhook_events: ['CONFIRMACOES_OS', 'ORCAMENTOS', 'REMARCAMENTOS'],
+  template_orcamento: 'Olá {{nome}}! Segue o seu orçamento para {{servico}} no valor de R$ {{valor}}. Acesse a proposta completa no link!',
+  template_agendamento: 'Olá {{nome}}! Confirmamos o agendamento do serviço de {{servico}} para a data {{data}}. Qualquer dúvida, fale conosco!',
+  template_lembrete: 'Olá {{nome}}! Passando para lembrar que está no prazo para a manutenção preventiva de {{servico}}. Vamos agendar para {{data}}?',
+  template_pos_venda: 'Olá {{nome}}! Como está o funcionamento do seu equipamento após o serviço de {{servico}}? Agradecemos a preferência!',
+  smtp_host: '',
+  smtp_port: '587',
+  smtp_user: '',
+  smtp_pass: '',
+  smtp_from: ''
+};
+
+export default function AdminWhatsAppConfigPage() {
+  const { user } = useAuth();
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [testing, setTesting] = useState(false);
+  const [testResult, setTestResult] = useState<{
+    success: boolean;
+    status: string;
+    instance?: string;
+    message: string;
+    phone?: string;
+    provider?: string;
+    timestamp?: string;
+  } | null>(null);
+  const [message, setMessage] = useState<string>('');
+
+  const [form, setForm] = useState<WhatsAppSettingsForm>(DEFAULT_FORM);
+
+  useEffect(() => {
+    async function loadSettings() {
+      setLoading(true);
+
+      // 1. Tenta carregar do Supabase
+      try {
+        if (isSupabaseConfigured) {
+          const { data: { user: sbUser } } = await supabase.auth.getUser();
+          if (sbUser) {
+            const { data, error } = await supabase
+              .from('whatsapp_settings')
+              .select('*')
+              .eq('user_id', sbUser.id)
+              .single();
+
+            if (data && !error) {
+              const originUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/whatsapp` : '';
+              setForm({
+                api_provider: data.api_provider || 'evolution_api',
+                api_url: data.api_url || '',
+                api_key: data.api_key || '',
+                instance_name: data.instance_name || '',
+                phone_number: data.phone_number || '',
+                is_active: data.is_active ?? true,
+                webhook_url: data.webhook_url || originUrl,
+                webhook_secret: data.webhook_secret || DEFAULT_FORM.webhook_secret,
+                listen_confirmations: data.listen_confirmations ?? true,
+                webhook_events: Array.isArray(data.webhook_events) ? data.webhook_events : DEFAULT_FORM.webhook_events,
+                template_orcamento: data.template_orcamento || DEFAULT_FORM.template_orcamento,
+                template_agendamento: data.template_agendamento || DEFAULT_FORM.template_agendamento,
+                template_lembrete: data.template_lembrete || DEFAULT_FORM.template_lembrete,
+                template_pos_venda: data.template_pos_venda || DEFAULT_FORM.template_pos_venda,
+                smtp_host: data.smtp_host || '',
+                smtp_port: data.smtp_port || '587',
+                smtp_user: data.smtp_user || '',
+                smtp_pass: data.smtp_pass || '',
+                smtp_from: data.smtp_from || '',
+              });
+              setLoading(false);
+              return;
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Aviso ao carregar do Supabase:', err);
+      }
+
+      // 2. Fallback localStorage
+      try {
+        const saved = localStorage.getItem('amigo_whatsapp_settings');
+        if (saved) {
+          setForm({ ...DEFAULT_FORM, ...JSON.parse(saved) });
+        }
+      } catch (e) {
+        console.warn('Erro ao carregar do localStorage:', e);
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadSettings();
+  }, []);
+
+  const handleSave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setSaving(true);
+    setMessage('');
+
+    // Salva localmente
+    try {
+      localStorage.setItem('amigo_whatsapp_settings', JSON.stringify(form));
+    } catch (e) {
+      console.warn('Erro ao salvar localmente:', e);
+    }
+
+    // Tenta salvar no Supabase
+    try {
+      if (isSupabaseConfigured) {
+        const { data: { user: sbUser } } = await supabase.auth.getUser();
+        if (sbUser) {
+          const { error } = await supabase
+            .from('whatsapp_settings')
+            .upsert({
+              user_id: sbUser.id,
+              ...form,
+              updated_at: new Date().toISOString()
+            }, { onConflict: 'user_id' });
+
+          if (error) {
+            setMessage('Erro ao salvar as configurações: ' + error.message);
+            toast.error('Erro ao salvar no Supabase: ' + error.message);
+            setSaving(false);
+            return;
+          }
+        }
+      }
+
+      setMessage('Configurações salvas com sucesso!');
+      toast.success('Configurações salvas com sucesso!');
+    } catch (err: any) {
+      console.error('Erro na gravação:', err);
+      setMessage('Erro ao salvar as configurações: ' + err.message);
+      toast.error('Falha ao salvar configurações.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleTestConnection = async () => {
+    setTesting(true);
+    setTestResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/test-connection', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(form)
+      });
+      const data = await res.json();
+      setTestResult(data);
+
+      if (data.success) {
+        toast.success(`Teste concluído! Instância '${data.instance}' está ${data.status}`);
+      } else {
+        toast.error('Erro no teste de conexão: ' + data.message);
+      }
+    } catch (err: any) {
+      console.error('Erro ao testar conexão:', err);
+      toast.error('Falha ao conectar com o serviço de teste.');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  const [testingWebhook, setTestingWebhook] = useState(false);
+  const [webhookResult, setWebhookResult] = useState<{
+    success: boolean;
+    sender?: string;
+    text_received?: string;
+    confirmation_status?: string;
+    message?: string;
+    error?: string;
+  } | null>(null);
+
+  const [testingSmtp, setTestingSmtp] = useState(false);
+  const [smtpResult, setSmtpResult] = useState<{ ok: boolean; message?: string; error?: string } | null>(null);
+
+  const handleTestSmtp = async () => {
+    setTestingSmtp(true);
+    setSmtpResult(null);
+    try {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+        if (sessionToken) headers['Authorization'] = `Bearer ${sessionToken}`;
+        if (user?.id) headers['x-amigo-uid'] = user.id;
+        if (user?.email) headers['x-amigo-email'] = user.email;
+      }
+
+      const res = await fetch('/api/admin/smtp/test', {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          smtp_host: form.smtp_host,
+          smtp_port: form.smtp_port,
+          smtp_user: form.smtp_user,
+          smtp_pass: form.smtp_pass,
+          smtp_from: form.smtp_from,
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      setSmtpResult(data);
+
+      if (res.ok && data.ok) {
+        toast.success(data.message || 'E-mail de teste enviado com sucesso via SMTP!');
+      } else {
+        toast.error(data.error || 'Falha no teste SMTP.');
+      }
+    } catch (err: any) {
+      console.error('Erro no teste SMTP:', err);
+      toast.error('Erro de conexão ao testar SMTP.');
+    } finally {
+      setTestingSmtp(false);
+    }
+  };
+
+  const handleTestWebhook = async () => {
+    setTestingWebhook(true);
+    setWebhookResult(null);
+    try {
+      const res = await fetch('/api/webhooks/whatsapp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          phone: form.phone_number || '5511999999999',
+          message: 'SIM, CONFIRMO O AGENDAMENTO DA MANUTENÇÃO',
+          event: 'MESSAGES_UPSERT',
+          instance: form.instance_name || 'Instancia_AmigoRefrigerista'
+        })
+      });
+      const data = await res.json();
+      setWebhookResult(data);
+
+      if (data.success) {
+        toast.success(`Webhook testado! Resposta do cliente (${data.confirmation_status}) recebida com sucesso.`);
+      } else {
+        toast.error('Erro no teste de webhook: ' + (data.error || 'Falha de envio'));
+      }
+    } catch (err: any) {
+      console.error('Erro ao testar webhook:', err);
+      toast.error('Erro ao disparar teste de webhook.');
+    } finally {
+      setTestingWebhook(false);
+    }
+  };
+
+  const insertVariable = (fieldKey: keyof WhatsAppSettingsForm, variable: string) => {
+    setForm((prev) => ({
+      ...prev,
+      [fieldKey]: (prev[fieldKey] as string) + ' ' + variable
+    }));
+  };
+
+  // Estados para Notificação Automática de Falha de Pagamento do Técnico
+  const [testPayPhone, setTestPayPhone] = useState<string>('');
+  const [testPayName, setTestPayName] = useState<string>('Técnico Amigo');
+  const [testPayReason, setTestPayReason] = useState<string>('cc_rejected_insufficient_amount');
+  const [testPayPlan, setTestPayPlan] = useState<'pro' | 'flex'>('pro');
+  const [testingPayFailure, setTestingPayFailure] = useState<boolean>(false);
+  const [payFailureResult, setPayFailureResult] = useState<any>(null);
+  const [payFailureLogs, setPayFailureLogs] = useState<any[]>([]);
+  const [loadingPayLogs, setLoadingPayLogs] = useState<boolean>(false);
+
+  const loadPaymentFailureLogs = async () => {
+    try {
+      setLoadingPayLogs(true);
+      const res = await fetch('/api/whatsapp/payment-failure');
+      const data = await res.json();
+      if (data.success && Array.isArray(data.logs)) {
+        setPayFailureLogs(data.logs);
+      }
+    } catch (err) {
+      console.warn('Erro ao carregar logs de falha de pagamento:', err);
+    } finally {
+      setLoadingPayLogs(false);
+    }
+  };
+
+  useEffect(() => {
+    loadPaymentFailureLogs();
+  }, []);
+
+  const handleTestPaymentFailureNotification = async () => {
+    setTestingPayFailure(true);
+    setPayFailureResult(null);
+    try {
+      const res = await fetch('/api/whatsapp/payment-failure', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          testDirectNumber: testPayPhone || form.phone_number || undefined,
+          technicianName: testPayName || 'Técnico Especialista',
+          failureReason: testPayReason,
+          plan: testPayPlan,
+          amount: testPayPlan === 'flex' ? 19.9 : 39.9,
+          provider: 'mercadopago',
+        }),
+      });
+      const data = await res.json();
+      setPayFailureResult(data);
+
+      if (data.success) {
+        toast.success(
+          data.result?.providerDispatched
+            ? `Notificação enviada com sucesso via WhatsApp para +${data.result.phone}!`
+            : 'Notificação gerada com sucesso! Link wa.me pronto para envio.'
+        );
+        loadPaymentFailureLogs();
+      } else {
+        toast.error('Erro ao processar notificação: ' + (data.error || 'Falha'));
+      }
+    } catch (err: any) {
+      console.error('Erro ao testar notificação de falha:', err);
+      toast.error('Falha de conexão com a API de notificação.');
+    } finally {
+      setTestingPayFailure(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="min-h-screen bg-[#070e1c] flex items-center justify-center text-white">
+        <Loader2 className="w-8 h-8 animate-spin text-green-500" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-[#070e1c] text-slate-100 p-4 sm:p-8 space-y-6">
+      <Toaster position="top-center" richColors theme="dark" />
+
+      {/* Header */}
+      <div className="max-w-4xl mx-auto flex items-center justify-between border-b border-slate-800 pb-4">
+        <div className="flex items-center gap-3">
+          <Link href="/admin" className="p-2.5 rounded-2xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">
+            <ArrowLeft size={18} />
+          </Link>
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-green-500/20 text-green-300 border border-green-500/30">
+                PAINEL ADMIN WHATSAPP
+              </span>
+            </div>
+            <h1 className="text-xl font-black text-white mt-0.5">Configuração WhatsApp & Disparo Automático</h1>
+          </div>
+        </div>
+
+        <Link
+          href="/admin"
+          className="px-3.5 py-2 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold text-xs transition flex items-center gap-1.5"
+        >
+          <ShieldCheck size={16} />
+          <span>Voltar ao Admin</span>
+        </Link>
+      </div>
+
+      <div className="max-w-4xl mx-auto space-y-6">
+        {/* Banner de Mensagem de Retorno */}
+        {message && (
+          <div className={`p-4 rounded-2xl border text-xs font-bold flex items-center justify-between ${
+            message.includes('sucesso') 
+              ? 'bg-green-500/15 border-green-500/40 text-green-300' 
+              : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+          }`}>
+            <span>{message}</span>
+            <CheckCircle2 size={18} />
+          </div>
+        )}
+
+        {/* Guia de Variáveis Dinâmicas */}
+        <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-3 shadow-xl">
+          <div className="flex items-center gap-2 text-green-400">
+            <Sparkles size={18} />
+            <h2 className="text-sm font-black text-white">Modelos de Mensagem para Clientes</h2>
+          </div>
+          <p className="text-xs text-slate-400 leading-relaxed">
+            Use variáveis como <code className="text-green-300 font-mono font-bold bg-green-950/80 px-1.5 py-0.5 rounded border border-green-500/30">{'{{nome}}'}</code>, <code className="text-green-300 font-mono font-bold bg-green-950/80 px-1.5 py-0.5 rounded border border-green-500/30">{'{{servico}}'}</code>, <code className="text-green-300 font-mono font-bold bg-green-950/80 px-1.5 py-0.5 rounded border border-green-500/30">{'{{valor}}'}</code> e <code className="text-green-300 font-mono font-bold bg-green-950/80 px-1.5 py-0.5 rounded border border-green-500/30">{'{{data}}'}</code> que serão substituídas automaticamente pelo sistema no momento do envio.
+          </p>
+
+          <div className="flex flex-wrap gap-2 pt-1">
+            {['{{nome}}', '{{servico}}', '{{valor}}', '{{data}}'].map((v) => (
+              <span key={v} className="px-2.5 py-1 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-green-300 font-bold">
+                {v}
+              </span>
+            ))}
+          </div>
+        </div>
+
+        {/* Formulário Principal */}
+        <form onSubmit={handleSave} className="space-y-6">
+          {/* Configurações da API de Envio */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-4 shadow-xl">
+            <h3 className="text-xs font-bold text-slate-300 uppercase tracking-wider flex items-center gap-2">
+              <Zap size={16} className="text-green-400" />
+              <span>Dados do Gateway & Provedor WhatsApp</span>
+            </h3>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Provedor de API:</label>
+                <select
+                  value={form.api_provider}
+                  onChange={(e) => setForm({ ...form, api_provider: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-green-500"
+                >
+                  <option value="evolution_api">Evolution API (Recomendado)</option>
+                  <option value="z_api">Z-API WhatsApp</option>
+                  <option value="baileys">WPPConnect / Baileys Node</option>
+                  <option value="meta_cloud">WhatsApp Cloud API (Meta)</option>
+                  <option value="web_whatsapp">Link Direto (WhatsApp Web)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Nome da Instância:</label>
+                <input
+                  type="text"
+                  placeholder="Ex: Instancia_01"
+                  value={form.instance_name || ''}
+                  onChange={(e) => setForm({ ...form, instance_name: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-green-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">URL Base da API (Endpoint):</label>
+                <input
+                  type="url"
+                  placeholder="https://api.seu-servidor.com"
+                  value={form.api_url || ''}
+                  onChange={(e) => setForm({ ...form, api_url: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-green-500"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-300 mb-1">Chave da API (API Key):</label>
+                <input
+                  type="password"
+                  placeholder="Sua API Key secreta"
+                  value={form.api_key || ''}
+                  onChange={(e) => setForm({ ...form, api_key: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-green-500"
+                />
+              </div>
+            </div>
+
+            {/* Botão de Testar Conexão e Resultado */}
+            <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleTestConnection}
+                disabled={testing}
+                className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-green-300 border border-green-500/40 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md"
+              >
+                {testing ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-green-400" />
+                    <span>Testando Conexão com a Instância...</span>
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw size={15} className="text-green-400" />
+                    <span>Testar Conexão da Instância</span>
+                  </>
+                )}
+              </button>
+
+              {testResult && (
+                <div className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2.5 ${
+                  testResult.success
+                    ? 'bg-green-500/15 border-green-500/40 text-green-300'
+                    : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                }`}>
+                  <span className={`w-2.5 h-2.5 rounded-full ${
+                    testResult.success ? 'bg-green-400 animate-pulse' : 'bg-rose-400'
+                  }`} />
+                  <div>
+                    <span className="block text-[11px] font-mono uppercase">
+                      Status: {testResult.status} · {testResult.instance}
+                    </span>
+                    <span className="text-[10px] opacity-90 font-normal">
+                      {testResult.message}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Nova Seção: Configuração de Webhooks para Confirmação do Cliente */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="p-2.5 rounded-xl bg-sky-500/20 border border-sky-500/30 text-sky-400">
+                  <Webhook size={20} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white flex items-center gap-2">
+                    <span>Webhooks & Confirmação Automática de Clientes</span>
+                    <span className="px-2 py-0.5 rounded text-[9px] font-black uppercase bg-sky-500/20 text-sky-300 border border-sky-500/30 font-mono">
+                      ENTRADA
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Insira a URL abaixo no seu provedor de WhatsApp para receber respostas (&apos;SIM&apos;, &apos;CONFIRMAR&apos;, &apos;REMARCAR&apos;) automaticamente.
+                  </p>
+                </div>
+              </div>
+
+              {/* Toggle de escuta ativa */}
+              <button
+                type="button"
+                onClick={() => setForm(f => ({ ...f, listen_confirmations: !f.listen_confirmations }))}
+                className={`px-3 py-1.5 rounded-xl border text-xs font-bold transition flex items-center gap-2 cursor-pointer ${
+                  form.listen_confirmations 
+                    ? 'bg-sky-500/20 border-sky-500/40 text-sky-300' 
+                    : 'bg-slate-800 border-slate-700 text-slate-400'
+                }`}
+              >
+                <BellRing size={14} />
+                <span>{form.listen_confirmations ? 'Escuta de Webhook Ativa' : 'Escuta Desativada'}</span>
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">
+                  URL de Destino do Webhook (Cole na sua plataforma WhatsApp API):
+                </label>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    readOnly
+                    value={form.webhook_url || (typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/whatsapp` : '')}
+                    className="flex-1 bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-2.5 text-xs text-emerald-400 font-mono focus:outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const urlToCopy = form.webhook_url || `${window.location.origin}/api/webhooks/whatsapp`;
+                      navigator.clipboard.writeText(urlToCopy);
+                      toast.success('URL do Webhook copiada para a área de transferência!');
+                    }}
+                    className="px-4 py-2.5 bg-slate-800 hover:bg-slate-700 border border-slate-700 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 transition cursor-pointer"
+                  >
+                    <Copy size={14} />
+                    <span>Copiar URL</span>
+                  </button>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Segredo do Webhook (Secret Token):</label>
+                  <input
+                    type="text"
+                    value={form.webhook_secret || ''}
+                    onChange={(e) => setForm({ ...form, webhook_secret: e.target.value })}
+                    placeholder="Chave secreta de autenticação do webhook"
+                    className="w-full bg-slate-950 border border-slate-800 rounded-xl p-2.5 text-xs text-white focus:outline-none focus:border-sky-500 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-medium text-slate-300 mb-1">Eventos Escutados:</label>
+                  <div className="flex flex-wrap gap-2 pt-1">
+                    {[
+                      { id: 'CONFIRMACOES_OS', label: 'Confirmações de OS' },
+                      { id: 'ORCAMENTOS', label: 'Aprovações de Orçamento' },
+                      { id: 'REMARCAMENTOS', label: 'Remarcamentos' },
+                    ].map((evt) => {
+                      const isChecked = form.webhook_events?.includes(evt.id);
+                      return (
+                        <button
+                          type="button"
+                          key={evt.id}
+                          onClick={() => {
+                            const current = form.webhook_events || [];
+                            const updated = isChecked 
+                              ? current.filter(x => x !== evt.id)
+                              : [...current, evt.id];
+                            setForm({ ...form, webhook_events: updated });
+                          }}
+                          className={`px-3 py-1.5 rounded-xl border text-[11px] font-bold transition flex items-center gap-1.5 cursor-pointer ${
+                            isChecked
+                              ? 'bg-sky-500/20 border-sky-500/50 text-sky-300'
+                              : 'bg-slate-950 border-slate-800 text-slate-500'
+                          }`}
+                        >
+                          <Check size={12} className={isChecked ? 'opacity-100' : 'opacity-0'} />
+                          <span>{evt.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+
+              {/* Ação de Teste de Webhook */}
+              <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={handleTestWebhook}
+                  disabled={testingWebhook}
+                  className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-sky-300 border border-sky-500/40 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md"
+                >
+                  {testingWebhook ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-sky-400" />
+                      <span>Simulando Ingestão de Webhook...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={15} className="text-sky-400" />
+                      <span>Simular Resposta &apos;SIM&apos; do Cliente (Teste Webhook)</span>
+                    </>
+                  )}
+                </button>
+
+                {webhookResult && (
+                  <div className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2.5 ${
+                    webhookResult.success
+                      ? 'bg-sky-500/15 border-sky-500/40 text-sky-300'
+                      : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                  }`}>
+                    <span className="w-2.5 h-2.5 rounded-full bg-sky-400 animate-ping" />
+                    <div>
+                      <span className="block text-[11px] font-mono uppercase">
+                        Confirmação: {webhookResult.confirmation_status} · De: {webhookResult.sender}
+                      </span>
+                      <span className="text-[10px] opacity-90 font-normal">
+                        {webhookResult.message}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* Painel SMTP para Alertas de Manutenção Automática */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-xl">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-amber-500/15 border border-amber-500/30 text-amber-400 flex items-center justify-center">
+                  <Key size={20} />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-white">Configuração SMTP (Alertas de Manutenção por E-mail)</h2>
+                  <p className="text-xs text-slate-400">Configure o servidor SMTP para disparar alertas automáticos de manutenção preventiva aos clientes.</p>
+                </div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-bold text-slate-300 mb-1">Servidor SMTP (Host)</label>
+                <input
+                  type="text"
+                  placeholder="smtp.exemplo.com ou smtp.gmail.com"
+                  value={form.smtp_host || ''}
+                  onChange={(e) => setForm({ ...form, smtp_host: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Porta SMTP</label>
+                <input
+                  type="text"
+                  placeholder="587 ou 465"
+                  value={form.smtp_port || '587'}
+                  onChange={(e) => setForm({ ...form, smtp_port: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Usuário SMTP (E-mail)</label>
+                <input
+                  type="text"
+                  placeholder="seu-email@dominio.com"
+                  value={form.smtp_user || ''}
+                  onChange={(e) => setForm({ ...form, smtp_user: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold text-slate-300 mb-1">Senha SMTP (ou App Password)</label>
+                <input
+                  type="password"
+                  placeholder="••••••••••••"
+                  value={form.smtp_pass || ''}
+                  onChange={(e) => setForm({ ...form, smtp_pass: e.target.value })}
+                  className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-bold text-slate-300 mb-1">E-mail Remetente (From)</label>
+              <input
+                type="text"
+                placeholder="contato@amigorefrigerista.com.br"
+                value={form.smtp_from || ''}
+                onChange={(e) => setForm({ ...form, smtp_from: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl px-3.5 py-3 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+              />
+            </div>
+
+            {/* Teste SMTP */}
+            <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+              <button
+                type="button"
+                onClick={handleTestSmtp}
+                disabled={testingSmtp}
+                className="px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md"
+              >
+                {testingSmtp ? (
+                  <>
+                    <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                    <span>Conectando e enviando e-mail de teste...</span>
+                  </>
+                ) : (
+                  <>
+                    <Send size={15} className="text-amber-400" />
+                    <span>Testar Conexão e Envio SMTP</span>
+                  </>
+                )}
+              </button>
+
+              {smtpResult && (
+                <div className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-2.5 ${
+                  smtpResult.ok
+                    ? 'bg-amber-500/15 border-amber-500/40 text-amber-300'
+                    : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
+                }`}>
+                  <span className="w-2.5 h-2.5 rounded-full bg-amber-400 animate-ping" />
+                  <div>
+                    <span className="block text-[11px] font-mono uppercase">
+                      {smtpResult.ok ? 'SMTP Conectado' : 'Falha SMTP'}
+                    </span>
+                    <span className="text-[10px] opacity-90 font-normal">
+                      {smtpResult.message || smtpResult.error}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* Modelos de Mensagem */}
+          <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 space-y-5 shadow-xl">
+            {/* 1. Envio de Orçamento */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-200">Envio de Orçamento</label>
+                <div className="flex gap-1">
+                  {['{{nome}}', '{{servico}}', '{{valor}}'].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => insertVariable('template_orcamento', v)}
+                      className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[10px] font-mono text-green-300 hover:border-green-500/50 cursor-pointer"
+                    >
+                      +{v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <textarea
+                rows={3}
+                value={form.template_orcamento || ''}
+                onChange={(e) => setForm({ ...form, template_orcamento: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-green-500 resize-none font-sans"
+              />
+            </div>
+
+            {/* 2. Confirmação de Agendamento */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-200">Confirmação de Agendamento</label>
+                <div className="flex gap-1">
+                  {['{{nome}}', '{{servico}}', '{{data}}'].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => insertVariable('template_agendamento', v)}
+                      className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[10px] font-mono text-green-300 hover:border-green-500/50 cursor-pointer"
+                    >
+                      +{v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <textarea
+                rows={3}
+                value={form.template_agendamento || ''}
+                onChange={(e) => setForm({ ...form, template_agendamento: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-green-500 resize-none font-sans"
+              />
+            </div>
+
+            {/* 3. Lembrete de Manutenção */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-200">Lembrete de Manutenção</label>
+                <div className="flex gap-1">
+                  {['{{nome}}', '{{servico}}', '{{data}}'].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => insertVariable('template_lembrete', v)}
+                      className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[10px] font-mono text-green-300 hover:border-green-500/50 cursor-pointer"
+                    >
+                      +{v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <textarea
+                rows={3}
+                value={form.template_lembrete || ''}
+                onChange={(e) => setForm({ ...form, template_lembrete: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-green-500 resize-none font-sans"
+              />
+            </div>
+
+            {/* 4. Pós-Venda / Pesquisa de Satisfação */}
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-bold text-slate-200">Pós-Venda / Pesquisa de Satisfação</label>
+                <div className="flex gap-1">
+                  {['{{nome}}', '{{servico}}'].map((v) => (
+                    <button
+                      key={v}
+                      type="button"
+                      onClick={() => insertVariable('template_pos_venda', v)}
+                      className="px-2 py-0.5 rounded bg-slate-950 border border-slate-800 text-[10px] font-mono text-green-300 hover:border-green-500/50 cursor-pointer"
+                    >
+                      +{v}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <textarea
+                rows={3}
+                value={form.template_pos_venda || ''}
+                onChange={(e) => setForm({ ...form, template_pos_venda: e.target.value })}
+                className="w-full bg-slate-950 border border-slate-800 rounded-xl p-3 text-xs text-white focus:outline-none focus:border-green-500 resize-none font-sans"
+              />
+            </div>
+          </div>
+
+          {/* Card: Notificação Automática de Falha no Pagamento Recorrente (Cobrança Falhou) */}
+          <div className="bg-slate-900/90 border border-amber-500/30 rounded-2xl p-5 space-y-4 shadow-xl">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-amber-500/20 border border-amber-500/40 text-amber-400 flex items-center justify-center shrink-0">
+                  <AlertTriangle size={18} />
+                </div>
+                <div>
+                  <h3 className="text-sm font-black text-white flex items-center gap-2">
+                    Cobrança Recorrente: Notificação Automática de Falha
+                    <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full border border-amber-500/30 font-bold uppercase">
+                      Ativo no Webhook
+                    </span>
+                  </h3>
+                  <p className="text-xs text-slate-400">
+                    Dispara automaticamente via WhatsApp para o técnico quando o débito da assinatura falhar (Mercado Pago ou Stripe), solicitando atualização da forma de pagamento.
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={loadPaymentFailureLogs}
+                disabled={loadingPayLogs}
+                className="self-start sm:self-auto px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 border border-slate-700 text-[11px] font-bold flex items-center gap-1.5 transition cursor-pointer"
+              >
+                <RefreshCw size={12} className={loadingPayLogs ? 'animate-spin' : ''} />
+                <span>Atualizar Logs</span>
+              </button>
+            </div>
+
+            {/* Simulador de Teste de Disparo */}
+            <div className="bg-slate-950/70 border border-slate-800/80 rounded-xl p-4 space-y-3">
+              <div className="text-xs font-bold text-slate-300 flex items-center gap-1.5">
+                <Sparkles size={14} className="text-amber-400" />
+                <span>Testar / Simular Disparo de Falha para Técnico:</span>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    WhatsApp do Técnico
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Ex: 5511999998888"
+                    value={testPayPhone}
+                    onChange={(e) => setTestPayPhone(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500 font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    Nome do Técnico
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Nome"
+                    value={testPayName}
+                    onChange={(e) => setTestPayName(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white placeholder-slate-600 focus:outline-none focus:border-amber-500"
+                  />
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    Plano da Assinatura
+                  </label>
+                  <select
+                    value={testPayPlan}
+                    onChange={(e) => setTestPayPlan(e.target.value as 'pro' | 'flex')}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="pro">Plano PRO (R$ 39,90 / mês)</option>
+                    <option value="flex">Plano Flex VIP (R$ 19,90 / mês)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-[11px] font-semibold text-slate-400 mb-1">
+                    Motivo da Recusa / Erro
+                  </label>
+                  <select
+                    value={testPayReason}
+                    onChange={(e) => setTestPayReason(e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="cc_rejected_insufficient_amount">Saldo / Limite insuficiente</option>
+                    <option value="cc_rejected_call_for_authorize">Autorização pendente no banco</option>
+                    <option value="cc_rejected_bad_filled_security_code">Código de segurança incorreto</option>
+                    <option value="expired_card">Cartão de crédito expirado</option>
+                    <option value="card_declined">Transação recusada pela operadora</option>
+                  </select>
+                </div>
+              </div>
+
+              <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
+                <button
+                  type="button"
+                  onClick={handleTestPaymentFailureNotification}
+                  disabled={testingPayFailure}
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 active:scale-95 shadow-md"
+                >
+                  {testingPayFailure ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin text-amber-400" />
+                      <span>Processando Disparo e Gerando Link...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Send size={14} className="text-amber-400" />
+                      <span>Simular Falha e Disparar Notificação WhatsApp</span>
+                    </>
+                  )}
+                </button>
+                <span className="text-[11px] text-slate-500 text-center sm:text-right">
+                  Links apontam para <code>/?tab=settings&action=update_payment</code> com regularização imediata
+                </span>
+              </div>
+
+              {/* Resultado do Teste */}
+              {payFailureResult && (
+                <div className="mt-3 p-3.5 rounded-xl bg-slate-900/90 border border-slate-700 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`w-2.5 h-2.5 rounded-full ${payFailureResult.result?.providerDispatched ? 'bg-green-400' : 'bg-amber-400'}`} />
+                      <span className="text-xs font-bold text-white">
+                        {payFailureResult.result?.providerDispatched
+                          ? 'Enviado com Sucesso via API WhatsApp'
+                          : 'Notificação Formatada (Link wa.me pronto para envio)'}
+                      </span>
+                    </div>
+                    {payFailureResult.result?.waLink && (
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            navigator.clipboard.writeText(payFailureResult.result.message);
+                            toast.success('Texto da mensagem copiado!');
+                          }}
+                          className="px-2.5 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-300 text-[11px] font-semibold border border-slate-700 flex items-center gap-1 cursor-pointer"
+                        >
+                          <Copy size={12} />
+                          <span>Copiar Texto</span>
+                        </button>
+                        <a
+                          href={payFailureResult.result.waLink}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="px-3 py-1 rounded bg-green-600 hover:bg-green-500 text-slate-950 text-[11px] font-bold flex items-center gap-1 shadow cursor-pointer"
+                        >
+                          <ExternalLink size={12} />
+                          <span>Abrir WhatsApp</span>
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                  <pre className="p-3 bg-slate-950 rounded-lg text-[11px] text-slate-300 font-sans whitespace-pre-wrap leading-relaxed border border-slate-800">
+                    {payFailureResult.result?.message}
+                  </pre>
+                </div>
+              )}
+            </div>
+
+            {/* Histórico Recente de Notificações de Falha de Pagamento */}
+            {payFailureLogs.length > 0 && (
+              <div className="space-y-2">
+                <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                  Histórico Recente de Falhas Notificadas ({payFailureLogs.length})
+                </span>
+                <div className="max-h-48 overflow-y-auto space-y-1.5 pr-1">
+                  {payFailureLogs.slice(0, 10).map((log: any) => (
+                    <div
+                      key={log.id}
+                      className="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-bold text-white truncate">{log.technicianName}</span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300 font-mono">
+                            {log.phone ? `+${log.phone}` : 'Sem WhatsApp'}
+                          </span>
+                          <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 font-bold uppercase">
+                            {log.plan}
+                          </span>
+                        </div>
+                        <div className="text-[11px] text-slate-400 truncate mt-0.5">
+                          Motivo: {log.reason} · R$ {Number(log.amount).toFixed(2).replace('.', ',')}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${log.dispatched ? 'bg-green-500/20 text-green-300' : 'bg-slate-800 text-slate-300'}`}>
+                          {log.dispatched ? 'Enviado via API' : 'Link Pronto'}
+                        </span>
+                        {log.waLink && (
+                          <a
+                            href={log.waLink}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="p-1 rounded bg-slate-800 hover:bg-slate-700 text-green-400 border border-slate-700"
+                            title="Reenviar pelo WhatsApp"
+                          >
+                            <ExternalLink size={12} />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full bg-green-600 hover:bg-green-500 text-slate-950 font-black py-3 px-6 rounded-2xl transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-green-600/20 active:scale-98 disabled:opacity-50"
+          >
+            {saving ? (
+              <>
+                <Loader2 className="w-4 h-4 animate-spin" />
+                <span>Salvando...</span>
+              </>
+            ) : (
+              <>
+                <Save size={18} />
+                <span>Salvar Configurações do WhatsApp</span>
+              </>
+            )}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}

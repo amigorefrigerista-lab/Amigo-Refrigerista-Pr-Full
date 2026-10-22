@@ -23,7 +23,9 @@ import {
 export async function POST(req: NextRequest) {
   try {
     const clientIp = getClientIp(req);
-    const rate = await checkRateLimitAsync(`api_db:${clientIp}`, 60, 60_000);
+    // Teto por IP é folgado de propósito: vários técnicos em 4G/5G (CGNAT) compartilham o mesmo IP público.
+    // O limite real para usuários logados é por UID, logo após a autenticação.
+    const rate = await checkRateLimitAsync(`api_db:${clientIp}`, 600, 60_000);
     if (!rate.allowed) {
       return NextResponse.json(
         { ok: false, reason: 'rate_limit_exceeded', data: null },
@@ -116,6 +118,14 @@ export async function POST(req: NextRequest) {
 
     const effectiveUid = auth.uid;
 
+    const userRate = await checkRateLimitAsync(`api_db_user:${effectiveUid}`, 120, 60_000);
+    if (!userRate.allowed) {
+      return NextResponse.json(
+        { ok: false, reason: 'rate_limit_exceeded', data: null },
+        { status: 429, headers: { 'Retry-After': String(userRate.retryAfterSeconds) } }
+      );
+    }
+
     switch (action) {
       case 'syncUser': {
         const { email, name, photoURL } = payload || {};
@@ -175,7 +185,8 @@ export async function POST(req: NextRequest) {
           .select()
           .from(clients)
           .where(eq(clients.userUid, effectiveUid))
-          .orderBy(desc(clients.createdAt));
+          .orderBy(desc(clients.createdAt))
+          .limit(2000); // teto de segurança contra respostas gigantes
         return NextResponse.json({ ok: true, data: rows });
       }
 
@@ -288,7 +299,8 @@ export async function POST(req: NextRequest) {
           .select()
           .from(installations)
           .where(eq(installations.userUid, effectiveUid))
-          .orderBy(desc(installations.createdAt));
+          .orderBy(desc(installations.createdAt))
+          .limit(2000); // teto de segurança contra respostas gigantes
         return NextResponse.json({ ok: true, data: rows });
       }
 

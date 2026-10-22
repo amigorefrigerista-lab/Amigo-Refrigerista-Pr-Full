@@ -186,10 +186,10 @@ export async function POST(req: NextRequest) {
     if (isAnnual) {
       planTitle =
         normalizedPlan === 'flex'
-          ? 'Plano Flex VIP - Plano Anual (5% OFF)'
-          : 'Plano Amigo Refrigerista PRO - Plano Anual (5% OFF)';
+          ? 'Plano Flex VIP - Plano Anual (2 meses grátis)'
+          : 'Plano Amigo Refrigerista PRO - Plano Anual (2 meses grátis)';
       planDescription =
-        'Acesso Anual VIP por 12 meses (365 dias) com 5% de desconto no valor total - Ferramenta de Refrigeração e PMOC Pro';
+        'Acesso Anual VIP por 12 meses (365 dias) com 2 meses grátis (paga 10, usa 12) - Ferramenta de Refrigeração e PMOC Pro';
       billingModel = 'annual_plan';
     } else {
       planTitle =
@@ -255,7 +255,7 @@ export async function POST(req: NextRequest) {
         message:
           'QR Code PIX gerado com sucesso para o ' +
           (normalizedPlan === 'flex' ? 'Plano Flex' : 'Plano PRO') +
-          (isAnnual ? ' (Plano Anual c/ 5% de desconto no valor total)' : ' (Plano Recorrente Mensal)'),
+          (isAnnual ? ' (Plano Anual c/ 2 meses grátis (paga 10, usa 12))' : ' (Plano Recorrente Mensal)'),
         amount: planPrice,
         original_amount: originalAmount,
         discount_applied: discountAmount,
@@ -543,7 +543,7 @@ export async function POST(req: NextRequest) {
         paymentMethod === 'credit_card'
           ? 'Para checkout automático no cartão de crédito, configure as chaves do Mercado Pago ou Stripe em Configurações Master. Você também pode concluir via PIX abaixo:'
           : isAnnual
-          ? 'Checkout de Plano Anual (12 meses com 5% de desconto no valor total) gerado com sucesso via PIX:'
+          ? 'Checkout de Plano Anual (12 meses com 2 meses grátis (paga 10, usa 12)) gerado com sucesso via PIX:'
           : 'Checkout de ciclo mensal gerado com sucesso via PIX:',
       amount: planPrice,
       original_amount: originalAmount,

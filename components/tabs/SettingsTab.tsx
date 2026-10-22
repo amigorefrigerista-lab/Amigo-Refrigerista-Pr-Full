@@ -1,5 +1,6 @@
 'use client';
 
+import { ANNUAL_PRICE_FACTOR, SHOW_FLEX_PLAN, SHOW_SMTP_SETTINGS } from '@/lib/pricing';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { 
@@ -148,7 +149,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
   // Estados de Dados da Empresa
   const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
 
-  // Estados de Integração de Pagamentos (Plano Flex ou PRO + Recorrente / Anual 5% OFF + Cartão / PIX)
+  // Estados de Integração de Pagamentos (Plano Flex ou PRO + Recorrente / Anual 2 meses grátis + Cartão / PIX)
   const [selectedPlanOption, setSelectedPlanOption] = useState<'flex' | 'pro'>('pro');
   const [billingIntervalOption, setBillingIntervalOption] = useState<'recurring' | 'annual'>('annual');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'credit_card' | 'pix'>('credit_card');
@@ -209,12 +210,12 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
   const isSettingsAnnual = billingIntervalOption === 'annual';
 
   const flexAnnualOriginal = Math.round(planPrices.flexPrice * 12 * 100) / 100;
-  const flexAnnualPrice = Math.round(flexAnnualOriginal * 0.95 * 100) / 100; // 5% de desconto no valor total
+  const flexAnnualPrice = Math.round(flexAnnualOriginal * ANNUAL_PRICE_FACTOR * 100) / 100; // 2 meses grátis (paga 10, usa 12)
   const flexAnnualSavings = Math.round((flexAnnualOriginal - flexAnnualPrice) * 100) / 100;
   const flexAnnualMonthlyEquiv = Math.round((flexAnnualPrice / 12) * 100) / 100;
 
   const proAnnualOriginal = Math.round(planPrices.proPrice * 12 * 100) / 100;
-  const proAnnualPrice = Math.round(proAnnualOriginal * 0.95 * 100) / 100; // 5% de desconto no valor total
+  const proAnnualPrice = Math.round(proAnnualOriginal * ANNUAL_PRICE_FACTOR * 100) / 100; // 2 meses grátis (paga 10, usa 12)
   const proAnnualSavings = Math.round((proAnnualOriginal - proAnnualPrice) * 100) / 100;
   const proAnnualMonthlyEquiv = Math.round((proAnnualPrice / 12) * 100) / 100;
 
@@ -270,7 +271,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
       }
 
       const planTitle = selectedPlanOption === 'pro' ? 'Plano PRO' : 'Plano Flex';
-      const intervalTitle = isSettingsAnnual ? 'Anual (5% OFF)' : 'Recorrente';
+      const intervalTitle = isSettingsAnnual ? 'Anual (2 meses grátis)' : 'Recorrente';
 
       if (data.init_point) {
         toast.success(
@@ -503,6 +504,8 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
       {/* Formulário Principal */}
       <form onSubmit={handleSaveAll} className="space-y-6">
         {/* 1. SEÇÃO SMTP PERSONALIZADO */}
+        {SHOW_SMTP_SETTINGS && (
+
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-6">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-slate-800">
             <div>
@@ -906,6 +909,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
             )}
           </div>
         </div>
+        )}
 
         {/* 2. SEÇÃO DADOS DA EMPRESA */}
         <div className="bg-slate-900 border border-slate-800 rounded-3xl p-5 sm:p-6 space-y-4">
@@ -1009,7 +1013,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
             </span>
           </div>
 
-          {/* 3.0 Escolha da Modalidade: Recorrente vs Anual (5% OFF) */}
+          {/* 3.0 Escolha da Modalidade: Recorrente vs Anual (2 meses grátis) */}
           <div className="space-y-2">
             <div className="flex items-center justify-between">
               <label className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
@@ -1018,7 +1022,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
               </label>
               <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
                 <Sparkles size={11} className="text-emerald-400 animate-pulse" />
-                5% de Desconto no Plano Anual
+                2 meses grátis no Plano Anual
               </span>
             </div>
 
@@ -1056,7 +1060,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                 <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
                   isSettingsAnnual ? 'bg-slate-950 text-emerald-300 border border-emerald-400/30' : 'bg-emerald-500/20 text-emerald-300'
                 }`}>
-                  5% OFF
+                  2 meses grátis
                 </span>
               </button>
             </div>
@@ -1072,14 +1076,16 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
               <span className="text-[11px] font-bold text-slate-400">
                 Selecionado: <strong className={selectedPlanOption === 'pro' ? 'text-amber-400' : 'text-sky-400'}>
                   {selectedPlanOption === 'pro'
-                    ? isSettingsAnnual ? 'Plano PRO Anual (5% OFF)' : 'Plano PRO Ilimitado'
-                    : isSettingsAnnual ? 'Plano Flex Anual (5% OFF)' : 'Plano Flex Intermediário'}
+                    ? isSettingsAnnual ? 'Plano PRO Anual (2 meses grátis)' : 'Plano PRO Ilimitado'
+                    : isSettingsAnnual ? 'Plano Flex Anual (2 meses grátis)' : 'Plano Flex Intermediário'}
                 </strong>
               </span>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               {/* Card Plano Flex */}
+              {SHOW_FLEX_PLAN && (
+
               <button
                 type="button"
                 onClick={() => {
@@ -1117,7 +1123,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                         R$ {flexAnnualOriginal.toFixed(2).replace('.', ',')}
                       </span>
                       <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        5% OFF (Poupa R$ {flexAnnualSavings.toFixed(2).replace('.', ',')})
+                        2 meses grátis (Poupa R$ {flexAnnualSavings.toFixed(2).replace('.', ',')})
                       </span>
                     </div>
                     <p className="text-[10px] font-bold text-sky-300 mt-1">
@@ -1143,6 +1149,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                   Ideal para técnicos em expansão: até 25 clientes, 30 Ordens de Serviço/mês, Superaquecimento e Orçamentos PDF.
                 </p>
               </button>
+              )}
 
               {/* Card Plano PRO */}
               <button
@@ -1180,7 +1187,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                         R$ {proAnnualOriginal.toFixed(2).replace('.', ',')}
                       </span>
                       <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        5% OFF (Poupa R$ {proAnnualSavings.toFixed(2).replace('.', ',')})
+                        2 meses grátis (Poupa R$ {proAnnualSavings.toFixed(2).replace('.', ',')})
                       </span>
                     </div>
                     <p className="text-[10px] font-bold text-amber-300 mt-1">
@@ -1367,7 +1374,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                       {isSettingsAnnual ? (
                         <>
                           <option value={1}>
-                            1x de R$ {currentFinalPrice.toFixed(2).replace('.', ',')} à vista (5% OFF no total)
+                            1x de R$ {currentFinalPrice.toFixed(2).replace('.', ',')} à vista (2 meses grátis no total)
                           </option>
                           <option value={2}>
                             2x de R$ {(currentFinalPrice / 2).toFixed(2).replace('.', ',')} sem acréscimo
@@ -1379,7 +1386,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                             6x de R$ {(currentFinalPrice / 6).toFixed(2).replace('.', ',')} sem acréscimo
                           </option>
                           <option value={12}>
-                            12x de R$ {(currentFinalPrice / 12).toFixed(2).replace('.', ',')} (Equivalente mensal c/ 5% OFF)
+                            12x de R$ {(currentFinalPrice / 12).toFixed(2).replace('.', ',')} (Equivalente mensal c/ 2 meses grátis)
                           </option>
                         </>
                       ) : (
@@ -1407,7 +1414,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
               <div className="p-4 rounded-xl bg-slate-900 border border-emerald-500/40 space-y-3 text-center">
                 <div className="flex items-center justify-between text-xs border-b border-slate-800 pb-2">
                   <span className="font-bold text-emerald-400">
-                    QR Code PIX — Plano {pixCheckoutData.plan.toUpperCase()} {isSettingsAnnual ? '(Anual 5% OFF)' : '(Recorrente)'}
+                    QR Code PIX — Plano {pixCheckoutData.plan.toUpperCase()} {isSettingsAnnual ? '(Anual 2 meses grátis)' : '(Recorrente)'}
                   </span>
                   <span className="font-mono font-black text-white">
                     R$ {pixCheckoutData.amount.toFixed(2).replace('.', ',')}
@@ -1468,7 +1475,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                     ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                     : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
                 }`}>
-                  {isSettingsAnnual ? '5% de Desconto no Total' : 'Mensal Sem Fidelidade'}
+                  {isSettingsAnnual ? '2 Meses Grátis no Total' : 'Mensal Sem Fidelidade'}
                 </span>
               </div>
 
@@ -1483,7 +1490,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                   <div className="flex items-center justify-between text-emerald-400 font-bold">
                     <span className="flex items-center gap-1">
                       <BadgePercent size={13} />
-                      Desconto Especial Anual (5% sobre o total):
+                      Desconto Anual (2 meses grátis):
                     </span>
                     <span className="font-mono">
                       - R$ {(selectedPlanOption === 'flex' ? flexAnnualSavings : proAnnualSavings).toFixed(2).replace('.', ',')}
@@ -1541,7 +1548,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                   <CreditCard size={16} />
                   <span>
                     {isSettingsAnnual
-                      ? `Pagar Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Anual (5% OFF) no Cartão — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}`
+                      ? `Pagar Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Anual (2 meses grátis) no Cartão — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}`
                       : `Pagar Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Recorrente no Cartão — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}/mês`}
                   </span>
                   <ArrowRight size={15} />
@@ -1551,7 +1558,7 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
                   <QrCode size={16} />
                   <span>
                     {isSettingsAnnual
-                      ? `Gerar PIX do Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Anual (5% OFF) — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}`
+                      ? `Gerar PIX do Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Anual (2 meses grátis) — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}`
                       : `Gerar PIX do Plano ${selectedPlanOption === 'pro' ? 'PRO' : 'Flex'} Recorrente — R$ ${currentFinalPrice.toFixed(2).replace('.', ',')}`}
                   </span>
                   <ArrowRight size={15} />

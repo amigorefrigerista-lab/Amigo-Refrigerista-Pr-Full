@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { ANNUAL_PRICE_FACTOR, SHOW_FLEX_PLAN } from '@/lib/pricing';
 import { 
   Zap, 
   CheckCircle2, 
@@ -36,7 +37,7 @@ export function UpgradeModal({
   isOpen,
   onClose,
   title = 'Evolua o seu Plano no Amigo Refrigerista',
-  description = 'Escolha entre o Plano Flex ou Plano Pró, selecione entre o plano recorrente ou plano anual (com 5% de desconto no valor total) e pague via Cartão de Crédito ou PIX.',
+  description = 'Escolha entre o Plano Flex ou Plano Pró, selecione entre o plano recorrente ou plano anual (com 2 meses grátis) e pague via Cartão de Crédito ou PIX.',
   onRedeemSuccess
 }: UpgradeModalProps) {
   const { user, profile, isAdmin } = useAuth();
@@ -108,14 +109,14 @@ export function UpgradeModal({
   // Cálculos do Plano Flex
   const flexMonthly = flexPrice;
   const flexAnnualOriginal = Math.round(flexMonthly * 12 * 100) / 100;
-  const flexAnnualPrice = Math.round(flexAnnualOriginal * 0.95 * 100) / 100; // 5% de desconto no valor total
+  const flexAnnualPrice = Math.round(flexAnnualOriginal * ANNUAL_PRICE_FACTOR * 100) / 100; // 2 meses grátis (paga 10, usa 12)
   const flexAnnualSavings = Math.round((flexAnnualOriginal - flexAnnualPrice) * 100) / 100;
   const flexAnnualMonthlyEquiv = Math.round((flexAnnualPrice / 12) * 100) / 100;
 
   // Cálculos do Plano Pró
   const proMonthly = proPrice;
   const proAnnualOriginal = Math.round(proMonthly * 12 * 100) / 100;
-  const proAnnualPrice = Math.round(proAnnualOriginal * 0.95 * 100) / 100; // 5% de desconto no valor total
+  const proAnnualPrice = Math.round(proAnnualOriginal * ANNUAL_PRICE_FACTOR * 100) / 100; // 2 meses grátis (paga 10, usa 12)
   const proAnnualSavings = Math.round((proAnnualOriginal - proAnnualPrice) * 100) / 100;
   const proAnnualMonthlyEquiv = Math.round((proAnnualPrice / 12) * 100) / 100;
 
@@ -223,7 +224,7 @@ export function UpgradeModal({
       }
 
       const chosenPlanLabel = chosenPlan === 'flex' ? 'Plano Flex' : 'Plano Pró';
-      const chosenIntervalLabel = isChosenAnnual ? 'Anual c/ 5% OFF' : 'Recorrente';
+      const chosenIntervalLabel = isChosenAnnual ? 'Anual c/ 2 meses grátis' : 'Recorrente';
 
       if (data.init_point) {
         toast.success(
@@ -300,7 +301,7 @@ export function UpgradeModal({
             </span>
             <span className="text-[10px] font-black text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 px-2.5 py-0.5 rounded-full flex items-center gap-1">
               <Sparkles size={11} className="text-emerald-400 animate-pulse" />
-              5% de Desconto no Plano Anual
+              2 meses grátis no Plano Anual
             </span>
           </div>
 
@@ -337,7 +338,7 @@ export function UpgradeModal({
               <span className={`px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase tracking-wider ${
                 isAnnual ? 'bg-slate-950 text-emerald-300 border border-emerald-400/30' : 'bg-emerald-500/20 text-emerald-300'
               }`}>
-                5% OFF
+                2 meses grátis
               </span>
             </button>
           </div>
@@ -356,6 +357,8 @@ export function UpgradeModal({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             {/* Opção Plano Flex */}
+            {SHOW_FLEX_PLAN && (
+
             <div
               onClick={() => setSelectedPlan('flex')}
               className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-3 ${
@@ -391,7 +394,7 @@ export function UpgradeModal({
                         R$ {flexAnnualOriginal.toFixed(2).replace('.', ',')}
                       </span>
                       <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        5% OFF (Economize R$ {flexAnnualSavings.toFixed(2).replace('.', ',')})
+                        2 meses grátis (Economize R$ {flexAnnualSavings.toFixed(2).replace('.', ',')})
                       </span>
                     </div>
                     <p className="text-[10px] font-bold text-cyan-300 mt-1">
@@ -424,6 +427,7 @@ export function UpgradeModal({
                 )}
               </div>
             </div>
+            )}
 
             {/* Opção Plano Pró */}
             <div
@@ -461,7 +465,7 @@ export function UpgradeModal({
                         R$ {proAnnualOriginal.toFixed(2).replace('.', ',')}
                       </span>
                       <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        5% OFF (Economize R$ {proAnnualSavings.toFixed(2).replace('.', ',')})
+                        2 meses grátis (Economize R$ {proAnnualSavings.toFixed(2).replace('.', ',')})
                       </span>
                     </div>
                     <p className="text-[10px] font-bold text-amber-300 mt-1">
@@ -545,7 +549,7 @@ export function UpgradeModal({
                 <div>
                   <span className="text-xs font-black block">PIX Instantâneo</span>
                   <span className="text-[10px] text-slate-400 block">
-                    {isAnnual ? 'Liberação anual imediata c/ 5% OFF' : 'Liberação imediata c/ QR Code'}
+                    {isAnnual ? 'Liberação anual imediata c/ 2 meses grátis' : 'Liberação imediata c/ QR Code'}
                   </span>
                 </div>
               </button>
@@ -565,7 +569,7 @@ export function UpgradeModal({
                 {isAnnual ? (
                   <>
                     <option value={1}>
-                      1x de R$ {currentFinalAmount.toFixed(2).replace('.', ',')} à vista (5% de desconto no total)
+                      1x de R$ {currentFinalAmount.toFixed(2).replace('.', ',')} à vista (2 meses grátis)
                     </option>
                     {maxInstallments >= 2 && (
                       <option value={2}>
@@ -584,7 +588,7 @@ export function UpgradeModal({
                     )}
                     {maxInstallments >= 12 && (
                       <option value={12}>
-                        12x de R$ {(currentFinalAmount / 12).toFixed(2).replace('.', ',')} (Equivalente mensal c/ 5% OFF)
+                        12x de R$ {(currentFinalAmount / 12).toFixed(2).replace('.', ',')} (Equivalente mensal c/ 2 meses grátis)
                       </option>
                     )}
                   </>
@@ -625,7 +629,7 @@ export function UpgradeModal({
                   ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
                   : 'bg-amber-500/20 text-amber-300 border-amber-500/40'
               }`}>
-                {isAnnual ? '5% de Desconto Aplicado' : 'Mensal Sem Fidelidade'}
+                {isAnnual ? '2 Meses Grátis Aplicados' : 'Mensal Sem Fidelidade'}
               </span>
             </div>
 
@@ -640,7 +644,7 @@ export function UpgradeModal({
                 <div className="flex items-center justify-between text-emerald-400 font-bold">
                   <span className="flex items-center gap-1">
                     <BadgePercent size={13} />
-                    Desconto Especial Anual (5% no total):
+                    Desconto Anual (2 meses grátis):
                   </span>
                   <span className="font-mono">
                     - R$ {(selectedPlan === 'flex' ? flexAnnualSavings : proAnnualSavings).toFixed(2).replace('.', ',')}
@@ -698,7 +702,7 @@ export function UpgradeModal({
                 {paymentMethod === 'credit_card' ? <CreditCard size={16} /> : <QrCode size={16} />}
                 <span>
                   {isAnnual
-                    ? `Assinar ${selectedPlan === 'flex' ? 'Plano Flex Anual' : 'Plano Pró Anual'} (5% OFF) — R$ ${currentFinalAmount.toFixed(2).replace('.', ',')}`
+                    ? `Assinar ${selectedPlan === 'flex' ? 'Plano Flex Anual' : 'Plano Pró Anual'} (2 meses grátis) — R$ ${currentFinalAmount.toFixed(2).replace('.', ',')}`
                     : `Assinar ${selectedPlan === 'flex' ? 'Plano Flex Recorrente' : 'Plano Pró Recorrente'} — R$ ${currentFinalAmount.toFixed(2).replace('.', ',')}/mês`}
                 </span>
                 <ArrowRight size={16} />
@@ -711,7 +715,7 @@ export function UpgradeModal({
             <div className="p-4 rounded-2xl bg-slate-900 border border-emerald-500/40 space-y-3 text-center animate-in fade-in duration-200">
               <div className="flex items-center justify-between text-xs">
                 <span className="font-bold text-emerald-400">
-                  {pixResult.plan === 'flex' ? 'Plano Flex VIP' : 'Plano Amigo PRO'} {isAnnual ? '(Anual 5% OFF)' : '(Recorrente)'}
+                  {pixResult.plan === 'flex' ? 'Plano Flex VIP' : 'Plano Amigo PRO'} {isAnnual ? '(Anual 2 meses grátis)' : '(Recorrente)'}
                 </span>
                 <span className="font-mono font-black text-white">
                   R$ {pixResult.amount.toFixed(2).replace('.', ',')}

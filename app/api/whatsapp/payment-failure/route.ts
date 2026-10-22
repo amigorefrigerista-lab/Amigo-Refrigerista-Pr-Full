@@ -34,10 +34,7 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   const clientIp = getClientIp(req);
-  const rateLimitResult = await checkRateLimitAsync(clientIp, {
-    maxRequests: 30,
-    windowMs: 60 * 1000,
-  });
+  const rateLimitResult = await checkRateLimitAsync(`wa_payment_fail:${clientIp}`, 30, 60_000);
 
   if (!rateLimitResult.allowed) {
     return NextResponse.json(

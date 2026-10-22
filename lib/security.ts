@@ -599,13 +599,19 @@ export async function checkAndIncrementMonthlyQuotaAsync(
   planExpiresAt?: string | Date | null
 ): Promise<{ allowed: boolean; used: number; limit: number }> {
   const effectivePlan = resolveEffectivePlan(plan, planExpiresAt);
+  let effectiveLimit = maxLimitForFree;
   if (
     effectivePlan === 'pro' ||
     effectivePlan === 'pro_paid' ||
     effectivePlan === 'pro_trial' ||
     effectivePlan === 'flex'
   ) {
-    return { allowed: true, used: 0, limit: Infinity };
+    // Planos pagos: OS ilimitadas, mas consultas de IA têm teto de uso justo (protege o custo do Gemini).
+    if (feature !== 'aiQueries') {
+      return { allowed: true, used: 0, limit: Infinity };
+    }
+    const cap = Number(process.env.PAID_AI_MONTHLY_CAP);
+    effectiveLimit = Number.isFinite(cap) && cap > 0 ? cap : 150;
   }
 
   const currentMonth = new Date().toISOString().slice(0, 7); // YYYY-MM
@@ -630,17 +636,17 @@ export async function checkAndIncrementMonthlyQuotaAsync(
       if (res.ok) {
         const data = await res.json();
         const used = Number(data?.[0]?.result || 1);
-        if (used > maxLimitForFree) {
-          return { allowed: false, used: used - 1, limit: maxLimitForFree };
+        if (used > effectiveLimit) {
+          return { allowed: false, used: used - 1, limit: effectiveLimit };
         }
-        return { allowed: true, used, limit: maxLimitForFree };
+        return { allowed: true, used, limit: effectiveLimit };
       }
     } catch {
       // fallback to DB
     }
   }
 
-  // 2. PostgreSQL (INSERT ... ON CONFLICT DO NOTHING + UPDATE condicional WHERE uso < maxLimitForFree)
+  // 2. PostgreSQL (INSERT ... ON CONFLICT DO NOTHING + UPDATE condicional WHERE uso < effectiveLimit)
   if (isSqlAvailable()) {
     try {
       await db
@@ -674,8 +680,8 @@ export async function checkAndIncrementMonthlyQuotaAsync(
             eq(monthlyQuotas.userKey, userKey),
             eq(monthlyQuotas.monthKey, currentMonth),
             feature === 'orders'
-              ? sql`${monthlyQuotas.ordersUsed} < ${maxLimitForFree}`
-              : sql`${monthlyQuotas.aiQueriesUsed} < ${maxLimitForFree}`
+              ? sql`${monthlyQuotas.ordersUsed} < ${effectiveLimit}`
+              : sql`${monthlyQuotas.aiQueriesUsed} < ${effectiveLimit}`
           )
         )
         .returning({
@@ -684,12 +690,12 @@ export async function checkAndIncrementMonthlyQuotaAsync(
         });
 
       if (!updatedRows || updatedRows.length === 0) {
-        return { allowed: false, used: maxLimitForFree, limit: maxLimitForFree };
+        return { allowed: false, used: effectiveLimit, limit: effectiveLimit };
       }
 
       const row = updatedRows[0];
       const used = feature === 'orders' ? row.ordersUsed : row.aiQueriesUsed;
-      return { allowed: true, used, limit: maxLimitForFree };
+      return { allowed: true, used, limit: effectiveLimit };
     } catch {
       // fallback to Supabase
     }
@@ -705,7 +711,7 @@ export async function checkAndIncrementMonthlyQuotaAsync(
           p_user_key: userKey,
           p_month_key: currentMonth,
           p_feature: feature,
-          p_max_limit: maxLimitForFree,
+          p_max_limit: effectiveLimit,
         }
       );
 
@@ -713,7 +719,7 @@ export async function checkAndIncrementMonthlyQuotaAsync(
         return {
           allowed: Boolean((rpcData as any).allowed),
           used: Number((rpcData as any).used ?? 0),
-          limit: Number((rpcData as any).limit ?? maxLimitForFree),
+          limit: Number((rpcData as any).limit ?? effectiveLimit),
         };
       }
     } catch {
@@ -725,7 +731,7 @@ export async function checkAndIncrementMonthlyQuotaAsync(
     userKey,
     plan,
     feature,
-    maxLimitForFree,
+    effectiveLimit,
     planExpiresAt
   );
 }
