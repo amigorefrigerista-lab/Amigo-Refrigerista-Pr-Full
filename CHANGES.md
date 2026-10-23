@@ -15,11 +15,20 @@
 9. **Limpeza**: removidos `.gmp_cache`, `firebase.json`, `server.ts` (o `start` agora usa `server.js`), 6 abas duplicadas não usadas,
    `lib/ptData.ts`, `PlanCarousel`, `AppHeader`, `PWAInstallButton`, `InstallPrompt`, `src/db/users.ts`, `lib/firestoreErrors.ts`.
 
+## Banco de dados unificado (Supabase)
+- O app agora usa **um só Postgres: o do Supabase**. O Cloud SQL deixa de ser necessário (pode desligar e parar de pagar).
+- As 12 tabelas que ficavam no Cloud SQL passam a viver no schema `app` do Supabase (`supabase/app_schema.sql`), com RLS ligado e
+  acesso público revogado: só o servidor enxerga esses dados. Não colide com a `public.clients` do Supabase.
+- Conexão: variável `DATABASE_URL` (pooler do Supabase). As `SQL_*` antigas ainda funcionam só como fallback.
+- Incluí índices por `user_uid` (listagens ficam rápidas com muitos usuários) e pool de 5 conexões por instância.
+- Validado rodando o SQL (2x) e as consultas reais do Drizzle (upsert, cota mensal, idempotência de pagamento) num Postgres embutido.
+- **Limite honesto:** o plano ainda é gravado em `public.profiles` (fonte principal) e em `app.users` (cópia). Estão no mesmo banco agora,
+  mas a duplicação continua; remover `app.users.plan` é uma etapa futura.
+
 ## Verificado
 `tsc --noEmit` sem erros e `next build` concluído. Não foi testado em navegador nem com banco real.
 
 ## NÃO feito (precisa de decisão ou de teste com dados reais)
-- Unificar Supabase + Cloud SQL em um só banco (exige migração dos dados existentes).
 - Paginação real e carregamento sob demanda das assinaturas antigas.
 - Fila offline para criar OS sem internet (hoje só as telas abrem offline).
 - Tela inicial centrada em orçamento rápido.

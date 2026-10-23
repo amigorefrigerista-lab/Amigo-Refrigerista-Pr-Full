@@ -40,6 +40,7 @@ Execute os scripts SQL na seguinte ordem no SQL Editor do Supabase:
 2. `supabase/rls_policies.sql` — Políticas de Row Level Security (RLS), função `public.is_admin()` (que exige `is_admin = true` e `email_confirmed_at IS NOT NULL`) e trigger `prevent_profile_privilege_escalation`.
 3. `supabase/licenses.sql` — Tabelas `licenses`, `license_redemptions` e função transacional atômica `public.redeem_license_atomic`.
 4. `supabase/whatsapp_settings.sql` — Configurações de integração WhatsApp.
+5. `supabase/app_schema.sql` — Tabelas de dados do app (clientes, OS, orçamentos, estoque, cotas, pagamentos) no schema privado `app`. Configure `DATABASE_URL` com a string do pooler do Supabase (modo Transaction). **Não há mais Cloud SQL.**
 
 ---
 
