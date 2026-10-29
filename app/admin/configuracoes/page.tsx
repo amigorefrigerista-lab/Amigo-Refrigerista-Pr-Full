@@ -78,12 +78,24 @@ export default function AdminSettingsPage() {
   const [mpValidationStage, setMpValidationStage] = useState<
     'idle' | 'testing_connection' | 'saving_credentials' | 'verified' | 'error'
   >('idle');
+  const [mpLiveLatencyMs, setMpLiveLatencyMs] = useState<number>(0);
   const [mpValidationMeta, setMpValidationMeta] = useState<{
     latencyMs?: number;
     accountLabel?: string;
     environment?: 'production' | 'sandbox';
     verifiedAt?: string;
   } | null>(null);
+
+  useEffect(() => {
+    if (mpValidationStage !== 'testing_connection' && mpValidationStage !== 'saving_credentials') {
+      return;
+    }
+    const startedAt = performance.now();
+    const timer = window.setInterval(() => {
+      setMpLiveLatencyMs(Math.max(1, Math.round(performance.now() - startedAt)));
+    }, 35);
+    return () => window.clearInterval(timer);
+  }, [mpValidationStage]);
   const [hideMpTokenPermanentlyAfterValidation, setHideMpTokenPermanentlyAfterValidation] =
     useState(true);
   const [isMpTokenPermanentlyHidden, setIsMpTokenPermanentlyHidden] = useState(false);
@@ -652,6 +664,7 @@ export default function AdminSettingsPage() {
     }
 
     setSavingSection('mercadopago');
+    setMpLiveLatencyMs(0);
     setMpValidationStage('testing_connection');
     setMpStatusMessage(null);
     setMessage('');
@@ -671,10 +684,16 @@ export default function AdminSettingsPage() {
       const testJson = await testRes.json().catch(() => ({}));
       const measuredLatency =
         testJson.latencyMs || Math.max(1, Math.round(performance.now() - clientStart));
+      setMpLiveLatencyMs(measuredLatency);
 
       if (!testRes.ok || !testJson.ok) {
         const errText = testJson.error || 'Falha ao validar Access Token do Mercado Pago.';
         setMpValidationStage('error');
+        setMpValidationMeta((prev) => ({
+          ...prev,
+          latencyMs: measuredLatency,
+          environment: cleanToken.startsWith('TEST-') ? 'sandbox' : 'production',
+        }));
         setMpStatusMessage({ type: 'error', text: errText });
         setMessageType('error');
         setMessage(errText);
@@ -690,9 +709,7 @@ export default function AdminSettingsPage() {
         return;
       }
 
-      // 2. Conexão confirmada! Avança para persistência exclusiva do Mercado Pago
-      setMpValidationStage('saving_credentials');
-
+      // 2. Conexão confirmada! Atualiza imediatamente os metadados da conta conectada e latência
       const shouldLockPermanently =
         hideMpTokenPermanentlyAfterValidation || isMpTokenPermanentlyHidden;
       const maskedTokenValue = testJson.maskedToken || maskMpAccessToken(cleanToken);
@@ -702,6 +719,20 @@ export default function AdminSettingsPage() {
         testJson?.account?.nickname ||
         testJson?.account?.email ||
         (envType === 'sandbox' ? 'Sandbox / Teste' : 'Produção MLB');
+
+      const immediateTimestamp = new Date().toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      setMpValidationMeta({
+        latencyMs: measuredLatency,
+        accountLabel: accountName,
+        environment: envType,
+        verifiedAt: immediateTimestamp,
+      });
+      setMpValidationStage('saving_credentials');
 
       const newLogEntry: MercadoPagoConnectionTestLog = {
         id: `mp-log-${Date.now()}`,
@@ -2015,17 +2046,24 @@ export default function AdminSettingsPage() {
                   ) : mpValidationStage === 'testing_connection' ? (
                     <>
                       <Loader2 size={12} className="animate-spin text-sky-400" />
-                      <span>Validando Conexão na API...</span>
+                      <span className="font-mono">
+                        Em verificação • {mpLiveLatencyMs}ms
+                      </span>
                     </>
                   ) : mpValidationStage === 'saving_credentials' ? (
                     <>
                       <Loader2 size={12} className="animate-spin text-emerald-400" />
-                      <span>Conexão OK • Salvando...</span>
+                      <span className="font-mono">
+                        Em verificação (Salvando) • {mpValidationMeta?.latencyMs || mpLiveLatencyMs}ms
+                      </span>
                     </>
                   ) : mpValidationStage === 'error' ? (
                     <>
                       <AlertCircle size={12} className="text-rose-400" />
-                      <span>Falha no Teste de Conexão</span>
+                      <span>
+                        Falha no Teste de Conexão
+                        {mpValidationMeta?.latencyMs ? ` (${mpValidationMeta.latencyMs}ms)` : ''}
+                      </span>
                     </>
                   ) : form.mercadopago_access_token?.trim() ? (
                     <>
@@ -2165,6 +2203,78 @@ export default function AdminSettingsPage() {
                       </button>
                     </div>
                   )}
+
+                  {/* Indicador de status 'Em verificação' com latência e Conta Conectada logo abaixo do campo de Token */}
+                  <div className="mt-2 min-h-[28px]">
+                    {mpValidationStage === 'testing_connection' ||
+                    mpValidationStage === 'saving_credentials' ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-sky-500/10 border border-sky-500/30 text-[11px] text-sky-200 animate-pulse">
+                        <div className="flex items-center gap-1.5 font-semibold">
+                          <Loader2 size={13} className="animate-spin text-sky-400 shrink-0" />
+                          <span>Em verificação</span>
+                          <span className="text-sky-400/80 font-normal">
+                            {mpValidationStage === 'testing_connection'
+                              ? '• Testando autenticidade do Token na API...'
+                              : `• Conta ${mpValidationMeta?.accountLabel || 'identificada'} validada, salvando...`}
+                          </span>
+                        </div>
+                        <span className="px-2 py-0.5 rounded bg-slate-950/90 border border-sky-500/30 font-mono text-[10px] font-bold text-sky-300">
+                          Latência:{' '}
+                          {mpValidationStage === 'saving_credentials' && mpValidationMeta?.latencyMs
+                            ? mpValidationMeta.latencyMs
+                            : mpLiveLatencyMs}
+                          ms
+                        </span>
+                      </div>
+                    ) : mpValidationStage === 'verified' && mpValidationMeta?.accountLabel ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-[11px] text-emerald-200">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
+                          <span className="text-emerald-300/90 font-medium">Conta conectada:</span>
+                          <span className="font-bold text-white font-mono">
+                            {mpValidationMeta.accountLabel}
+                          </span>
+                          <span
+                            className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase tracking-wider border ${
+                              mpValidationMeta.environment === 'sandbox'
+                                ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                            }`}
+                          >
+                            {mpValidationMeta.environment === 'sandbox' ? 'SANDBOX' : 'PRODUÇÃO'}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {typeof mpValidationMeta.latencyMs === 'number' && (
+                            <span className="px-2 py-0.5 rounded bg-slate-950/90 border border-emerald-500/30 font-mono text-[10px] font-bold text-emerald-300">
+                              Latência: {mpValidationMeta.latencyMs}ms
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    ) : mpValidationStage === 'error' ? (
+                      <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-1.5 rounded-lg bg-rose-500/10 border border-rose-500/30 text-[11px] text-rose-200">
+                        <div className="flex items-center gap-1.5">
+                          <AlertCircle size={13} className="text-rose-400 shrink-0" />
+                          <span className="font-semibold">
+                            Verificação recusada pela API do Mercado Pago
+                          </span>
+                        </div>
+                        {typeof mpValidationMeta?.latencyMs === 'number' && (
+                          <span className="px-2 py-0.5 rounded bg-slate-950/90 border border-rose-500/30 font-mono text-[10px] font-bold text-rose-300">
+                            Latência: {mpValidationMeta.latencyMs}ms
+                          </span>
+                        )}
+                      </div>
+                    ) : (
+                      <p className="text-[11px] text-slate-500 flex items-center gap-1.5 px-1">
+                        <Clock size={11} className="text-slate-500 shrink-0" />
+                        <span>
+                          Clique em <strong className="text-slate-400">Testar e Salvar Mercado Pago</strong> para verificar a latência e exibir a conta conectada.
+                        </span>
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div>
