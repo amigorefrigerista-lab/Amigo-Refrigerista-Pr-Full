@@ -637,3 +637,104 @@ export async function scheduleMaintenanceReminderAction(reminderData: {
   return fallbackItem;
 }
 
+// -------------------------------------------------------------
+// CENTRAL DO CRIADOR & ADMINISTRADOR DO SISTEMA (SAAS ANALYTICS)
+// -------------------------------------------------------------
+export interface AdminSystemOverviewData {
+  users: any[];
+  clients: any[];
+  installations: any[];
+  quotes: any[];
+  errorDiagnoses: any[];
+  monthlyQuotas: any[];
+  processedPayments: any[];
+  whatsappConfirmations: any[];
+  licenseRedemptions: any[];
+  materialsStock: any[];
+}
+
+export async function getAdminSystemOverviewAction(): Promise<AdminSystemOverviewData> {
+  const emptyFallback: AdminSystemOverviewData = {
+    users: [],
+    clients: [],
+    installations: [],
+    quotes: [],
+    errorDiagnoses: [],
+    monthlyQuotas: [],
+    processedPayments: [],
+    whatsappConfirmations: [],
+    licenseRedemptions: [],
+    materialsStock: [],
+  };
+
+  const remote = await callDbApi<AdminSystemOverviewData>('getAdminSystemOverview', {}, emptyFallback);
+
+  if (typeof window === 'undefined') {
+    return remote || emptyFallback;
+  }
+
+  // Merge any local storage records so the creator also sees offline/local data seamlessly
+  const localClients: any[] = [];
+  const localInstallations: any[] = [];
+  const localQuotes: any[] = [];
+  const localDiagnoses: any[] = [];
+  const localUsers: any[] = [];
+
+  try {
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (!key) continue;
+      if (key.startsWith('amigo_clients_')) {
+        localClients.push(...readLocalList<any>(key));
+      } else if (key.startsWith('amigo_installations_')) {
+        localInstallations.push(...readLocalList<any>(key));
+      } else if (key.startsWith('amigo_quotes_')) {
+        localQuotes.push(...readLocalList<any>(key));
+      } else if (key.startsWith('amigo_diagnoses_')) {
+        localDiagnoses.push(...readLocalList<any>(key));
+      } else if (key.startsWith('amigo_user_profile_')) {
+        const raw = window.localStorage.getItem(key);
+        if (raw) {
+          try {
+            const parsed = JSON.parse(raw);
+            if (parsed && parsed.uid) localUsers.push(parsed);
+          } catch {}
+        }
+      }
+    }
+  } catch {}
+
+  const mergeById = (remoteArr: any[] = [], localArr: any[] = [], idKey = 'id') => {
+    const map = new Map<string, any>();
+    for (const item of localArr) {
+      if (item && item[idKey]) map.set(String(item[idKey]), item);
+    }
+    for (const item of remoteArr) {
+      if (item && item[idKey]) map.set(String(item[idKey]), item);
+    }
+    return Array.from(map.values());
+  };
+
+  return {
+    users: mergeById(remote?.users || [], localUsers, 'uid'),
+    clients: mergeById(remote?.clients || [], localClients, 'id'),
+    installations: mergeById(remote?.installations || [], localInstallations, 'id'),
+    quotes: mergeById(remote?.quotes || [], localQuotes, 'id'),
+    errorDiagnoses: mergeById(remote?.errorDiagnoses || [], localDiagnoses, 'id'),
+    monthlyQuotas: remote?.monthlyQuotas || [],
+    processedPayments: remote?.processedPayments || [],
+    whatsappConfirmations: remote?.whatsappConfirmations || [],
+    licenseRedemptions: remote?.licenseRedemptions || [],
+    materialsStock: remote?.materialsStock || [],
+  };
+}
+
+export async function updateAdminUserSubscriptionAction(payload: {
+  targetUid: string;
+  plan: string;
+  subscriptionStatus?: string;
+}) {
+  return await callDbApi<any>('updateAdminUserSubscription', payload, null);
+}
+
+

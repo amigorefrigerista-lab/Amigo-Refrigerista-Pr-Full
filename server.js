@@ -12,6 +12,11 @@ const handle = app.getRequestHandler();
 app.prepare().then(() => {
   createServer(async (req, res) => {
     try {
+      if (req.url && (req.url.includes('..') || req.url.includes('%2e%2e') || req.url.includes('%2E%2E'))) {
+        res.statusCode = 404;
+        res.end('Not Found');
+        return;
+      }
       const parsedUrl = parse(req.url || '', true);
       await handle(req, res, parsedUrl);
     } catch (err) {

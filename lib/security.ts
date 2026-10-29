@@ -201,8 +201,11 @@ export async function fetchVerifiedServerProfile(
 
       if (profile) {
         foundInDb = true;
-        // Admin somente se marcado explicitamente no banco (is_admin=true ou role='admin') E com e-mail confirmado
-        if (emailConfirmed && (profile.is_admin === true || profile.role === 'admin')) {
+        // Admin se for o e-mail Master confirmado OU se marcado explicitamente no banco (is_admin=true ou role='admin')
+        if (
+          (emailConfirmed && isMasterAdminEmail(email)) ||
+          (emailConfirmed && (profile.is_admin === true || profile.role === 'admin'))
+        ) {
           role = 'admin';
         } else if (emailConfirmed && profile.role === 'support') {
           role = 'support';

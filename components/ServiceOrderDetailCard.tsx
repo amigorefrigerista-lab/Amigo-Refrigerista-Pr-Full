@@ -91,6 +91,16 @@ export default function ServiceOrderDetailCard({
   const [isSavingToDb, setIsSavingToDb] = useState(false);
   const [savedFeedback, setSavedFeedback] = useState(false);
   const [isStatusTransitioning, setIsStatusTransitioning] = useState(false);
+  const prevStatusRef = useRef<OrderStatusOption>(status);
+
+  React.useEffect(() => {
+    if (prevStatusRef.current !== status) {
+      prevStatusRef.current = status;
+      setIsStatusTransitioning(true);
+      const timer = setTimeout(() => setIsStatusTransitioning(false), 950);
+      return () => clearTimeout(timer);
+    }
+  }, [status]);
 
   const pdfExporterRef = useRef<ServiceOrderPdfExporterRef>(null);
 
@@ -200,8 +210,8 @@ export default function ServiceOrderDetailCard({
   > = {
     Pending: {
       containerBorder:
-        'border-amber-500/60 shadow-[0_20px_50px_rgba(245,158,11,0.16)]',
-      containerPulseRing: 'ring-2 ring-amber-400/50 scale-[1.003]',
+        'border-amber-500/30 shadow-[0_18px_44px_-8px_rgba(var(--os-status-rgb),0.14)]',
+      containerPulseRing: 'ring-2 ring-amber-400/80 scale-[1.01] opacity-95',
       glowBg: 'bg-amber-500/15',
       headerBg:
         'bg-amber-950/90 border-amber-500/50 shadow-[0_0_30px_rgba(245,158,11,0.2)]',
@@ -212,8 +222,8 @@ export default function ServiceOrderDetailCard({
     },
     'In Progress': {
       containerBorder:
-        'border-blue-500/60 shadow-[0_20px_50px_rgba(59,130,246,0.16)]',
-      containerPulseRing: 'ring-2 ring-blue-400/50 scale-[1.003]',
+        'border-blue-500/50 shadow-[0_20px_50px_-8px_rgba(var(--os-status-rgb),0.20)]',
+      containerPulseRing: 'ring-2 ring-blue-400/80 scale-[1.01] opacity-95',
       glowBg: 'bg-blue-500/15',
       headerBg:
         'bg-sky-950/90 border-sky-500/50 shadow-[0_0_30px_rgba(14,165,233,0.2)]',
@@ -224,9 +234,9 @@ export default function ServiceOrderDetailCard({
     },
     Completed: {
       containerBorder:
-        'border-emerald-500/60 shadow-[0_20px_50px_rgba(16,185,129,0.16)]',
-      containerPulseRing: 'ring-2 ring-emerald-400/50 scale-[1.003]',
-      glowBg: 'bg-emerald-500/15',
+        'border-emerald-500/70 shadow-[0_24px_64px_-6px_rgba(var(--os-status-rgb),0.36),0_0_38px_2px_rgba(var(--os-status-rgb),0.22)]',
+      containerPulseRing: 'ring-2 ring-emerald-400/80 scale-[1.01] opacity-95',
+      glowBg: 'bg-emerald-500/20',
       headerBg:
         'bg-emerald-950/90 border-emerald-500/50 shadow-[0_0_30px_rgba(16,185,129,0.2)]',
       badgeBg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40',
@@ -251,13 +261,23 @@ export default function ServiceOrderDetailCard({
     customerSignature,
   };
 
+  const completionPercentage =
+    status === 'Pending' ? 33 : status === 'In Progress' ? 66 : 100;
+  const completionBarColorClass =
+    status === 'Pending'
+      ? 'w-1/3 bg-gradient-to-r from-amber-500 to-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.55)]'
+      : status === 'In Progress'
+      ? 'w-2/3 bg-gradient-to-r from-sky-500 to-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.55)]'
+      : 'w-full bg-gradient-to-r from-emerald-500 to-teal-400 shadow-[0_0_12px_rgba(16,185,129,0.55)]';
+
   return (
     <div
       id="service-order-container"
       data-status={status}
+      data-progress={`${completionPercentage}%`}
       data-status-transitioning={isStatusTransitioning ? 'true' : 'false'}
-      className={`bg-slate-900/90 border-2 rounded-3xl p-4 min-[400px]:p-6 sm:p-8 space-y-6 relative overflow-hidden backdrop-blur-md transition-colors transition-all duration-700 ease-in-out ${currentStyle.containerBorder} ${
-        isStatusTransitioning ? currentStyle.containerPulseRing : 'ring-0 ring-transparent scale-100'
+      className={`bg-slate-900/90 border rounded-3xl p-4 min-[400px]:p-6 sm:p-8 space-y-6 relative overflow-hidden backdrop-blur-md transform-gpu transition-[transform,box-shadow,border-color,background-color,opacity] duration-[280ms] md:duration-[380ms] ease-[cubic-bezier(0.22,1,0.36,1)] hover:scale-[1.005] md:hover:scale-[1.012] hover:-translate-y-0.5 active:scale-[0.998] ${currentStyle.containerBorder} ${
+        isStatusTransitioning ? currentStyle.containerPulseRing : 'ring-0 ring-transparent'
       }`}
     >
       <div
@@ -271,15 +291,38 @@ export default function ServiceOrderDetailCard({
         aria-label="Service Order Status Step Progress"
         className="relative z-10 p-3.5 sm:p-4 rounded-2xl bg-slate-950/75 border border-slate-800/90 space-y-3"
       >
-        <div className="flex items-center justify-between gap-2">
-          <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
-            Progresso da Ordem de Serviço
-          </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] font-black uppercase tracking-widest text-slate-400 font-mono">
+              Progresso da Ordem de Serviço
+            </span>
+            <span
+              id="service-order-completion-badge"
+              className={`px-2 py-0.5 rounded-full border text-[10px] font-black font-mono tracking-wider transition-all duration-500 ${currentStyle.badgeBg}`}
+            >
+              {completionPercentage}% Concluído
+            </span>
+          </div>
           <span
             className={`text-[10px] font-black uppercase tracking-wider font-mono transition-colors duration-500 ${currentStyle.accentText}`}
           >
             {currentStyle.labelPt}
           </span>
+        </div>
+
+        {/* Barra de linha contínua de conclusão baseada no status */}
+        <div
+          id="service-order-progress-bar"
+          role="progressbar"
+          aria-label="Porcentagem de conclusão da Ordem de Serviço"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={completionPercentage}
+          className="w-full h-2 rounded-full bg-slate-800/90 overflow-hidden p-0.5 border border-slate-700/60"
+        >
+          <div
+            className={`h-full rounded-full transition-all duration-700 ease-out ${completionBarColorClass}`}
+          />
         </div>
 
         <div className="relative">

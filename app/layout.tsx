@@ -60,9 +60,18 @@ export default async function RootLayout({
                   window.__amigoDeferredPrompt = null;
                   window.dispatchEvent(new CustomEvent('amigo-pwa-installed'));
                 });
+                if ('caches' in window) {
+                  caches.keys().then(function(keys) {
+                    keys.forEach(function(k) {
+                      if (k.indexOf('v6') === -1) caches.delete(k);
+                    });
+                  }).catch(function() {});
+                }
                 if ('serviceWorker' in navigator) {
                   window.addEventListener('load', function() {
-                    navigator.serviceWorker.register('/sw.js').catch(function() {});
+                    navigator.serviceWorker.register('/sw.js').then(function(reg) {
+                      reg.update();
+                    }).catch(function() {});
                   });
                 }
               })();

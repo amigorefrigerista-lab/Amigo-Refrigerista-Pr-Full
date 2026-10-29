@@ -7,6 +7,10 @@ import {
   installations,
   errorDiagnoses,
   materialsStock,
+  monthlyQuotas,
+  processedPayments,
+  whatsappConfirmations,
+  licenseRedemptions,
 } from '@/src/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import {
@@ -610,6 +614,94 @@ export async function POST(req: NextRequest) {
           .delete(materialsStock)
           .where(and(eq(materialsStock.id, Number(id)), eq(materialsStock.userUid, effectiveUid)));
         return NextResponse.json({ ok: true, data: true });
+      }
+
+      case 'getAdminSystemOverview': {
+        const isMaster =
+          auth.role === 'admin' ||
+          auth.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com';
+        if (!isMaster) {
+          return NextResponse.json({ ok: false, reason: 'forbidden_admin_only', data: null }, { status: 403 });
+        }
+
+        const [
+          allUsers,
+          allClients,
+          allInstallations,
+          allQuotes,
+          allDiagnoses,
+          allQuotas,
+          allPayments,
+          allWhatsappConfirmations,
+          allRedemptions,
+        ] = await Promise.all([
+          db.select().from(users).orderBy(desc(users.createdAt)).limit(500).catch(() => []),
+          db.select().from(clients).orderBy(desc(clients.createdAt)).limit(500).catch(() => []),
+          db
+            .select({
+              id: installations.id,
+              userUid: installations.userUid,
+              clientName: installations.clientName,
+              clientPhone: installations.clientPhone,
+              equipment: installations.equipment,
+              brand: installations.brand,
+              btus: installations.btus,
+              type: installations.type,
+              status: installations.status,
+              date: installations.date,
+              address: installations.address,
+              value: installations.value,
+              qrCode: installations.qrCode,
+              createdAt: installations.createdAt,
+            })
+            .from(installations)
+            .orderBy(desc(installations.createdAt))
+            .limit(500)
+            .catch(() => []),
+          db.select().from(quotes).orderBy(desc(quotes.createdAt)).limit(500).catch(() => []),
+          db.select().from(errorDiagnoses).orderBy(desc(errorDiagnoses.createdAt)).limit(300).catch(() => []),
+          db.select().from(monthlyQuotas).orderBy(desc(monthlyQuotas.updatedAt)).limit(500).catch(() => []),
+          db.select().from(processedPayments).orderBy(desc(processedPayments.processedAt)).limit(300).catch(() => []),
+          db.select().from(whatsappConfirmations).orderBy(desc(whatsappConfirmations.processedAt)).limit(200).catch(() => []),
+          db.select().from(licenseRedemptions).orderBy(desc(licenseRedemptions.redeemedAt)).limit(200).catch(() => []),
+        ]);
+
+        return NextResponse.json({
+          ok: true,
+          data: {
+            users: allUsers,
+            clients: allClients,
+            installations: allInstallations,
+            quotes: allQuotes,
+            errorDiagnoses: allDiagnoses,
+            monthlyQuotas: allQuotas,
+            processedPayments: allPayments,
+            whatsappConfirmations: allWhatsappConfirmations,
+            licenseRedemptions: allRedemptions,
+          },
+        });
+      }
+
+      case 'updateAdminUserSubscription': {
+        const isMaster =
+          auth.role === 'admin' ||
+          auth.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com';
+        if (!isMaster) {
+          return NextResponse.json({ ok: false, reason: 'forbidden_admin_only', data: null }, { status: 403 });
+        }
+        const { targetUid, plan, subscriptionStatus } = payload || {};
+        if (!targetUid || !plan) {
+          return NextResponse.json({ ok: false, reason: 'missing_params', data: null }, { status: 400 });
+        }
+        const updated = await db
+          .update(users)
+          .set({
+            plan: String(plan),
+            subscriptionStatus: subscriptionStatus ? String(subscriptionStatus) : 'active',
+          })
+          .where(eq(users.uid, String(targetUid)))
+          .returning();
+        return NextResponse.json({ ok: true, data: updated[0] || null });
       }
 
       default:

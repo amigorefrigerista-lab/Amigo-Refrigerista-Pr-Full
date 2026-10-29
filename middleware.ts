@@ -189,6 +189,11 @@ export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const nonce = generateCspNonce();
 
+  // Bloqueia tentativas de directory traversal / path injection (ex: /../app)
+  if (pathname.includes('..') || pathname.includes('%2e%2e') || pathname.includes('%2E%2E')) {
+    return new NextResponse('Not Found', { status: 404 });
+  }
+
   // 1. Proteção CSRF estrita para rotas mutáveis de API (exceto Webhooks externos autenticados por assinatura HMAC)
   // Bloqueia domínios compartilhados (*.run.app genérico) e exige lista exata de origens próprias (Host atual, ALLOWED_ORIGINS ou Referer da mesma origem)
   if (

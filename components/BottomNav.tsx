@@ -49,7 +49,7 @@ export function BottomNav({
       className="fixed bottom-0 left-0 right-0 z-40 bg-white/95 dark:bg-[#070e1c]/95 backdrop-blur-2xl border-t border-slate-200 dark:border-slate-800/80 pb-safe shadow-[0_-4px_20px_rgba(0,0,0,0.08)] dark:shadow-[0_-8px_30px_rgba(0,0,0,0.5)] pointer-events-auto transition-colors duration-200"
       style={{ touchAction: 'manipulation' }}
     >
-      <div className="max-w-lg md:max-w-2xl mx-auto flex justify-between items-center h-[68px] px-1.5 sm:px-4">
+      <div className="w-full max-w-lg md:max-w-5xl lg:max-w-[1680px] 2xl:max-w-[1840px] mx-auto flex justify-between items-center h-[68px] px-1.5 sm:px-6 lg:px-10 xl:px-12">
         {tabs.map((tab) => {
           const Icon = tab.icon;
           const isActive = activeTab === tab.id;

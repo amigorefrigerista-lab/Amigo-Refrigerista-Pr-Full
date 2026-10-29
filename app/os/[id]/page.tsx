@@ -56,8 +56,8 @@ export default async function PublicServiceOrderPage({ params }: PageProps) {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-slate-100 flex flex-col justify-between p-4 sm:p-8 font-sans transition-colors duration-200">
-      <div className="max-w-2xl mx-auto w-full space-y-6">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-slate-100 flex flex-col justify-between p-4 sm:p-6 lg:p-10 font-sans transition-colors duration-200">
+      <div className="w-full max-w-2xl lg:max-w-6xl xl:max-w-[1440px] mx-auto space-y-6">
         {/* Topo / Voltar */}
         <div className="flex items-center justify-between gap-2">
           <Link

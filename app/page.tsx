@@ -1,7 +1,7 @@
-import AmigoApp from "@/components/AmigoApp";
+import AmigoAppLoader from "@/components/AmigoAppLoader";
 
 export const dynamic = 'force-dynamic';
 
 export default function Page() {
-  return <AmigoApp />;
+  return <AmigoAppLoader />;
 }

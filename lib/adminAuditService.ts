@@ -24,13 +24,77 @@ export interface AdminAuditEntry {
   ipAddress: string;
 }
 
-const AUDIT_STORAGE_KEY = 'amigo_refrigerista_admin_audit_logs_v1';
+const AUDIT_STORAGE_KEY = 'amigo_refrigerista_admin_audit_logs_v2';
 
 export const INITIAL_ADMIN_AUDIT_LOGS: AdminAuditEntry[] = [
   {
+    id: 'AUD-2026-1024',
+    timestamp: '2026-10-27T18:10:00.000Z',
+    formattedDate: '27/10/2026 15:10',
+    adminName: 'Administrador Master',
+    adminEmail: 'amigorefrigerista@gmail.com',
+    adminRole: 'Super Admin',
+    category: 'security_config',
+    actionTitle: 'Alteração de Configurações — Sequência WhatsApp',
+    targetIdentifier: 'Configurações Master · Automação WhatsApp',
+    previousValue: 'Sequência Padrão (3 etapas)',
+    newValue: 'Sequência Ativa (4 etapas · 09:00)',
+    details: 'Atualização dos templates automáticos de renovação via API WhatsApp Master.',
+    severity: 'critical',
+    ipAddress: '177.92.40.19',
+  },
+  {
+    id: 'AUD-2026-1023',
+    timestamp: '2026-10-27T14:25:00.000Z',
+    formattedDate: '27/10/2026 11:25',
+    adminName: 'Administrador Master',
+    adminEmail: 'amigorefrigerista@gmail.com',
+    adminRole: 'Super Admin',
+    category: 'security_config',
+    actionTitle: 'Alteração de Configurações — Regras SMTP Renovação',
+    targetIdentifier: 'Configurações Master · E-mail SMTP',
+    previousValue: 'Disparo manual',
+    newValue: 'Automático (7d, 3d e 1d antes)',
+    details: 'Definição de templates HTML e gatilhos automáticos de renovação por e-mail.',
+    severity: 'critical',
+    ipAddress: '177.92.40.19',
+  },
+  {
+    id: 'AUD-2026-1022',
+    timestamp: '2026-10-26T19:40:00.000Z',
+    formattedDate: '26/10/2026 16:40',
+    adminName: 'Carlos Eduardo Silva',
+    adminEmail: 'carlos.suporte@amigorefrigerista.com.br',
+    adminRole: 'Admin Operacional',
+    category: 'plan_change',
+    actionTitle: 'Mudança de Plano — Upgrade para Pró',
+    targetIdentifier: 'rafael.climatizacao@gmail.com',
+    previousValue: 'Plano Gratuito (R$ 0)',
+    newValue: 'Plano Pró (R$ 39,90)',
+    details: 'Ativação imediata após confirmação de pagamento PIX anual.',
+    severity: 'high',
+    ipAddress: '189.44.112.84',
+  },
+  {
+    id: 'AUD-2026-1021',
+    timestamp: '2026-10-25T16:15:00.000Z',
+    formattedDate: '25/10/2026 13:15',
+    adminName: 'Fernanda Costa',
+    adminEmail: 'fernanda.admin@amigorefrigerista.com.br',
+    adminRole: 'Gestora Comercial',
+    category: 'license_generation',
+    actionTitle: 'Geração de Licença Promocional 30 Dias',
+    targetIdentifier: 'PRO-OUTUBRO-30D',
+    previousValue: '—',
+    newValue: '30 dias · 50 resgates',
+    details: 'Chave promocional gerada para campanha de ativação de leads sem OS.',
+    severity: 'high',
+    ipAddress: '201.17.98.210',
+  },
+  {
     id: 'AUD-2026-1020',
-    timestamp: '2026-10-05T13:18:40.000Z',
-    formattedDate: '05/10/2026 10:18',
+    timestamp: '2026-10-24T13:18:40.000Z',
+    formattedDate: '24/10/2026 10:18',
     adminName: 'Carlos Eduardo Silva',
     adminEmail: 'carlos.suporte@amigorefrigerista.com.br',
     adminRole: 'Admin Operacional',
@@ -45,8 +109,8 @@ export const INITIAL_ADMIN_AUDIT_LOGS: AdminAuditEntry[] = [
   },
   {
     id: 'AUD-2026-1019',
-    timestamp: '2026-10-05T12:45:12.000Z',
-    formattedDate: '05/10/2026 09:45',
+    timestamp: '2026-10-22T12:45:12.000Z',
+    formattedDate: '22/10/2026 09:45',
     adminName: 'Fernanda Costa',
     adminEmail: 'fernanda.admin@amigorefrigerista.com.br',
     adminRole: 'Gestora Comercial',
@@ -61,8 +125,8 @@ export const INITIAL_ADMIN_AUDIT_LOGS: AdminAuditEntry[] = [
   },
   {
     id: 'AUD-2026-1018',
-    timestamp: '2026-10-05T11:30:05.000Z',
-    formattedDate: '05/10/2026 08:30',
+    timestamp: '2026-10-20T11:30:05.000Z',
+    formattedDate: '20/10/2026 08:30',
     adminName: 'Administrador Master',
     adminEmail: 'amigorefrigerista@gmail.com',
     adminRole: 'Super Admin',
@@ -77,8 +141,8 @@ export const INITIAL_ADMIN_AUDIT_LOGS: AdminAuditEntry[] = [
   },
   {
     id: 'AUD-2026-1017',
-    timestamp: '2026-10-04T21:14:33.000Z',
-    formattedDate: '04/10/2026 18:14',
+    timestamp: '2026-10-18T21:14:33.000Z',
+    formattedDate: '18/10/2026 18:14',
     adminName: 'Roberto Almeida',
     adminEmail: 'roberto.auditoria@amigorefrigerista.com.br',
     adminRole: 'Admin Financeiro',
@@ -93,8 +157,8 @@ export const INITIAL_ADMIN_AUDIT_LOGS: AdminAuditEntry[] = [
   },
   {
     id: 'AUD-2026-1016',
-    timestamp: '2026-10-04T19:52:18.000Z',
-    formattedDate: '04/10/2026 16:52',
+    timestamp: '2026-10-15T19:52:18.000Z',
+    formattedDate: '15/10/2026 16:52',
     adminName: 'Carlos Eduardo Silva',
     adminEmail: 'carlos.suporte@amigorefrigerista.com.br',
     adminRole: 'Admin Operacional',
@@ -349,7 +413,7 @@ export const INITIAL_ADMIN_AUDIT_LOGS: AdminAuditEntry[] = [
   },
 ];
 
-export function getAdminAuditLogs(limit = 20): AdminAuditEntry[] {
+export function getAdminAuditLogs(limit = 100): AdminAuditEntry[] {
   if (typeof window === 'undefined') {
     return INITIAL_ADMIN_AUDIT_LOGS.slice(0, limit);
   }
@@ -399,8 +463,8 @@ export function recordAdminAuditAction(
 
   if (typeof window !== 'undefined') {
     try {
-      const current = getAdminAuditLogs(50);
-      const updated = [newEntry, ...current].slice(0, 50);
+      const current = getAdminAuditLogs(100);
+      const updated = [newEntry, ...current].slice(0, 100);
       localStorage.setItem(AUDIT_STORAGE_KEY, JSON.stringify(updated));
       window.dispatchEvent(new CustomEvent('admin-audit-updated'));
     } catch (err) {

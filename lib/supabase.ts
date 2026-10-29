@@ -97,7 +97,9 @@ export interface SupabaseWorkOrder {
   fotos?: string[];
   garantia_dias?: number;
   observacoes?: string;
+  orderNumber?: string;
   created_at?: string;
+  updated_at?: string;
 }
 
 export interface SupabaseDiagnostic {

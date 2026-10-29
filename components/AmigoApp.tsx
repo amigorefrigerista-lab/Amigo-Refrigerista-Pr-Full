@@ -82,7 +82,6 @@ import { WhatsAppTemplateModal } from '@/components/WhatsAppTemplateModal';
 import { GoogleConnectModal } from '@/components/GoogleConnectModal';
 import { ProfileUpdateModal } from '@/components/ProfileUpdateModal';
 import { RecurringRevenueCard } from '@/components/RecurringRevenueCard';
-import { PlanStatusBanner } from '@/components/PlanStatusBanner';
 import { UpgradeModal } from '@/components/UpgradeModal';
 import { ClientSupportModal } from '@/components/ClientSupportModal';
 import ServiceOrderPdfExporter, {
@@ -96,6 +95,7 @@ import { ClientServiceLocationsMap } from '@/components/ClientServiceLocationsMa
 import { MobileInstallBanner } from '@/components/MobileInstallBanner';
 import { Footer } from '@/components/Footer';
 import { AdminSupportChatView } from '@/components/AdminSupportChatView';
+import { AdminCreatorHub } from '@/components/AdminCreatorHub';
 import { motion, AnimatePresence } from 'motion/react';
 import { Toaster, toast } from 'sonner';
 import { useRouter } from 'next/navigation';
@@ -126,6 +126,8 @@ import {
   scheduleMaintenanceReminderAction
 } from '@/app/actions/dbActions';
 import { supabaseService } from '@/lib/supabase';
+import { offlineSyncManager } from '@/lib/offlineSyncManager';
+import OfflineSyncIndicator from '@/components/OfflineSyncIndicator';
 import { useAuth } from '@/hooks/useAuth';
 import { Header } from '@/components/Header';
 import { BottomNav } from '@/components/BottomNav';
@@ -374,16 +376,8 @@ export default function AmigoApp() {
 
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      const email = localStorage.getItem('amigo_last_google_email') || '';
-      const name = localStorage.getItem('amigo_last_google_name') || '';
-      if (email) {
-        setSavedGoogleEmail(email);
-        setEmailInput(prev => prev || email);
-      }
-      if (name) {
-        setSavedGoogleName(name);
-        setNameInput(prev => prev || name);
-      }
+      localStorage.removeItem('amigo_last_google_email');
+      localStorage.removeItem('amigo_last_google_name');
     }
   }, []);
 
@@ -424,6 +418,21 @@ export default function AmigoApp() {
   const [headerSaving, setHeaderSaving] = useState(false);
   const [headerSavedSuccess, setHeaderSavedSuccess] = useState(false);
   const [osStatusTransitioning, setOsStatusTransitioning] = useState(false);
+  const prevOsStatusRef = useRef<string | null>(null);
+  const currentTrackedStatus = serviceOrders[0]?.status || defaultOrderStatus;
+
+  useEffect(() => {
+    if (prevOsStatusRef.current === null) {
+      prevOsStatusRef.current = currentTrackedStatus;
+      return;
+    }
+    if (prevOsStatusRef.current !== currentTrackedStatus) {
+      prevOsStatusRef.current = currentTrackedStatus;
+      setOsStatusTransitioning(true);
+      const timer = setTimeout(() => setOsStatusTransitioning(false), 950);
+      return () => clearTimeout(timer);
+    }
+  }, [currentTrackedStatus]);
   const [savingOsCardId, setSavingOsCardId] = useState<string | null>(null);
   const [savedOsCardId, setSavedOsCardId] = useState<string | null>(null);
   const [isOsQrScannerOpen, setIsOsQrScannerOpen] = useState(false);
@@ -985,10 +994,33 @@ export default function AmigoApp() {
           notes: remNotes.trim(),
           warrantyMonths: 12,
           qrCode: orderNumber,
+        }).catch(async () => {
+          await offlineSyncManager.saveWorkOrderOfflineFirst({
+            id: 'os-' + Date.now(),
+            orderNumber,
+            clientName: remClientName.trim(),
+            clientPhone: remClientPhone.trim(),
+            clientAddress: remClientAddress.trim(),
+            equipment: remEquipment.trim(),
+            status: 'agendado',
+            serviceDate: remServiceDate,
+            notes: remNotes.trim(),
+          }, user.uid);
         });
 
-        toast.success(`Ordem de Serviço #${orderNumber} criada com sucesso no PostgreSQL!`);
+        toast.success(`Ordem de Serviço #${orderNumber} salva com sucesso! (Modo Offline-First ativo)`);
       } else {
+        await offlineSyncManager.saveWorkOrderOfflineFirst({
+          id: 'os-' + Date.now(),
+          orderNumber,
+          clientName: remClientName.trim(),
+          clientPhone: remClientPhone.trim(),
+          clientAddress: remClientAddress.trim(),
+          equipment: remEquipment.trim(),
+          status: 'agendado',
+          serviceDate: remServiceDate,
+          notes: remNotes.trim(),
+        }, 'guest');
         toast.success(`Ordem de Serviço #${orderNumber} criada localmente!`);
       }
 
@@ -1199,23 +1231,121 @@ export default function AmigoApp() {
 
   if (!user) {
     return (
-      <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-white flex flex-col items-center justify-center p-4 py-8 relative transition-colors duration-200">
+      <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-white flex flex-col justify-between pt-6 sm:pt-8 lg:pt-10 relative transition-colors duration-200">
         <Toaster position="top-center" richColors theme={isDark ? 'dark' : 'light'} />
         <div className="fixed top-4 right-4 z-50">
           <ThemeToggle showLabel />
         </div>
-        <div className="max-w-md w-full bg-white dark:bg-slate-900/90 border border-sky-500/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl backdrop-blur-xl relative overflow-hidden">
-          <div className="text-center space-y-3">
-            <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-500 to-cyan-500 flex items-center justify-center text-white mx-auto shadow-[0_0_25px_rgba(14,165,233,0.4)]">
-              <Snowflake size={36} />
+        <div className="w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 flex-1 flex items-center">
+        <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 xl:gap-12 items-stretch">
+          {/* Painel Lateral Desktop — Preenche o espaço em telas largas com recursos e indicadores da plataforma */}
+          <div className="hidden lg:flex lg:col-span-7 xl:col-span-7 bg-gradient-to-br from-slate-900 via-slate-900/95 to-sky-950/60 border border-sky-500/25 rounded-3xl p-8 xl:p-10 flex-col justify-between shadow-2xl relative overflow-hidden">
+            <div className="space-y-6 relative z-10">
+              <div className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-sky-500/15 border border-sky-500/30 text-sky-300 text-xs font-bold">
+                <Sparkles size={14} className="text-sky-400" />
+                <span>SISTEMA INTEGRADO DE GESTÃO & CAMPO HVAC-R</span>
+              </div>
+
+              <div className="space-y-3">
+                <h2 className="text-3xl xl:text-4xl font-black text-white tracking-tight leading-tight">
+                  Gestão Completa de Ordens de Serviço, PMOC Digital e Diagnóstico IA em Tela Cheia
+                </h2>
+                <p className="text-sm xl:text-base text-slate-300 leading-relaxed max-w-3xl">
+                  Emita Ordens de Serviço com QR Code autêntico, calcule Superaquecimento e Sub-resfriamento com precisão, automatize lembretes de manutenção preventiva via WhatsApp e acompanhe seu faturamento recorrente.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 xl:grid-cols-3 gap-4 pt-2">
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/90 space-y-2">
+                  <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <QrCode size={18} />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">OS Digital & QR Code PMOC</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Certificado digital com assinatura do cliente, histórico da máquina e garantia automática.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/90 space-y-2">
+                  <div className="w-9 h-9 rounded-xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400">
+                    <AlertCircle size={18} />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">Diagnóstico de Erros IA</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Análise instantânea de códigos Inverter/VRF e leitura OCR de placas técnicas por foto.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/90 space-y-2">
+                  <div className="w-9 h-9 rounded-xl bg-sky-500/15 border border-sky-500/30 flex items-center justify-center text-sky-400">
+                    <Thermometer size={18} />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">Calculadora SH & Subcooling</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Tabelas PxT para R410A, R32, R22, R134a e R404A com diagnóstico térmico em tempo real.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/90 space-y-2">
+                  <div className="w-9 h-9 rounded-xl bg-amber-500/15 border border-amber-500/30 flex items-center justify-center text-amber-400">
+                    <BellRing size={18} />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">Recorrência no WhatsApp</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Alertas automáticos de higienização e preventiva a cada 3, 6 ou 12 meses para fidelizar clientes.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/90 space-y-2">
+                  <div className="w-9 h-9 rounded-xl bg-purple-500/15 border border-purple-500/30 flex items-center justify-center text-purple-400">
+                    <Camera size={18} />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">Leitor OCR de Etiquetas</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Extraia BTU, fluido refrigerante, carga de gás e tensão direto da foto da condensadora.
+                  </p>
+                </div>
+
+                <div className="p-4 rounded-2xl bg-slate-950/70 border border-slate-800/90 space-y-2">
+                  <div className="w-9 h-9 rounded-xl bg-cyan-500/15 border border-cyan-500/30 flex items-center justify-center text-cyan-400">
+                    <DollarSign size={18} />
+                  </div>
+                  <h3 className="text-sm font-bold text-white">Orçamentos & Financeiro</h3>
+                  <p className="text-xs text-slate-400 leading-relaxed">
+                    Tabela de preços regionalizada, envio de propostas em PDF/WhatsApp e controle de caixa.
+                  </p>
+                </div>
+              </div>
             </div>
-            <div>
-              <h1 className="text-2xl font-black tracking-tight">Amigo Refrigerista <span className="text-sky-400">PRO</span></h1>
-              <p className="text-xs text-slate-400 mt-1">
-                Plataforma profissional para técnicos de HVAC-R
-              </p>
+
+            <div className="grid grid-cols-3 gap-4 pt-6 mt-6 border-t border-slate-800/80 relative z-10">
+              <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5">
+                <span className="text-[11px] text-slate-400 block font-semibold">Marcas Suportadas</span>
+                <strong className="text-lg font-black text-white font-mono">+14 Fabricantes</strong>
+              </div>
+              <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5">
+                <span className="text-[11px] text-slate-400 block font-semibold">Ordens & Laudos PMOC</span>
+                <strong className="text-lg font-black text-emerald-400 font-mono">100% Digital</strong>
+              </div>
+              <div className="bg-slate-950/60 border border-slate-800/80 rounded-2xl p-3.5">
+                <span className="text-[11px] text-slate-400 block font-semibold">Sincronização Offline</span>
+                <strong className="text-lg font-black text-sky-400 font-mono">Tempo Real</strong>
+              </div>
             </div>
           </div>
+
+          <div className="lg:col-span-5 xl:col-span-5 w-full max-w-md lg:max-w-none mx-auto bg-white dark:bg-slate-900/90 border border-sky-500/30 rounded-3xl p-6 sm:p-8 space-y-6 shadow-2xl backdrop-blur-xl relative overflow-hidden flex flex-col justify-center">
+            <div className="text-center space-y-3">
+              <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-500 to-cyan-500 flex items-center justify-center text-white mx-auto shadow-[0_0_25px_rgba(14,165,233,0.4)]">
+                <Snowflake size={36} />
+              </div>
+              <div>
+                <h1 className="text-2xl font-black tracking-tight">Amigo Refrigerista <span className="text-sky-400">PRO</span></h1>
+                <p className="text-xs text-slate-400 mt-1">
+                  Plataforma profissional para técnicos de HVAC-R
+                </p>
+              </div>
+            </div>
 
           {/* Abas do formulário */}
           <div className="grid grid-cols-2 p-1 bg-slate-950/80 rounded-xl border border-slate-800 text-xs font-bold">
@@ -1231,81 +1361,6 @@ export default function AmigoApp() {
             >
               Já tenho Conta
             </button>
-          </div>
-
-          {/* Botão rápido e inteligente do Google */}
-          <div className="space-y-2">
-            <button
-              type="button"
-              onClick={async (e) => {
-                e.preventDefault();
-                const targetEmail = savedGoogleEmail || emailInput.trim();
-                const targetName = savedGoogleName || nameInput.trim();
-
-                if (targetEmail) {
-                  try {
-                    setIsGoogleLoading(true);
-                    const { data, error } = await signInWithGoogle(targetEmail, targetName);
-                    if (error) {
-                      toast.error(error.message || 'Falha na autenticação Google');
-                    } else {
-                      const loggedUid = data?.user?.id;
-                      const dbUser = loggedUid ? await getUserProfileAction(loggedUid).catch(() => null) : null;
-                      const finalName = dbUser?.name?.trim() || targetName || data?.user?.user_metadata?.full_name?.trim() || 'Técnico';
-                      toast.success(`Bem-vindo de volta, ${finalName}!`);
-                    }
-                  } catch (err: any) {
-                    toast.error(err.message || 'Falha ao entrar com Google');
-                  } finally {
-                    setIsGoogleLoading(false);
-                  }
-                } else {
-                  setShowGoogleModal(true);
-                }
-              }}
-              disabled={isGoogleLoading}
-              className="w-full py-3.5 px-4 rounded-xl bg-white hover:bg-slate-100 active:scale-[0.99] disabled:opacity-75 text-slate-950 font-bold text-xs transition flex items-center justify-center gap-2.5 shadow-lg shadow-white/10 cursor-pointer"
-            >
-              {isGoogleLoading ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-slate-900 border-t-transparent rounded-full animate-spin" />
-                  <span>Conectando com o Google...</span>
-                </>
-              ) : (
-                <>
-                  <svg viewBox="0 0 24 24" className="w-4 h-4 shrink-0">
-                    <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" />
-                    <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
-                    <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z" />
-                    <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z" />
-                  </svg>
-                  <span className="truncate">
-                    {savedGoogleEmail 
-                      ? `Entrar como ${savedGoogleName || savedGoogleEmail.split('@')[0]}` 
-                      : (authMode === 'register' ? 'Criar Conta com 1 Clique (Google)' : 'Entrar com Google em 1 Clique')
-                    }
-                  </span>
-                </>
-              )}
-            </button>
-
-            {savedGoogleEmail && (
-              <div className="flex items-center justify-between px-1 text-[11px] text-slate-400">
-                <span className="truncate font-mono">{savedGoogleEmail}</span>
-                <button
-                  type="button"
-                  onClick={() => setShowGoogleModal(true)}
-                  className="text-sky-400 hover:text-sky-300 transition underline underline-offset-2 ml-2 shrink-0 cursor-pointer font-medium"
-                >
-                  Trocar de conta Google
-                </button>
-              </div>
-            )}
-          </div>
-
-          <div className="relative flex items-center justify-center">
-            <div className="border-t border-slate-800 w-full" />
-            <span className="bg-slate-900 px-3 text-[10px] text-slate-500 uppercase tracking-widest font-mono">ou com e-mail</span>
           </div>
 
           {/* Form de Cadastro */}
@@ -1525,10 +1580,14 @@ export default function AmigoApp() {
             </form>
           )}
 
-          <div className="text-center pt-2">
-            {/* O rodapé agora é global via componente Footer */}
+          <div className="text-center pt-1">
+            {/* O rodapé é exibido na base da página via componente Footer */}
+          </div>
           </div>
         </div>
+        </div>
+
+        <Footer />
 
         {/* Modal de Conexão com Conta Google Real para usuário não autenticado */}
         <GoogleConnectModal
@@ -1591,7 +1650,7 @@ export default function AmigoApp() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-white pb-32 pt-16 transition-colors duration-200">
+    <div className="min-h-screen bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-white pb-[70px] pt-16 flex flex-col justify-between transition-colors duration-200">
       <Toaster position="top-center" richColors theme={isDark ? 'dark' : 'light'} />
       
       {/* Header com os botões de Suporte e Admin */}
@@ -1599,9 +1658,10 @@ export default function AmigoApp() {
         onOpenSettings={() => setActiveTab('settings')} 
         onOpenSupportModal={() => setShowSupportModal(true)}
         onOpenUpgradeModal={() => setShowUpgradeModal(true)}
+        onOpenAdminHub={() => setActiveTab('suporte-admin')}
       />
 
-      <main className="max-w-4xl mx-auto px-3 sm:px-5 py-4 sm:py-6 space-y-5 sm:space-y-6">
+      <main className="w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto px-3 sm:px-6 lg:px-10 xl:px-12 py-4 sm:py-6 space-y-5 sm:space-y-6">
         {/* Alerta de Perfil Incompleto no Banco */}
         {isProfileIncomplete && (
           <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/10 animate-pulse">
@@ -1626,8 +1686,6 @@ export default function AmigoApp() {
           </div>
         )}
 
-        {/* Banner Visual do Plano Atual do Usuário com Botão Informativo para Upgrade */}
-        <PlanStatusBanner onOpenUpgradeModal={() => setShowUpgradeModal(true)} />
 
         {/* Botões de Navegação entre Abas */}
         <div className="grid grid-cols-3 sm:flex gap-2 pb-1">
@@ -1655,14 +1713,22 @@ export default function AmigoApp() {
             <span className="sm:hidden">Orçamentos</span>
             <span className="hidden sm:inline">Orçamentos</span>
           </button>
+
+          <button
+            onClick={() => setActiveTab('calc')}
+            className={`px-3 sm:px-4 py-2.5 rounded-xl text-xs font-bold transition flex items-center justify-center gap-1.5 text-center truncate cursor-pointer ${ activeTab === 'calc' ? 'bg-sky-500 text-white shadow-md shadow-sky-500/20' : 'text-slate-600 dark:text-slate-300 hover:text-slate-950 dark:hover:text-white bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800' }`}
+          >
+            <Calculator size={14} className="shrink-0" />
+            <span className="truncate">Calculadora</span>
+          </button>
         </div>
 
         {/* 1. ABA: DASHBOARD */}
         {activeTab === 'dash' && (
-          <div className="space-y-5 sm:space-y-6">
-            {/* Card de Destaque: Criar Novo Serviço (Botão de fácil identificação) */}
-            <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
-              <div className="flex items-start sm:items-center gap-3.5">
+          <div className="flex flex-col gap-5 sm:gap-6">
+            {/* Card de Destaque: Criar Novo Serviço (No mobile: apenas 1 linha com botão verde + ícone da ferramenta) */}
+            <div className="sm:p-5 sm:rounded-3xl sm:bg-gradient-to-r sm:from-emerald-950/80 sm:via-slate-900 sm:to-slate-900 sm:border sm:border-emerald-500/30 flex flex-row items-center justify-between gap-4 sm:shadow-xl">
+              <div className="hidden sm:flex items-center gap-3.5 min-w-0">
                 <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
                   <Wrench size={24} />
                 </div>
@@ -1683,13 +1749,13 @@ export default function AmigoApp() {
               <button
                 type="button"
                 onClick={() => setShowOSModal(true)}
-                className="w-full sm:w-auto px-5 py-3.5 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs sm:text-sm transition flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(16,185,129,0.35)] cursor-pointer active:scale-95 shrink-0"
+                className="w-full sm:w-auto px-4 sm:px-5 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm transition flex items-center justify-center gap-2.5 shadow-[0_6px_25px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 shrink-0 whitespace-nowrap"
               >
-                <Plus size={18} strokeWidth={3} />
-                <span>Criar Novo Serviço Agora</span>
+                <Wrench size={18} strokeWidth={2.5} className="shrink-0 text-white" />
+                <span className="truncate text-white">Criar Novo Serviço Agora</span>
               </button>
             </div>
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="order-last sm:order-none grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-slate-900/90 border border-slate-800 rounded-2xl p-3.5 sm:p-4">
                 <div className="flex items-center justify-between text-slate-300 mb-1.5">
                   <span className="text-xs font-bold">Clientes Ativos</span>
@@ -1729,139 +1795,147 @@ export default function AmigoApp() {
               </div>
             </div>
 
-            {/* Card de Faturamento Recorrente com Lembretes Pendentes */}
-            <RecurringRevenueCard
-              pendingClients={reminders.map(rem => ({
-                id: rem.id!,
-                name: rem.clientName,
-                phone: rem.clientPhone,
-                equipment: rem.equipment,
-                monthsSinceService: rem.monthsInterval
-              }))}
-              estimatedPricePerService={200}
-              onSendWhatsApp={(client) => {
-                toast.success(`Iniciando conversa no WhatsApp com ${client.name}!`);
-              }}
-            />
-
-            {/* Ações Rápidas de Campo */}
-            <div className="space-y-3">
-              <h3 className="text-sm font-bold text-slate-300">Ferramentas Rápidas de Campo</h3>
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <button
-                  onClick={() => setActiveTab('errors')}
-                  className="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 text-left transition flex items-center justify-between group cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400">
-                      <AlertCircle size={20} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white">Diagnóstico de Erros</h4>
-                      <p className="text-[11px] text-slate-400">IA especialista em todas as marcas</p>
-                    </div>
-                  </div>
-                  <ChevronRight size={18} className="text-slate-500 group-hover:text-white transition" />
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('calc')}
-                  className="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 text-left transition flex items-center justify-between group cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400">
-                      <Thermometer size={20} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white">Superaquecimento</h4>
-                      <p className="text-[11px] text-slate-400">SH, Sub-resfriamento e PxT</p>
-                    </div>
-                  </div>
-                  <ChevronRight size={18} className="text-slate-500 group-hover:text-white transition" />
-                </button>
-
-                <button
-                  onClick={() => setActiveTab('clients')}
-                  className="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 text-left transition flex items-center justify-between group cursor-pointer"
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
-                      <Users size={20} />
-                    </div>
-                    <div>
-                      <h4 className="text-sm font-bold text-white">Clientes & PMOC</h4>
-                      <p className="text-[11px] text-slate-400">Ordens de serviço e QR Code</p>
-                    </div>
-                  </div>
-                  <ChevronRight size={18} className="text-slate-500 group-hover:text-white transition" />
-                </button>
-              </div>
-            </div>
-
-            {/* Leitor OCR de Placa de Ar-Condicionado com IA */}
-            <div className="bg-slate-900 border border-purple-500/30 rounded-3xl p-6 space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <div className="p-2.5 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400">
-                    <Camera size={22} />
-                  </div>
-                  <div>
-                    <h3 className="text-base font-bold text-white flex items-center gap-2">
-                      <span>Leitor OCR de Placa Técnica</span>
-                      <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">IA GEMINI</span>
-                    </h3>
-                    <p className="text-xs text-slate-400">Tire foto da etiqueta do condensador/evaporador para extrair BTU, Gás, Corrente e Modelo</p>
-                  </div>
-                </div>
+            {/* Grid Principal Desktop: Faturamento Recorrente + Ferramentas Rápidas & Leitor OCR lado a lado em telas amplas */}
+            <div className="grid grid-cols-1 xl:grid-cols-12 gap-5 sm:gap-6 items-start">
+              {/* Coluna Esquerda Desktop (7 cols): Card de Faturamento Recorrente com Lembretes Pendentes */}
+              <div className="xl:col-span-7 w-full">
+                <RecurringRevenueCard
+                  pendingClients={reminders.map(rem => ({
+                    id: rem.id!,
+                    name: rem.clientName,
+                    phone: rem.clientPhone,
+                    equipment: rem.equipment,
+                    monthsSinceService: rem.monthsInterval
+                  }))}
+                  estimatedPricePerService={200}
+                  onSendWhatsApp={(client) => {
+                    toast.success(`Iniciando conversa no WhatsApp com ${client.name}!`);
+                  }}
+                />
               </div>
 
-              <div className="pt-2">
-                <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-purple-500/30 hover:border-purple-500/50 rounded-2xl bg-purple-500/5 hover:bg-purple-500/10 cursor-pointer transition">
-                  <Camera size={32} className="text-purple-400 mb-2" />
-                  <span className="text-xs font-bold text-white">Tirar Foto ou Enviar Imagem da Placa</span>
-                  <span className="text-[10px] text-slate-400 mt-1">Extração automática de marca, modelo, fluido e especificações</span>
-                  <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
-                </label>
-              </div>
+              {/* Coluna Direita Desktop (5 cols): Ações Rápidas + Leitor OCR de Placa Técnica */}
+              <div className="xl:col-span-5 w-full space-y-5 sm:space-y-6">
+                {/* Ações Rápidas de Campo */}
+                <div className="space-y-3">
+                  <h3 className="text-sm font-bold text-slate-300">Ferramentas Rápidas de Campo</h3>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 xl:grid-cols-1 gap-3">
+                    <button
+                      onClick={() => setActiveTab('errors')}
+                      className="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 text-left transition flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400">
+                          <AlertCircle size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-white">Diagnóstico de Erros</h4>
+                          <p className="text-[11px] text-slate-400">IA especialista em todas as marcas</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={18} className="text-slate-500 group-hover:text-white transition" />
+                    </button>
 
-              {ocrLoading && (
-                <div className="p-4 rounded-xl bg-slate-950 flex items-center justify-center gap-3 text-purple-300 text-xs font-semibold">
-                  <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
-                  <span>Analisando placa técnica com Visão Computacional do Gemini...</span>
-                </div>
-              )}
+                    <button
+                      onClick={() => setActiveTab('calc')}
+                      className="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 text-left transition flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400">
+                          <Thermometer size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-white">Superaquecimento</h4>
+                          <p className="text-[11px] text-slate-400">SH, Sub-resfriamento e PxT</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={18} className="text-slate-500 group-hover:text-white transition" />
+                    </button>
 
-              {ocrData && (
-                <div className="p-5 rounded-2xl bg-slate-950 border border-purple-500/30 space-y-3">
-                  <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider">Dados Extraídos da Placa</h4>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
-                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">Marca</span>
-                      <strong className="text-white text-sm">{ocrData.brand || 'N/D'}</strong>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">Modelo</span>
-                      <strong className="text-white text-sm">{ocrData.model || 'N/D'}</strong>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">Capacidade</span>
-                      <strong className="text-white text-sm">{ocrData.btuCapacity || 'N/D'}</strong>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">Fluido Refrigerante</span>
-                      <strong className="text-cyan-400 text-sm">{ocrData.refrigerant || 'N/D'}</strong>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">Carga de Fluido</span>
-                      <strong className="text-white text-sm">{ocrData.refrigerantWeight || 'N/D'}</strong>
-                    </div>
-                    <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
-                      <span className="text-[10px] text-slate-400 block">Tensão / Fases</span>
-                      <strong className="text-white text-sm">{ocrData.voltage || 'N/D'}</strong>
-                    </div>
+                    <button
+                      onClick={() => setActiveTab('clients')}
+                      className="bg-slate-900 hover:bg-slate-800/80 border border-slate-800 rounded-2xl p-4 text-left transition flex items-center justify-between group cursor-pointer"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-2.5 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-400">
+                          <Users size={20} />
+                        </div>
+                        <div>
+                          <h4 className="text-sm font-bold text-white">Clientes & PMOC</h4>
+                          <p className="text-[11px] text-slate-400">Ordens de serviço e QR Code</p>
+                        </div>
+                      </div>
+                      <ChevronRight size={18} className="text-slate-500 group-hover:text-white transition" />
+                    </button>
                   </div>
                 </div>
-              )}
+
+                {/* Leitor OCR de Placa de Ar-Condicionado com IA */}
+                <div className="bg-slate-900 border border-purple-500/30 rounded-3xl p-6 space-y-4">
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                      <div className="p-2.5 rounded-xl bg-purple-500/15 border border-purple-500/30 text-purple-400">
+                        <Camera size={22} />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-white flex items-center gap-2">
+                          <span>Leitor OCR de Placa Técnica</span>
+                          <span className="px-2 py-0.5 rounded-full text-[9px] font-black bg-purple-500/20 text-purple-300 border border-purple-500/30">IA GEMINI</span>
+                        </h3>
+                        <p className="text-xs text-slate-400">Tire foto da etiqueta do condensador/evaporador para extrair BTU, Gás, Corrente e Modelo</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="pt-2">
+                    <label className="flex flex-col items-center justify-center p-6 border-2 border-dashed border-purple-500/30 hover:border-purple-500/50 rounded-2xl bg-purple-500/5 hover:bg-purple-500/10 cursor-pointer transition">
+                      <Camera size={32} className="text-purple-400 mb-2" />
+                      <span className="text-xs font-bold text-white">Tirar Foto ou Enviar Imagem da Placa</span>
+                      <span className="text-[10px] text-slate-400 mt-1">Extração automática de marca, modelo, fluido e especificações</span>
+                      <input type="file" accept="image/*" capture="environment" onChange={handleImageUpload} className="hidden" />
+                    </label>
+                  </div>
+
+                  {ocrLoading && (
+                    <div className="p-4 rounded-xl bg-slate-950 flex items-center justify-center gap-3 text-purple-300 text-xs font-semibold">
+                      <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+                      <span>Analisando placa técnica com Visão Computacional do Gemini...</span>
+                    </div>
+                  )}
+
+                  {ocrData && (
+                    <div className="p-5 rounded-2xl bg-slate-950 border border-purple-500/30 space-y-3">
+                      <h4 className="text-xs font-bold text-purple-400 uppercase tracking-wider">Dados Extraídos da Placa</h4>
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 text-xs">
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Marca</span>
+                          <strong className="text-white text-sm">{ocrData.brand || 'N/D'}</strong>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Modelo</span>
+                          <strong className="text-white text-sm">{ocrData.model || 'N/D'}</strong>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Capacidade</span>
+                          <strong className="text-white text-sm">{ocrData.btuCapacity || 'N/D'}</strong>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Fluido Refrigerante</span>
+                          <strong className="text-cyan-400 text-sm">{ocrData.refrigerant || 'N/D'}</strong>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Carga de Fluido</span>
+                          <strong className="text-white text-sm">{ocrData.refrigerantWeight || 'N/D'}</strong>
+                        </div>
+                        <div className="p-2.5 rounded-xl bg-slate-900 border border-slate-800">
+                          <span className="text-[10px] text-slate-400 block">Tensão / Fases</span>
+                          <strong className="text-white text-sm">{ocrData.voltage || 'N/D'}</strong>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
           </div>
         )}
@@ -2849,18 +2923,24 @@ export default function AmigoApp() {
                   : activeContainerStatus === 'In Progress'
                   ? 'var(--os-status-in-progress)'
                   : 'var(--os-status-completed)';
+              const statusBorderOpacityVar =
+                activeContainerStatus === 'Pending'
+                  ? '0.32'
+                  : activeContainerStatus === 'In Progress'
+                  ? '0.48'
+                  : '0.65';
               const containerBorderClass =
                 activeContainerStatus === 'Pending'
-                  ? 'border-amber-500/60 shadow-[0_20px_50px_rgba(var(--os-status-pending),0.18)]'
+                  ? 'border-amber-500/30 shadow-[0_20px_50px_rgba(var(--os-status-pending),0.14)]'
                   : activeContainerStatus === 'In Progress'
-                  ? 'border-blue-500/60 shadow-[0_20px_50px_rgba(var(--os-status-in-progress),0.18)]'
-                  : 'border-emerald-500/60 shadow-[0_20px_50px_rgba(var(--os-status-completed),0.18)]';
+                  ? 'border-blue-500/50 shadow-[0_20px_50px_rgba(var(--os-status-in-progress),0.18)]'
+                  : 'border-emerald-500/65 shadow-[0_20px_50px_rgba(var(--os-status-completed),0.22)]';
               const containerPulseRingClass =
                 activeContainerStatus === 'Pending'
-                  ? 'ring-2 ring-amber-400/80 scale-[1.005] shadow-[0_0_65px_14px_rgba(var(--os-status-pending),0.58)]'
+                  ? 'ring-2 ring-amber-400/80 scale-[1.01] opacity-95 shadow-[0_0_65px_14px_rgba(var(--os-status-pending),0.58)]'
                   : activeContainerStatus === 'In Progress'
-                  ? 'ring-2 ring-blue-400/80 scale-[1.005] shadow-[0_0_65px_14px_rgba(var(--os-status-in-progress),0.58)]'
-                  : 'ring-2 ring-emerald-400/80 scale-[1.005] shadow-[0_0_65px_14px_rgba(var(--os-status-completed),0.58)]';
+                  ? 'ring-2 ring-blue-400/80 scale-[1.01] opacity-95 shadow-[0_0_65px_14px_rgba(var(--os-status-in-progress),0.58)]'
+                  : 'ring-2 ring-emerald-400/80 scale-[1.01] opacity-95 shadow-[0_0_65px_14px_rgba(var(--os-status-completed),0.58)]';
               const containerHeaderBg =
                 activeContainerStatus === 'Pending'
                   ? 'bg-amber-950/90 border-amber-500/50 shadow-[0_0_30px_rgba(var(--os-status-pending),0.22)]'
@@ -2897,13 +2977,38 @@ export default function AmigoApp() {
                   currentOs?.customerSignature || defaultCustomerSignature || null,
               };
 
+              const completionPercentage =
+                activeContainerStatus === 'Pending'
+                  ? 33
+                  : activeContainerStatus === 'In Progress'
+                  ? 66
+                  : 100;
+              const completionBadgeClass =
+                activeContainerStatus === 'Pending'
+                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                  : activeContainerStatus === 'In Progress'
+                  ? 'bg-blue-500/20 text-blue-300 border-blue-500/40'
+                  : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40';
+              const completionBarColorClass =
+                activeContainerStatus === 'Pending'
+                  ? 'w-1/3 bg-gradient-to-r from-amber-500 to-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.55)]'
+                  : activeContainerStatus === 'In Progress'
+                  ? 'w-2/3 bg-gradient-to-r from-sky-500 to-blue-400 shadow-[0_0_12px_rgba(59,130,246,0.55)]'
+                  : 'w-full bg-gradient-to-r from-emerald-500 to-teal-400 shadow-[0_0_12px_rgba(16,185,129,0.55)]';
+
               return (
                 <div
                   id="service-order-container"
                   data-status={activeContainerStatus}
+                  data-progress={`${completionPercentage}%`}
                   data-status-transitioning={osStatusTransitioning ? 'true' : 'false'}
-                  style={{ '--os-status-rgb': statusCssVar } as React.CSSProperties}
-                  className={`relative bg-slate-900 border-2 rounded-3xl p-5 sm:p-7 space-y-5 sm:space-y-6 transition-colors transition-all duration-700 ease-in-out ${containerBorderClass} ${
+                  style={
+                    {
+                      '--os-status-rgb': statusCssVar,
+                      '--os-border-opacity': statusBorderOpacityVar,
+                    } as React.CSSProperties
+                  }
+                  className={`relative bg-slate-900 border rounded-3xl p-5 sm:p-7 space-y-5 sm:space-y-6 transition-colors transition-all duration-300 ease-out hover:scale-[1.02] ${containerBorderClass} ${
                     osStatusTransitioning ? containerPulseRingClass : 'ring-0 ring-transparent scale-100'
                   }`}
                 >
@@ -2914,13 +3019,36 @@ export default function AmigoApp() {
                     aria-label="Service Order Status Step Progress"
                     className="p-4 sm:p-5 rounded-2xl bg-slate-950/85 border border-slate-800 space-y-3.5"
                   >
-                    <div className="flex flex-col min-[420px]:flex-row min-[420px]:items-center justify-between gap-1.5">
-                      <span className="text-[10px] font-black uppercase tracking-widest text-slate-300 font-mono">
-                        Step Progress · Status da OS
-                      </span>
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-300 font-mono">
+                          Step Progress · Status da OS
+                        </span>
+                        <span
+                          id="service-order-completion-badge"
+                          className={`px-2 py-0.5 rounded-full border text-[10px] font-black font-mono tracking-wider transition-all duration-500 ${completionBadgeClass}`}
+                        >
+                          {completionPercentage}% Concluído
+                        </span>
+                      </div>
                       <span className="text-[11px] font-mono font-bold text-sky-400">
                         Toque em uma etapa para atualizar o status
                       </span>
+                    </div>
+
+                    {/* Barra de linha contínua de conclusão baseada no status */}
+                    <div
+                      id="service-order-progress-bar"
+                      role="progressbar"
+                      aria-label="Porcentagem de conclusão da Ordem de Serviço"
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={completionPercentage}
+                      className="w-full h-2 rounded-full bg-slate-800/90 overflow-hidden p-0.5 border border-slate-700/60"
+                    >
+                      <div
+                        className={`h-full rounded-full transition-all duration-700 ease-out ${completionBarColorClass}`}
+                      />
                     </div>
 
                     <div className="relative">
@@ -4220,9 +4348,9 @@ export default function AmigoApp() {
           />
         )}
 
-        {/* 7. ABA: SUPORTE ADMIN (CANAL EXCLUSIVO & CHAT) */}
+        {/* 7. ABA: CENTRAL DO CRIADOR & ADMINISTRADOR DO SISTEMA (SAAS, ASSINATURAS, LEADS, DADOS & SUPORTE) */}
         {activeTab === 'suporte-admin' && (
-          <AdminSupportChatView onBack={() => setActiveTab('dash')} />
+          <AdminCreatorHub onBack={() => setActiveTab('dash')} />
         )}
         {/* ABA DE ESTOQUE DO INSTALADOR */}
         {activeTab === 'estoque' && (
@@ -4788,14 +4916,14 @@ export default function AmigoApp() {
       <button
         type="button"
         onClick={() => setShowOSModal(true)}
-        className="fixed bottom-20 right-4 sm:bottom-24 sm:right-8 z-40 px-4 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs shadow-[0_10px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-300/40 group backdrop-blur-sm"
+        className="fixed bottom-20 right-4 sm:bottom-[82px] sm:right-8 z-40 px-4 py-3 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs shadow-[0_10px_35px_rgba(16,185,129,0.45)] flex items-center gap-2.5 transition-all hover:scale-105 active:scale-95 cursor-pointer border border-emerald-400/40 group"
         title="Criar Nova Ordem de Serviço"
       >
-        <div className="w-6 h-6 rounded-lg bg-slate-950/20 flex items-center justify-center group-hover:rotate-90 transition-transform shrink-0">
-          <Plus size={16} strokeWidth={3} className="text-slate-950" />
+        <div className="w-6 h-6 rounded-lg bg-white/20 flex items-center justify-center group-hover:rotate-90 transition-transform shrink-0">
+          <Plus size={16} strokeWidth={3} className="text-white" />
         </div>
-        <span className="font-black tracking-wide hidden sm:inline">Novo Serviço (OS)</span>
-        <span className="font-black tracking-wide sm:hidden">Nova OS</span>
+        <span className="font-black tracking-wide hidden sm:inline text-white">Novo Serviço (OS)</span>
+        <span className="font-black tracking-wide sm:hidden text-white">Nova OS</span>
       </button>
 
       {/* Modal de Conexão com Conta Google Real */}
@@ -4875,6 +5003,7 @@ export default function AmigoApp() {
         onClose={() => setShowSupportModal(false)}
       />
 
+      <OfflineSyncIndicator userId={user?.uid} />
       <Footer />
     </div>
   );

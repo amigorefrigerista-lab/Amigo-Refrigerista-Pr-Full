@@ -43,14 +43,14 @@ export default function DashTab({
   const saldoLiquido = totalReceitas - totalDespesas;
 
   return (
-    <div className="space-y-6">
-      {/* Card de Destaque: Criar Novo Serviço */}
-      <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-emerald-950/80 via-slate-900 to-slate-900 border border-emerald-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
-        <div className="flex items-center gap-3.5">
+    <div className="flex flex-col gap-6">
+      {/* Card de Destaque: Criar Novo Serviço (No mobile: apenas 1 linha com botão verde + ícone da ferramenta) */}
+      <div className="sm:p-5 sm:rounded-3xl sm:bg-gradient-to-r sm:from-emerald-950/80 sm:via-slate-900 sm:to-slate-900 sm:border sm:border-emerald-500/30 flex flex-row items-center justify-between gap-4 sm:shadow-xl">
+        <div className="hidden sm:flex items-center gap-3.5 min-w-0">
           <div className="w-12 h-12 rounded-2xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shrink-0 shadow-[0_0_20px_rgba(16,185,129,0.3)]">
             <Wrench size={24} />
           </div>
-          <div>
+          <div className="min-w-0">
             <div className="flex items-center gap-2">
               <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-mono">
                 AGILIDADE DE CAMPO
@@ -67,15 +67,15 @@ export default function DashTab({
         <button
           type="button"
           onClick={() => setShowOSModal(true)}
-          className="px-5 py-3 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-400 hover:from-emerald-400 hover:to-teal-300 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-[0_0_25px_rgba(16,185,129,0.35)] cursor-pointer active:scale-95 shrink-0"
+          className="w-full sm:w-auto px-4 sm:px-5 py-3.5 rounded-2xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs sm:text-sm transition flex items-center justify-center gap-2.5 shadow-[0_6px_25px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95 shrink-0 whitespace-nowrap"
         >
-          <Plus size={18} strokeWidth={3} />
-          <span>Criar Novo Serviço Agora</span>
+          <Wrench size={18} strokeWidth={2.5} className="shrink-0 text-white" />
+          <span className="truncate text-white">Criar Novo Serviço Agora</span>
         </button>
       </div>
 
       {/* Cards de Métricas */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3.5">
+      <div className="order-last sm:order-none grid grid-cols-2 sm:grid-cols-4 gap-3.5">
         <div className="bg-slate-900/80 border border-slate-800 rounded-2xl p-4">
           <div className="flex items-center justify-between text-slate-400 mb-2">
             <span className="text-xs font-semibold">Clientes Ativos</span>

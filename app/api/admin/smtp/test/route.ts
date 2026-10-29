@@ -43,26 +43,51 @@ export async function POST(req: NextRequest) {
     // Verifica conexão
     await transporter.verify();
 
-    // Envia email de teste
+    const customSubject =
+      typeof body.custom_subject === 'string' && body.custom_subject.trim()
+        ? body.custom_subject.trim()
+        : 'Teste de Configuração SMTP - Alertas de Manutenção & Renovação';
+
+    const customText =
+      typeof body.custom_body === 'string' && body.custom_body.trim()
+        ? body.custom_body.trim()
+        : 'Olá! Este é um e-mail de teste enviado pelo Painel Admin do Amigo Refrigerista Pro para validar as credenciais SMTP.';
+
+    const htmlParagraphs = customText
+      .split('\n')
+      .map((line: string) =>
+        line.trim()
+          ? `<p style="margin: 0 0 12px 0; line-height: 1.6; color: #e2e8f0; font-size: 14px;">${line}</p>`
+          : '<br />'
+      )
+      .join('');
+
+    // Envia email de teste ou disparo de template de renovação
     await transporter.sendMail({
       from: `"Amigo Refrigerista Pro" <${from}>`,
       to: testRecipient,
-      subject: 'Teste de Configuração SMTP - Alertas de Manutenção',
-      text: 'Olá! Este é um e-mail de teste enviado pelo Painel Admin do Amigo Refrigerista Pro para validar as credenciais SMTP.',
+      bcc: body.copy_admin && testRecipient !== 'amigorefrigerista@gmail.com' ? 'amigorefrigerista@gmail.com' : undefined,
+      subject: customSubject,
+      text: customText,
       html: `
-        <div style="font-family: sans-serif; padding: 20px; background: #070e1c; color: #ffffff; border-radius: 12px;">
-          <h2 style="color: #4ade80; margin-top: 0;">Teste SMTP Realizado com Sucesso!</h2>
-          <p>As configurações de e-mail para alertas de manutenção automática estão operando perfeitamente.</p>
-          <hr style="border-color: #1e293b; margin: 15px 0;" />
-          <p style="font-size: 12px; color: #94a3b8;">Host: ${host}:${port}</p>
-          <p style="font-size: 12px; color: #94a3b8;">Remetente: ${from}</p>
+        <div style="font-family: sans-serif; max-width: 600px; margin: 0 auto; padding: 24px; background: #070e1c; color: #ffffff; border-radius: 16px; border: 1px solid #1e293b;">
+          <div style="margin-bottom: 18px; padding-bottom: 14px; border-bottom: 1px solid #1e293b;">
+            <span style="display: inline-block; padding: 4px 10px; border-radius: 6px; background: rgba(14, 165, 233, 0.15); color: #38bdf8; font-size: 11px; font-weight: 800; text-transform: uppercase;">
+              Amigo Refrigerista Pro • Renovação de Assinatura
+            </span>
+          </div>
+          ${htmlParagraphs}
+          <hr style="border-color: #1e293b; margin: 20px 0;" />
+          <p style="font-size: 11px; color: #64748b; margin: 0;">
+            Disparo automático via SMTP (${host}:${port}) • Remetente: ${from}
+          </p>
         </div>
       `,
     });
 
     return NextResponse.json({
       ok: true,
-      message: `E-mail de teste enviado com sucesso para ${testRecipient}!`,
+      message: `E-mail de renovação enviado com sucesso via SMTP para ${testRecipient}!`,
     });
   } catch (err: any) {
     console.error('Erro no teste SMTP:', err);

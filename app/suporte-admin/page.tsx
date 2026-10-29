@@ -7,8 +7,8 @@ import { AdminSupportChatView } from '@/components/AdminSupportChatView';
 
 export default function SuporteAdminPage() {
   return (
-    <div className="min-h-screen bg-[#070e1c] text-white p-4 sm:p-8 space-y-6">
-      <div className="max-w-5xl mx-auto flex items-center justify-between border-b border-slate-800 pb-4">
+    <div className="min-h-screen bg-[#070e1c] text-white p-4 sm:p-6 lg:p-10 space-y-6">
+      <div className="w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto flex items-center justify-between border-b border-slate-800 pb-4">
         <div className="flex items-center gap-3">
           <Link href="/" className="p-2.5 rounded-2xl bg-slate-900 border border-slate-800 text-slate-400 hover:text-white transition">
             <ArrowLeft size={18} />
@@ -33,7 +33,7 @@ export default function SuporteAdminPage() {
         </Link>
       </div>
 
-      <div className="max-w-5xl mx-auto">
+      <div className="w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto">
         <AdminSupportChatView />
       </div>
     </div>
