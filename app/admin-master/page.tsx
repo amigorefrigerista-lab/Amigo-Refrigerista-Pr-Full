@@ -43,6 +43,7 @@ import AdminAuditLogSection from '@/components/AdminAuditLogSection';
 import AdminRevenueForecastModule from '@/components/AdminRevenueForecastModule';
 import { MonthlyRevenueData } from '@/app/actions/getAdminMetrics';
 import { getAdminSystemOverviewAction } from '@/app/actions/dbActions';
+import AdminSettingsPage from '@/app/admin/configuracoes/page';
 
 const MASTER_EMAIL = ADMIN_EMAIL;
 
@@ -339,29 +340,54 @@ export default function AdminMasterPage() {
     const mrr = (pro * 39.90) + (flex * 19.90);
     const convRate = total > 0 ? (((pro + flex) / total) * 100).toFixed(1) : '0.0';
 
-    const trend: MonthlyRevenueData[] = [
-      { month: 'Nov/25', mrr: 1475.40, proRevenue: 1117.20, flexRevenue: 358.20, growthRate: 0, proCount: 28, flexCount: 18, arr: 17704.80 },
-      { month: 'Dez/25', mrr: 1993.80, proRevenue: 1516.20, flexRevenue: 477.60, growthRate: 35.1, proCount: 38, flexCount: 24, arr: 23925.60 },
-      { month: 'Jan/26', mrr: 2611.90, proRevenue: 1995.00, flexRevenue: 616.90, growthRate: 31.0, proCount: 50, flexCount: 31, arr: 31342.80 },
-      { month: 'Fev/26', mrr: 3329.70, proRevenue: 2553.60, flexRevenue: 776.10, growthRate: 27.5, proCount: 64, flexCount: 39, arr: 39956.40 },
-      { month: 'Mar/26', mrr: 4047.50, proRevenue: 3112.20, flexRevenue: 935.30, growthRate: 21.6, proCount: 78, flexCount: 47, arr: 48570.00 },
-      { month: 'Abr/26', mrr: 4865.00, proRevenue: 3750.60, flexRevenue: 1114.40, growthRate: 20.2, proCount: 94, flexCount: 56, arr: 58380.00 },
-      { month: 'Mai/26', mrr: 5682.50, proRevenue: 4389.00, flexRevenue: 1293.50, growthRate: 16.8, proCount: 110, flexCount: 65, arr: 68190.00 },
-      { month: 'Jun/26', mrr: 7417.30, proRevenue: 5785.50, flexRevenue: 1631.80, growthRate: 30.5, proCount: 145, flexCount: 82, arr: 89007.60 },
-      { month: 'Jul/26', mrr: 9132.20, proRevenue: 7182.00, flexRevenue: 1950.20, growthRate: 23.1, proCount: 180, flexCount: 98, arr: 109586.40 },
-      { month: 'Ago/26', mrr: 11066.50, proRevenue: 8778.00, flexRevenue: 2288.50, growthRate: 21.2, proCount: 220, flexCount: 115, arr: 132798.00 },
-      { month: 'Set/26', mrr: 12961.00, proRevenue: 10374.00, flexRevenue: 2587.00, growthRate: 17.1, proCount: 260, flexCount: 130, arr: 155532.00 },
-      {
-        month: 'Out/26',
-        mrr: mrr > 0 ? Number(mrr.toFixed(2)) : 14237.20,
-        proRevenue: mrr > 0 ? Number((pro * 39.90).toFixed(2)) : 11411.40,
-        flexRevenue: mrr > 0 ? Number((flex * 19.90).toFixed(2)) : 2825.80,
-        growthRate: 9.8,
-        proCount: pro > 0 ? pro : 286,
-        flexCount: flex > 0 ? flex : 142,
-        arr: mrr > 0 ? Number((mrr * 12).toFixed(2)) : 170846.40,
-      },
-    ];
+    const monthNames = ['Jan', 'Fev', 'Mar', 'Abr', 'Mai', 'Jun', 'Jul', 'Ago', 'Set', 'Out', 'Nov', 'Dez'];
+    const now = new Date();
+    const rawMonths: Array<{ month: string; proCount: number; flexCount: number }> = [];
+
+    for (let mIdx = 11; mIdx >= 0; mIdx--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - mIdx, 1);
+      const yr = d.getFullYear();
+      const mo = d.getMonth();
+      const label = `${monthNames[mo]}/${String(yr).slice(-2)}`;
+      const endOfMonth = new Date(yr, mo + 1, 0, 23, 59, 59, 999).getTime();
+
+      let mPro = 0;
+      let mFlex = 0;
+      for (let i = 0; i < subscribers.length; i++) {
+        const s = subscribers[i];
+        const rawCreated = s.created_at || s.createdAt;
+        const createdMs = rawCreated ? new Date(rawCreated).getTime() : now.getTime();
+        if (Number.isNaN(createdMs) || createdMs <= endOfMonth) {
+          const p = String(s.plano || 'free').toLowerCase();
+          if (p === 'pro') mPro++;
+          else if (p === 'flex') mFlex++;
+        }
+      }
+      rawMonths.push({ month: label, proCount: mPro, flexCount: mFlex });
+    }
+
+    const trend: MonthlyRevenueData[] = rawMonths.map((item, idx) => {
+      const proRevenue = Number((item.proCount * 39.90).toFixed(2));
+      const flexRevenue = Number((item.flexCount * 19.90).toFixed(2));
+      const monthMrr = Number((proRevenue + flexRevenue).toFixed(2));
+      const prev = idx > 0 ? rawMonths[idx - 1] : null;
+      const prevMrr = prev ? (prev.proCount * 39.90) + (prev.flexCount * 19.90) : monthMrr;
+      const growthRate =
+        idx > 0 && prevMrr > 0
+          ? Number((((monthMrr - prevMrr) / prevMrr) * 100).toFixed(1))
+          : 0;
+
+      return {
+        month: item.month,
+        mrr: monthMrr,
+        proRevenue,
+        flexRevenue,
+        growthRate,
+        proCount: item.proCount,
+        flexCount: item.flexCount,
+        arr: Number((monthMrr * 12).toFixed(2)),
+      };
+    });
 
     return {
       totalUsers: total,
@@ -374,7 +400,7 @@ export default function AdminMasterPage() {
     };
   }, [subscribers]);
 
-  // Cálculo do Funil de Leads (Últimos 30 dias e contabilização de usuários sem Ordem de Serviço)
+  // Cálculo do Funil de Leads (Últimos 30 dias e contabilização de usuários sem Ordem de Serviço - 100% dados reais)
   const leadsFunnelMetrics = useMemo(() => {
     const now = Date.now();
     const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
@@ -389,20 +415,12 @@ export default function AdminMasterPage() {
       }
     }
 
-    const channelCatalog = [
-      { key: 'whatsapp_referral', label: 'Indicação WhatsApp' },
-      { key: 'instagram_ads', label: 'Instagram & Reels' },
-      { key: 'google_search', label: 'Google / Orgânico' },
-      { key: 'youtube_content', label: 'YouTube HVAC' },
-      { key: 'partner_stores', label: 'Lojas Parceiras' },
-    ];
-
     const enrichedLast30Days: any[] = [];
     for (let i = 0; i < subscribers.length; i++) {
       const sub = subscribers[i];
       const uid = String(sub.id || sub.uid || '');
       const rawDate = sub.created_at || sub.createdAt;
-      const createdTime = rawDate ? new Date(rawDate).getTime() : now;
+      const createdTime = rawDate ? new Date(rawDate).getTime() : NaN;
       const isWithin30Days = !Number.isNaN(createdTime) && createdTime >= cutoff30Days;
 
       if (isWithin30Days) {
@@ -414,22 +432,16 @@ export default function AdminMasterPage() {
           .toLowerCase()
           .trim();
 
-        let channelIdx = 0;
-        if (rawSource.includes('insta')) channelIdx = 1;
-        else if (rawSource.includes('google') || rawSource.includes('organ')) channelIdx = 2;
-        else if (rawSource.includes('youtu')) channelIdx = 3;
-        else if (rawSource.includes('parc') || rawSource.includes('loja')) channelIdx = 4;
-        else if (rawSource.includes('whats') || rawSource.includes('indic')) channelIdx = 0;
-        else {
-          let hash = 0;
-          const seed = `${uid}-${sub.email || ''}`;
-          for (let c = 0; c < seed.length; c++) {
-            hash = (hash * 31 + seed.charCodeAt(c)) >>> 0;
-          }
-          channelIdx = hash % channelCatalog.length;
+        let resolvedChannel = { key: 'google_search', label: 'Google / Orgânico' };
+        if (rawSource.includes('insta')) {
+          resolvedChannel = { key: 'instagram_ads', label: 'Instagram & Reels' };
+        } else if (rawSource.includes('youtu')) {
+          resolvedChannel = { key: 'youtube_content', label: 'YouTube HVAC' };
+        } else if (rawSource.includes('parc') || rawSource.includes('loja')) {
+          resolvedChannel = { key: 'partner_stores', label: 'Lojas Parceiras' };
+        } else if (rawSource.includes('whats') || rawSource.includes('indic')) {
+          resolvedChannel = { key: 'whatsapp_referral', label: 'Indicação WhatsApp' };
         }
-
-        const resolvedChannel = channelCatalog[channelIdx];
 
         enrichedLast30Days.push({
           ...sub,
@@ -559,9 +571,8 @@ export default function AdminMasterPage() {
     };
   }, [leadsFunnelMetrics.allUsers30d, pieSignupSegment]);
 
-  // Curva de Retenção (Primeiros 30 Dias) & Destaque do Momento da 1ª Ordem de Serviço
+  // Curva de Retenção (Primeiros 30 Dias) & Momento da 1ª Ordem de Serviço (calculada apenas sobre dados reais)
   const retentionCurve30d = useMemo(() => {
-    // Mapeia a data da 1ª OS por usuário a partir das ordens reais
     const earliestOrderByUser = new Map<string, number>();
     for (let i = 0; i < serviceOrders.length; i++) {
       const ord = serviceOrders[i];
@@ -578,11 +589,13 @@ export default function AdminMasterPage() {
 
     const firstOsDaysSample: number[] = [];
     const usersPool = leadsFunnelMetrics.allUsers30d.length > 0 ? leadsFunnelMetrics.allUsers30d : subscribers;
+    const totalPool = usersPool.length;
 
     for (let i = 0; i < usersPool.length; i++) {
       const u = usersPool[i];
       const uid = String(u.id || u.uid || '');
-      const signupTime = u.created_at ? new Date(u.created_at).getTime() : NaN;
+      const rawCreated = u.created_at || u.createdAt;
+      const signupTime = rawCreated ? new Date(rawCreated).getTime() : NaN;
       const firstOrdTime = earliestOrderByUser.get(uid);
       if (!Number.isNaN(signupTime) && firstOrdTime !== undefined && firstOrdTime >= signupTime) {
         const diffDays = Math.max(1, Math.min(30, Math.round((firstOrdTime - signupTime) / (24 * 60 * 60 * 1000))));
@@ -590,84 +603,63 @@ export default function AdminMasterPage() {
       }
     }
 
-    // Momento típico (mediana/média) em que a 1ª OS costuma ser emitida (padrão de campo: Dia 3 / ~72h após cadastro)
     const avgDaysToFirstOs =
       firstOsDaysSample.length > 0
         ? Math.max(
             1,
             Math.min(
-              14,
+              30,
               Math.round(
                 firstOsDaysSample.reduce((a, b) => a + b, 0) / firstOsDaysSample.length
               )
             )
           )
-        : 3;
+        : 0;
 
     const milestones = [1, 2, 3, 5, 7, 10, 14, 21, 25, 30];
-    // Encontra o marco do gráfico mais próximo do dia típico da 1ª OS
-    const peakMilestoneDay = milestones.reduce((prev, curr) =>
-      Math.abs(curr - avgDaysToFirstOs) < Math.abs(prev - avgDaysToFirstOs) ? curr : prev
-    );
-
-    const activeShare30d =
-      leadsFunnelMetrics.total30d > 0
-        ? Math.max(28, leadsFunnelMetrics.activationRate30d)
-        : 46;
-
-    const baseRetentionByDay: Record<number, number> = {
-      1: 100,
-      2: 88,
-      3: 79,
-      5: 68,
-      7: 61,
-      10: 55,
-      14: 51,
-      21: 47,
-      25: 45,
-      30: Math.max(38, Math.min(85, activeShare30d + 8)),
-    };
-
-    const baseFirstOsVelocityByDay: Record<number, number> = {
-      1: 18,
-      2: 34,
-      3: 52,
-      5: 29,
-      7: 19,
-      10: 12,
-      14: 8,
-      21: 5,
-      25: 3,
-      30: 2,
-    };
+    const peakMilestoneDay =
+      avgDaysToFirstOs > 0
+        ? milestones.reduce((prev, curr) =>
+            Math.abs(curr - avgDaysToFirstOs) < Math.abs(prev - avgDaysToFirstOs) ? curr : prev
+          )
+        : 1;
 
     const points = milestones.map((dayNum) => {
       const dayLabel = `Dia ${dayNum}`;
-      const isPeak = dayNum === peakMilestoneDay;
-      const retentionRate = baseRetentionByDay[dayNum] ?? 50;
+      const isPeak = avgDaysToFirstOs > 0 && dayNum === peakMilestoneDay;
 
-      // Curva acumulada de técnicos que já emitiram a 1ª OS até o dia N
-      const progressFactor =
-        dayNum <= peakMilestoneDay
-          ? (dayNum / peakMilestoneDay) * 0.68
-          : 0.68 + ((dayNum - peakMilestoneDay) / (30 - peakMilestoneDay)) * 0.32;
+      // Quantos usuários do pool já haviam emitido a 1ª OS até o dia N após o cadastro
+      const emittedByDayCount = firstOsDaysSample.filter((d) => d <= dayNum).length;
+      const emittedOnWindowCount = firstOsDaysSample.filter((d) => Math.abs(d - dayNum) <= 1).length;
 
-      const cumulativeFirstOsRate = Math.min(
-        retentionRate,
-        Math.round(activeShare30d * progressFactor)
-      );
+      const cumulativeFirstOsRate =
+        totalPool > 0 ? Math.round((emittedByDayCount / totalPool) * 100) : 0;
 
-      const firstOsPulse = isPeak
-        ? Math.max(52, baseFirstOsVelocityByDay[dayNum] || 52)
-        : baseFirstOsVelocityByDay[dayNum] || 10;
+      // Retenção real observada: usuários ativos com OS ou assinatura paga ativa
+      const activeUsersInPool = usersPool.filter(
+        (u: any) =>
+          (Number(u.osCount || u.os_count || u.installationsCount || 0) > 0) ||
+          u.plano === 'pro' ||
+          u.plano === 'flex' ||
+          earliestOrderByUser.has(String(u.id || u.uid || ''))
+      ).length;
 
-      const insight = isPeak
-        ? `Marco Crítico (Dia ${dayNum}): Pico de emissão da 1ª OS! Técnicos que emitem a 1ª OS até o Dia ${dayNum} apresentam 3,4x mais retenção no Dia 30.`
-        : dayNum < peakMilestoneDay
-        ? `Fase de Onboarding (Dia ${dayNum}): Técnico configurando perfil, calculadora de superaquecimento e catálogo antes da 1ª OS.`
-        : dayNum <= 7
-        ? `Janela de Consolidação (Dia ${dayNum}): Quem já emitiu a 1ª OS estabiliza o uso recorrente em campo; inativos precisam de abordagem no WhatsApp.`
-        : `Estabilização de Retenção (Dia ${dayNum}): Curva sustentada pelos técnicos ativados que incorporaram a OS digital na rotina.`;
+      const retentionRate =
+        totalPool > 0
+          ? dayNum === 1
+            ? 100
+            : Math.round((activeUsersInPool / totalPool) * 100)
+          : 0;
+
+      const firstOsPulse =
+        totalPool > 0 ? Math.round((emittedOnWindowCount / totalPool) * 100) : 0;
+
+      const insight =
+        totalPool === 0
+          ? `Sem dados cadastrados para o ${dayLabel}.`
+          : isPeak
+          ? `Marco Real (${dayLabel}): Pico observado de emissão da 1ª OS na base real.`
+          : `Acompanhamento Real (${dayLabel}): ${cumulativeFirstOsRate}% dos técnicos cadastrados emitiram OS até este marco.`;
 
       return {
         dayNum,
@@ -680,18 +672,18 @@ export default function AdminMasterPage() {
       };
     });
 
-    const peakPoint = points.find((p) => p.isPeak) || points[2];
+    const peakPoint = points.find((p) => p.isPeak) || points[0];
 
     return {
       points,
       avgDaysToFirstOs,
       peakDayLabel: peakPoint.dayLabel,
       peakPoint,
-      day30Retention: points[points.length - 1]?.retentionRate || 48,
+      day30Retention: points[points.length - 1]?.retentionRate || 0,
     };
   }, [serviceOrders, leadsFunnelMetrics, subscribers]);
 
-  // Comparativo de Taxa de Ativação (1ª OS Realizada) por Canal de Aquisição / Origem do Cadastro (Últimos 30 Dias)
+  // Comparativo de Taxa de Ativação (1ª OS Realizada) por Canal de Aquisição / Origem do Cadastro (100% dados reais)
   const acquisitionChannel30dMetrics = useMemo(() => {
     const channelDefs = [
       {
@@ -699,45 +691,30 @@ export default function AdminMasterPage() {
         channel: 'Indicação WhatsApp',
         shortLabel: 'Indicação WhatsApp',
         color: '#10b981',
-        benchmarkRate: 68,
-        benchmarkTotal: 19,
-        benchmarkActive: 13,
       },
       {
         key: 'partner_stores',
         channel: 'Lojas Parceiras',
         shortLabel: 'Lojas Parceiras',
         color: '#22d3ee',
-        benchmarkRate: 58,
-        benchmarkTotal: 12,
-        benchmarkActive: 7,
       },
       {
         key: 'youtube_content',
         channel: 'YouTube HVAC',
         shortLabel: 'YouTube HVAC',
         color: '#f59e0b',
-        benchmarkRate: 50,
-        benchmarkTotal: 14,
-        benchmarkActive: 7,
       },
       {
         key: 'google_search',
         channel: 'Google / Orgânico',
         shortLabel: 'Google / Orgânico',
         color: '#38bdf8',
-        benchmarkRate: 44,
-        benchmarkTotal: 16,
-        benchmarkActive: 7,
       },
       {
         key: 'instagram_ads',
         channel: 'Instagram & Reels',
         shortLabel: 'Instagram & Reels',
         color: '#f43f5e',
-        benchmarkRate: 32,
-        benchmarkTotal: 22,
-        benchmarkActive: 7,
       },
     ];
 
@@ -750,23 +727,18 @@ export default function AdminMasterPage() {
       const channelUsers = pool.filter((u) => u.acquisitionChannelKey === def.key);
       const realTotal = channelUsers.length;
       const realActive = channelUsers.filter((u) => u.osCount > 0).length;
-      const realInactive = realTotal - realActive;
-
-      // Se houver leads reais nesse canal no segmento de 30d, usa os dados reais; caso contrário exibe o benchmark de 30d
-      const totalLeads = realTotal > 0 ? realTotal : def.benchmarkTotal;
-      const activatedLeads = realTotal > 0 ? realActive : def.benchmarkActive;
-      const inactiveLeads = Math.max(0, totalLeads - activatedLeads);
+      const realInactive = Math.max(0, realTotal - realActive);
       const activationRate =
-        totalLeads > 0 ? Math.round((activatedLeads / totalLeads) * 100) : def.benchmarkRate;
+        realTotal > 0 ? Math.round((realActive / realTotal) * 100) : 0;
 
       return {
         key: def.key,
         channel: def.channel,
         shortLabel: def.shortLabel,
         color: def.color,
-        totalLeads,
-        activatedLeads,
-        inactiveLeads,
+        totalLeads: realTotal,
+        activatedLeads: realActive,
+        inactiveLeads: realInactive,
         activationRate,
         realTotal,
       };
@@ -775,9 +747,10 @@ export default function AdminMasterPage() {
     const sortedByRate = [...bars].sort((a, b) => b.activationRate - a.activationRate);
     const bestChannel = sortedByRate[0] || bars[0];
     const lowestChannel = sortedByRate[sortedByRate.length - 1] || bars[bars.length - 1];
+    const activeChannels = bars.filter((b) => b.totalLeads > 0);
     const avgActivationRate =
-      bars.length > 0
-        ? Math.round(bars.reduce((acc, b) => acc + b.activationRate, 0) / bars.length)
+      activeChannels.length > 0
+        ? Math.round(activeChannels.reduce((acc, b) => acc + b.activationRate, 0) / activeChannels.length)
         : 0;
 
     return {
@@ -949,19 +922,19 @@ export default function AdminMasterPage() {
           >
             <RefreshCw size={18} />
           </button>
-          <Link
-            href="/admin/configuracoes"
+          <a
+            href="#secao-configuracoes-pagamentos-master"
             className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs transition flex items-center gap-2 shadow-[0_0_15px_rgba(245,158,11,0.3)]"
           >
             <Sliders size={16} />
-            <span>Configurações Master</span>
-          </Link>
+            <span>Pagamentos & Planos (R$ 19,90 / R$ 39,90)</span>
+          </a>
           <Link
             href="/admin"
             className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 border border-slate-800 text-white font-bold text-xs transition flex items-center gap-2"
           >
             <ShieldCheck size={16} className="text-sky-400" />
-            <span>Admin Geral</span>
+            <span>Central Admin Unificada</span>
           </Link>
         </div>
       </div>
@@ -2707,6 +2680,11 @@ export default function AdminMasterPage() {
               })}
             </div>
           )}
+        </div>
+
+        {/* ⚙️ MÓDULO UNIFICADO: Configurações Master, Gateways (Mercado Pago / Stripe) e Planos (R$ 19,90 / R$ 39,90) */}
+        <div id="secao-configuracoes-pagamentos-master" className="pt-4 border-t border-amber-500/30">
+          <AdminSettingsPage />
         </div>
 
         {/* 🛡️ MÓDULO 4: Trilha de Auditoria e Governança (Últimas 20 Ações Sensíveis) */}

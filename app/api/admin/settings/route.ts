@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { authenticateRequest, getSupabaseServiceClient, isMasterAdminEmail } from '@/lib/security';
 import { getAppSettings, DEFAULT_APP_SETTINGS } from '@/lib/getAppSettings';
+import { isMaskedMpToken, maskMpAccessToken } from '@/lib/appSettingsConstants';
 import { db, isSqlAvailable } from '@/src/db';
 import { appSettingsTable } from '@/src/db/schema';
 
@@ -57,14 +58,25 @@ export async function GET(req: NextRequest) {
   const dbSettings = await getAppSettings();
   const cached = readCachedSettings();
 
+  const realMpToken =
+    cached?.mercadopago_access_token ||
+    dbSettings.mercadopago_access_token ||
+    DEFAULT_APP_SETTINGS.mercadopago_access_token ||
+    '';
+
+  const isPermanentlyMasked = Boolean(cached?.mercadopago_token_permanently_masked && realMpToken);
+
   const merged = {
     ...DEFAULT_APP_SETTINGS,
     ...dbSettings,
     ...(cached || {}),
-    mercadopago_access_token:
-      cached?.mercadopago_access_token ||
-      dbSettings.mercadopago_access_token ||
-      DEFAULT_APP_SETTINGS.mercadopago_access_token,
+    mercadopago_access_token: isPermanentlyMasked
+      ? maskMpAccessToken(realMpToken)
+      : realMpToken,
+    mercadopago_access_token_raw: realMpToken,
+    mercadopago_access_token_masked: realMpToken ? maskMpAccessToken(realMpToken) : '',
+    mercadopago_token_permanently_masked: isPermanentlyMasked,
+    mercadopago_connection_verified: Boolean(cached?.mercadopago_connection_verified && realMpToken),
     mercadopago_public_key:
       cached?.mercadopago_public_key ||
       dbSettings.mercadopago_public_key ||
@@ -99,9 +111,17 @@ export async function POST(req: NextRequest) {
       ...cached,
     };
 
-    const nextMpAccessToken =
+    const incomingMpToken =
       body.mercadopago_access_token !== undefined
         ? String(body.mercadopago_access_token).trim()
+        : undefined;
+
+    // Se o cliente enviou o valor mascarado (••••), preserva o token real salvo no servidor
+    const nextMpAccessToken =
+      incomingMpToken !== undefined
+        ? isMaskedMpToken(incomingMpToken)
+          ? currentSettings.mercadopago_access_token || ''
+          : incomingMpToken
         : currentSettings.mercadopago_access_token || '';
 
     const nextMpPublicKey =
@@ -114,12 +134,27 @@ export async function POST(req: NextRequest) {
         ? String(body.webhook_secret).trim()
         : currentSettings.webhook_secret || '';
 
+    const nextPermanentlyMasked =
+      body.mercadopago_token_permanently_masked !== undefined
+        ? Boolean(body.mercadopago_token_permanently_masked && nextMpAccessToken)
+        : Boolean(currentSettings.mercadopago_token_permanently_masked && nextMpAccessToken);
+
+    const nextConnectionVerified =
+      body.mercadopago_connection_verified !== undefined
+        ? Boolean(body.mercadopago_connection_verified && nextMpAccessToken)
+        : Boolean(currentSettings.mercadopago_connection_verified && nextMpAccessToken);
+
     const updated = {
       ...DEFAULT_APP_SETTINGS,
       ...currentSettings,
       ...body,
       id: 1,
       mercadopago_access_token: nextMpAccessToken,
+      mercadopago_access_token_masked: nextMpAccessToken
+        ? maskMpAccessToken(nextMpAccessToken)
+        : '',
+      mercadopago_token_permanently_masked: nextPermanentlyMasked,
+      mercadopago_connection_verified: nextConnectionVerified,
       mercadopago_public_key: nextMpPublicKey,
       webhook_secret: nextWebhookSecret,
       credit_card_enabled:
@@ -243,10 +278,18 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    const clientSafeSettings = {
+      ...updated,
+      mercadopago_access_token: nextPermanentlyMasked
+        ? maskMpAccessToken(nextMpAccessToken)
+        : nextMpAccessToken,
+      mercadopago_access_token_raw: nextMpAccessToken,
+    };
+
     return NextResponse.json({
       ok: true,
       message: 'Configurações salvas com segurança no servidor!',
-      settings: updated,
+      settings: clientSafeSettings,
     });
   } catch (err: any) {
     console.error('Erro ao salvar settings:', err);

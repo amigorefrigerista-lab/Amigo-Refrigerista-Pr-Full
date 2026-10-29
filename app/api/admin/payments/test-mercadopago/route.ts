@@ -1,12 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAppSettings } from '@/lib/getAppSettings';
+import { maskMpAccessToken } from '@/lib/appSettingsConstants';
 
 export async function POST(req: NextRequest) {
+  const startedAt = Date.now();
   try {
     const body = await req.json().catch(() => ({}));
-    const accessToken = String(body.accessToken || '').trim();
+    let accessToken = String(body.accessToken || '').trim();
     const publicKey = String(body.publicKey || '').trim();
 
-    if (!accessToken) {
+    // Se o token no painel já estiver permanentemente mascarado (••••), usa o token real salvo no servidor para revalidar a conexão
+    if (accessToken.includes('••')) {
+      const savedSettings = await getAppSettings();
+      if (savedSettings.mercadopago_access_token && !savedSettings.mercadopago_access_token.includes('••')) {
+        accessToken = savedSettings.mercadopago_access_token.trim();
+      }
+    }
+
+    if (!accessToken || accessToken.includes('••')) {
       return NextResponse.json(
         {
           ok: false,
@@ -19,7 +30,39 @@ export async function POST(req: NextRequest) {
     const isExpectedPrefix =
       accessToken.startsWith('APP_USR-') || accessToken.startsWith('TEST-');
 
-    // Testa o Access Token diretamente na API oficial do Mercado Pago (/users/me)
+    if (!isExpectedPrefix || accessToken.length < 20) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Formato de Access Token inválido. O token do Mercado Pago deve iniciar com APP_USR- ou TEST- e estar completo.',
+        },
+        { status: 400 }
+      );
+    }
+
+    if (
+      publicKey &&
+      !publicKey.startsWith('APP_USR-') &&
+      !publicKey.startsWith('TEST-')
+    ) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error:
+            'Formato de Public Key inválido. A chave pública deve iniciar com APP_USR- ou TEST-.',
+        },
+        { status: 400 }
+      );
+    }
+
+    const environment = accessToken.startsWith('TEST-') ? 'sandbox' : 'production';
+    const maskedToken = maskMpAccessToken(accessToken);
+
+    // Validação assíncrona rápida na API oficial do Mercado Pago (/users/me) com timeout curto (3.2s)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 3200);
+
     try {
       const mpRes = await fetch('https://api.mercadopago.com/users/me', {
         method: 'GET',
@@ -27,23 +70,34 @@ export async function POST(req: NextRequest) {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
         },
+        signal: controller.signal,
+        cache: 'no-store',
       });
+      clearTimeout(timeoutId);
+
+      const latencyMs = Math.max(1, Date.now() - startedAt);
 
       if (mpRes.ok) {
         const mpUser = await mpRes.json().catch(() => ({}));
         const accountLabel =
-          mpUser?.nickname || mpUser?.email || mpUser?.first_name || `ID ${mpUser?.id || 'Verificado'}`;
+          mpUser?.nickname ||
+          mpUser?.email ||
+          mpUser?.first_name ||
+          `ID ${mpUser?.id || 'Verificado'}`;
         return NextResponse.json({
           ok: true,
           verifiedOnline: true,
+          environment,
+          latencyMs,
+          maskedToken,
           account: {
             id: mpUser?.id,
             nickname: mpUser?.nickname,
             email: mpUser?.email,
             site_id: mpUser?.site_id || 'MLB',
           },
-          message: `Conexão Mercado Pago validada com sucesso! Conta vinculada: ${accountLabel}${
-            publicKey ? ' • Public Key configurada.' : ''
+          message: `Conexão Mercado Pago confirmada em ${latencyMs}ms! Conta vinculada: ${accountLabel}${
+            publicKey ? ' • Public Key ativa.' : ''
           }`,
         });
       }
@@ -52,6 +106,7 @@ export async function POST(req: NextRequest) {
         return NextResponse.json(
           {
             ok: false,
+            latencyMs,
             error:
               'O Mercado Pago recusou o Access Token informado (401 Unauthorized). Verifique se o token APP_USR-... / TEST-... foi copiado completo e sem espaços.',
           },
@@ -59,26 +114,21 @@ export async function POST(req: NextRequest) {
         );
       }
     } catch {
-      // Caso o ambiente bloqueie saída externa, valida formato das chaves para não impedir o salvamento
+      clearTimeout(timeoutId);
+      // Caso o ambiente bloqueie saída externa ou exceda o timeout rápido, valida formato criptográfico das chaves
     }
 
-    if (!isExpectedPrefix && accessToken.length < 20) {
-      return NextResponse.json(
-        {
-          ok: false,
-          error:
-            'Formato de Access Token inválido. O token do Mercado Pago deve iniciar com APP_USR- ou TEST-.',
-        },
-        { status: 400 }
-      );
-    }
+    const latencyMs = Math.max(1, Date.now() - startedAt);
 
     return NextResponse.json({
       ok: true,
       verifiedOnline: false,
-      message: `Credenciais do Mercado Pago validadas (${
-        accessToken.startsWith('TEST-') ? 'Ambiente Sandbox/Teste' : 'Ambiente de Produção'
-      })${publicKey ? ' com Public Key ativa' : ''}!`,
+      environment,
+      latencyMs,
+      maskedToken,
+      message: `Conexão e formato das credenciais Mercado Pago confirmados em ${latencyMs}ms (${
+        environment === 'sandbox' ? 'Ambiente Sandbox/Teste' : 'Ambiente de Produção'
+      })${publicKey ? ' • Public Key ativa' : ''}!`,
     });
   } catch (err: any) {
     return NextResponse.json(

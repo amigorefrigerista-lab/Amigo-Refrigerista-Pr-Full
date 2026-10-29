@@ -89,46 +89,70 @@ export default function CentralSuportePage() {
 
   const isMasterAdmin = (authUser?.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com') || (profile?.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com');
 
-  // Carrega chamados do suporte
+  // Carrega chamados reais do suporte (Supabase + localStorage sem exemplos fictícios)
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem('amigo_support_tickets');
-      if (stored) {
-        setTickets(JSON.parse(stored));
-      } else {
-        // Exemplo inicial de chamados
-        const sampleTickets: SupportTicketItem[] = [
-          {
-            id: 'TICK-102938',
-            userName: 'Carlos Eduardo Oliveira',
-            userEmail: 'carlos.hvac@gmail.com',
-            userPhone: '(11) 98765-4321',
-            category: 'HVAC_TECNICO',
-            subject: 'Dúvida sobre Superaquecimento e Subresfriamento',
-            message: 'Estou testando uma VRF Daikin e gostaria de saber o valor ideal de superaquecimento em ciclo leve.',
-            status: 'pendente',
-            createdAt: new Date(Date.now() - 1000 * 60 * 30).toISOString(),
-            replies: []
-          },
-          {
-            id: 'TICK-102937',
-            userName: 'Roberto ClimaFrio',
-            userEmail: 'roberto@climafrio.com.br',
-            userPhone: '(21) 99887-6655',
-            category: 'DISPOSITIVO',
-            subject: 'Troca de Aparelho Ativo',
-            message: 'Troquei de smartphone recentemente e preciso resetar a chave do meu dispositivo ativo.',
-            status: 'em_atendimento',
-            createdAt: new Date(Date.now() - 1000 * 60 * 180).toISOString(),
-            replies: [{ sender: 'Suporte Amigo Refrigerista', text: 'Olá Roberto! Seu aparelho foi redefinido com sucesso.', date: new Date().toISOString() }]
+    let isMounted = true;
+    async function loadRealTickets() {
+      let localReal: SupportTicketItem[] = [];
+      try {
+        const stored = localStorage.getItem('amigo_support_tickets');
+        if (stored) {
+          const parsed = JSON.parse(stored);
+          if (Array.isArray(parsed)) {
+            localReal = parsed.filter(
+              (t: any) => t?.id && t.id !== 'TICK-102938' && t.id !== 'TICK-102937'
+            );
+            if (localReal.length !== parsed.length) {
+              localStorage.setItem('amigo_support_tickets', JSON.stringify(localReal));
+            }
           }
-        ];
-        setTickets(sampleTickets);
-        localStorage.setItem('amigo_support_tickets', JSON.stringify(sampleTickets));
+        }
+      } catch (e) {
+        console.warn('Erro ao ler chamados locais:', e);
       }
-    } catch (e) {
-      console.warn('Erro ao carregar chamados:', e);
+
+      try {
+        const { data, error } = await supabase
+          .from('support_tickets')
+          .select('*')
+          .order('created_at', { ascending: false });
+
+        if (!error && Array.isArray(data) && data.length > 0) {
+          const mappedFromDb: SupportTicketItem[] = data.map((row: any) => ({
+            id: String(row.id || `TICK-${row.created_at || Date.now()}`),
+            userName: String(row.nome || row.user_name || 'Técnico'),
+            userEmail: String(row.email || row.user_email || ''),
+            userPhone: row.telefone || row.user_phone || '',
+            category: String(row.categoria || row.category || 'GERAL'),
+            subject: String(row.assunto || row.subject || 'Chamado de Suporte'),
+            message: String(row.mensagem || row.message || ''),
+            status:
+              row.status === 'resolvido' || row.status === 'em_atendimento'
+                ? row.status
+                : 'pendente',
+            createdAt: row.created_at || new Date().toISOString(),
+            replies: Array.isArray(row.replies) ? row.replies : [],
+          }));
+          const mergedMap = new Map<string, SupportTicketItem>();
+          for (const item of [...mappedFromDb, ...localReal]) {
+            if (!mergedMap.has(item.id)) {
+              mergedMap.set(item.id, item);
+            }
+          }
+          if (isMounted) setTickets(Array.from(mergedMap.values()));
+          return;
+        }
+      } catch {
+        // segue com chamados reais salvos localmente
+      }
+
+      if (isMounted) setTickets(localReal);
     }
+
+    loadRealTickets();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   // Salva alterações de chamados

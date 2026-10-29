@@ -51,7 +51,7 @@ export function ClientSupportModal({ isOpen, onClose }: ClientSupportModalProps)
   const userEmail = user?.email || profile?.email || '';
   const userName = profile?.name || user?.displayName || 'Técnico';
 
-  // Carrega histórico de chamados
+  // Carrega histórico de chamados reais do usuário
   useEffect(() => {
     if (!isOpen) return;
 
@@ -63,11 +63,19 @@ export function ClientSupportModal({ isOpen, onClose }: ClientSupportModalProps)
       const stored = localStorage.getItem('amigo_support_tickets');
       if (stored) {
         const parsed: SupportTicketItem[] = JSON.parse(stored);
-        const myTickets = parsed.filter(t => t.userEmail?.toLowerCase() === userEmail?.toLowerCase());
+        const myTickets = (Array.isArray(parsed) ? parsed : []).filter(
+          t =>
+            t.id !== 'TICK-102938' &&
+            t.id !== 'TICK-102937' &&
+            t.userEmail?.toLowerCase() === userEmail?.toLowerCase()
+        );
         setTickets(myTickets);
+      } else {
+        setTickets([]);
       }
     } catch (e) {
       console.warn('Erro ao carregar tickets do localStorage:', e);
+      setTickets([]);
     }
   }, [isOpen, userEmail, profile?.telefone]);
 

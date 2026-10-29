@@ -41,6 +41,7 @@ import {
 import { toast } from 'sonner';
 import { SmtpConfig, SmtpEmailLog, testSmtpConnectionAction } from '@/app/actions/smtpActions';
 import { useAuth } from '@/hooks/useAuth';
+import AdminSettingsPage from '@/app/admin/configuracoes/page';
 
 export interface CompanySettings {
   companyName: string;
@@ -52,59 +53,7 @@ export interface CompanySettings {
   city: string;
 }
 
-const INITIAL_DEMO_LOGS: SmtpEmailLog[] = [
-  {
-    id: 'log-demo-1',
-    orderNumber: 'OS-2026-0005',
-    clientName: 'Dona Maria Silveira',
-    recipientEmail: 'maria.silveira@gmail.com',
-    subject: '📋 Ordem de Serviço #OS-2026-0005 - ClimaFrio Refrigeração',
-    sentAt: new Date(Date.now() - 1000 * 60 * 35).toISOString(),
-    status: 'success',
-    equipment: 'Split Inverter Daikin 12.000 BTUs',
-  },
-  {
-    id: 'log-demo-2',
-    orderNumber: 'OS-2026-0004',
-    clientName: 'Restaurante Sabor Brasil',
-    recipientEmail: 'gerencia@saborbrasil.com.br',
-    subject: '📋 Ordem de Serviço #OS-2026-0004 - ClimaFrio Refrigeração',
-    sentAt: new Date(Date.now() - 1000 * 60 * 60 * 4).toISOString(),
-    status: 'success',
-    equipment: 'Câmara Fria Resfriados 3HP',
-  },
-  {
-    id: 'log-demo-3',
-    orderNumber: 'OS-2026-0003',
-    clientName: 'Carlos Eduardo Santos',
-    recipientEmail: 'carlos.santos@outlook.com',
-    subject: '📋 Ordem de Serviço #OS-2026-0003 - ClimaFrio Refrigeração',
-    sentAt: new Date(Date.now() - 1000 * 60 * 60 * 24).toISOString(),
-    status: 'success',
-    equipment: 'Split Hi-Wall LG Dual Inverter 18.000 BTUs',
-  },
-  {
-    id: 'log-demo-4',
-    orderNumber: 'OS-2026-0002',
-    clientName: 'Clínica OdontoLife',
-    recipientEmail: 'financeiro@odontolife.med.br',
-    subject: '📋 Ordem de Serviço #OS-2026-0002 - ClimaFrio Refrigeração',
-    sentAt: new Date(Date.now() - 1000 * 60 * 60 * 48).toISOString(),
-    status: 'success',
-    equipment: 'Cassete Fujitsu 36.000 BTUs',
-  },
-  {
-    id: 'log-demo-5',
-    orderNumber: 'OS-2026-0001',
-    clientName: 'Empório dos Pães',
-    recipientEmail: 'compras@emporiodospaes.com.br',
-    subject: '📋 Ordem de Serviço #OS-2026-0001 - ClimaFrio Refrigeração',
-    sentAt: new Date(Date.now() - 1000 * 60 * 60 * 72).toISOString(),
-    status: 'failed',
-    errorMessage: 'Caixa de entrada temporariamente cheia no destino (552)',
-    equipment: 'Expositor Refrigerado Gelopar 4 Portas',
-  }
-];
+const INITIAL_DEMO_LOGS: SmtpEmailLog[] = [];
 
 const DEFAULT_SMTP_CONFIG: SmtpConfig = {
   enabled: false,
@@ -133,10 +82,19 @@ const DEFAULT_COMPANY_SETTINGS: CompanySettings = {
 
 interface SettingsTabProps {
   onOpenUpgradeModal?: () => void;
+  onSwitchToAdminHub?: () => void;
+  embeddedInAdmin?: boolean;
 }
 
-export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
-  const { user, profile, signOut } = useAuth();
+export default function SettingsTab({
+  onOpenUpgradeModal,
+  onSwitchToAdminHub,
+  embeddedInAdmin = false,
+}: SettingsTabProps) {
+  const { user, profile, signOut, isAdmin } = useAuth();
+  const [unifiedSection, setUnifiedSection] = useState<'company_checkout' | 'admin_master_config'>('company_checkout');
+  const isMasterAdmin =
+    isAdmin || user?.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com';
 
   // Estados de Configuração SMTP
   const [smtpConfig, setSmtpConfig] = useState<SmtpConfig>(DEFAULT_SMTP_CONFIG);
@@ -149,9 +107,9 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
   // Estados de Dados da Empresa
   const [companySettings, setCompanySettings] = useState<CompanySettings>(DEFAULT_COMPANY_SETTINGS);
 
-  // Estados de Integração de Pagamentos (Plano Flex ou PRO + Recorrente / Anual 2 meses grátis + Cartão / PIX)
+  // Estados de Integração de Pagamentos (Plano Flex R$ 19,90/mês ou PRO R$ 39,90/mês + Recorrente / Anual 2 meses grátis + Cartão / PIX)
   const [selectedPlanOption, setSelectedPlanOption] = useState<'flex' | 'pro'>('pro');
-  const [billingIntervalOption, setBillingIntervalOption] = useState<'recurring' | 'annual'>('annual');
+  const [billingIntervalOption, setBillingIntervalOption] = useState<'recurring' | 'annual'>('recurring');
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<'credit_card' | 'pix'>('credit_card');
   const [enableCreditCardConfig, setEnableCreditCardConfig] = useState(true);
   const [enableRecurringCreditCard, setEnableRecurringCreditCard] = useState(true);
@@ -330,10 +288,15 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
         const savedLogs = localStorage.getItem('amigo_smtp_email_logs');
         if (savedLogs) {
           const parsed = JSON.parse(savedLogs);
-          setEmailLogs(Array.isArray(parsed) && parsed.length > 0 ? parsed : INITIAL_DEMO_LOGS);
+          const realOnly = Array.isArray(parsed)
+            ? parsed.filter((l: any) => l?.id && !String(l.id).startsWith('log-demo-'))
+            : [];
+          setEmailLogs(realOnly);
+          if (realOnly.length !== (Array.isArray(parsed) ? parsed.length : 0)) {
+            localStorage.setItem('amigo_smtp_email_logs', JSON.stringify(realOnly));
+          }
         } else {
-          setEmailLogs(INITIAL_DEMO_LOGS);
-          localStorage.setItem('amigo_smtp_email_logs', JSON.stringify(INITIAL_DEMO_LOGS));
+          setEmailLogs([]);
         }
 
         if (user?.email) {
@@ -467,6 +430,65 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
 
   return (
     <div className="space-y-6 pb-12">
+      {/* Barra Unificada para Administrador Master (reúne Ajustes da Empresa + Admin Master + Pagamentos R$ 19,90 e R$ 39,90 em uma única tela) */}
+      {isMasterAdmin && !embeddedInAdmin && (
+        <div className="p-4 sm:p-5 rounded-3xl bg-gradient-to-r from-amber-950/40 via-slate-900 to-sky-950/40 border border-amber-500/40 space-y-3 shadow-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-amber-500/20 border border-amber-500/40 text-amber-300 text-[10px] font-black uppercase tracking-wider">
+                <Crown size={12} className="text-amber-400" />
+                CENTRAL UNIFICADA DE ADMINISTRAÇÃO & PAGAMENTOS
+              </span>
+              <h3 className="text-sm sm:text-base font-black text-white mt-1">
+                Todos os Ajustes, Planos Oficiais (R$ 19,90 e R$ 39,90) e Credenciais Master em Uma Só Página
+              </h3>
+            </div>
+            {onSwitchToAdminHub && (
+              <button
+                type="button"
+                onClick={onSwitchToAdminHub}
+                className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white font-black text-xs flex items-center gap-1.5 transition cursor-pointer shrink-0 shadow-md"
+              >
+                <Shield size={14} />
+                <span>Abrir Painel Geral de Assinantes & Leads</span>
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => setUnifiedSection('company_checkout')}
+              className={`py-2.5 px-4 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer border ${
+                unifiedSection === 'company_checkout'
+                  ? 'bg-sky-500 text-slate-950 border-sky-400 shadow-lg shadow-sky-500/20'
+                  : 'bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700'
+              }`}
+            >
+              <Building2 size={15} />
+              <span>1. Dados da Empresa & Planos (Flex R$ 19,90 / Pró R$ 39,90)</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={() => setUnifiedSection('admin_master_config')}
+              className={`py-2.5 px-4 rounded-xl text-xs font-black transition flex items-center justify-center gap-2 cursor-pointer border ${
+                unifiedSection === 'admin_master_config'
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/20'
+                  : 'bg-slate-950 text-amber-300 border-amber-500/30 hover:bg-amber-500/10'
+              }`}
+            >
+              <Crown size={15} />
+              <span>2. Configurações Admin Master & Gateways (Mercado Pago / Stripe)</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {isMasterAdmin && !embeddedInAdmin && unifiedSection === 'admin_master_config' ? (
+        <AdminSettingsPage />
+      ) : (
+        <>
       {/* Cabeçalho da Aba */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950/40 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center gap-3.5">
@@ -1590,35 +1612,23 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
             </button>
           )}
 
-          {/* Atalhos para WhatsApp, Painel Admin e Botão de Sair */}
+          {/* Atalhos para WhatsApp, Painel Admin Unificado e Botão de Sair */}
           <div className="pt-2 border-t border-slate-800 space-y-2">
-            {user?.email?.toLowerCase().trim() === 'amigorefrigerista@gmail.com' && (
-              <>
-                <Link
-                  href="/admin-master"
-                  className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 border border-amber-500/50 text-amber-300 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.25)]"
-                >
-                  <Crown size={18} className="text-amber-400" />
-                  <span>Painel Admin Master (/admin-master)</span>
-                </Link>
-
-                <Link
-                  href="/admin/configuracoes"
-                  className="w-full py-2.5 px-4 rounded-2xl bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
-                >
-                  <Sparkles size={16} className="text-amber-400" />
-                  <span>Configurações Master de Pagamento & Preços (/admin/configuracoes)</span>
-                </Link>
-              </>
+            {isMasterAdmin && !embeddedInAdmin && (
+              <button
+                type="button"
+                onClick={() => {
+                  setUnifiedSection('admin_master_config');
+                  if (typeof window !== 'undefined') {
+                    window.scrollTo({ top: 0, behavior: 'smooth' });
+                  }
+                }}
+                className="w-full py-3 px-4 rounded-2xl bg-gradient-to-r from-amber-500/20 via-amber-500/10 to-amber-600/20 hover:from-amber-500/30 hover:to-amber-600/30 border border-amber-500/50 text-amber-300 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-[0_0_20px_rgba(245,158,11,0.25)]"
+              >
+                <Crown size={18} className="text-amber-400" />
+                <span>Abrir Configurações Admin Master & Gateways (Mercado Pago / Planos R$ 19,90 e R$ 39,90) Nesta Página</span>
+              </button>
             )}
-
-            <Link
-              href="/whatsapp-config"
-              className="w-full py-2.5 px-4 rounded-2xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-bold text-xs transition flex items-center justify-center gap-2 cursor-pointer"
-            >
-              <Phone size={16} className="text-emerald-400" />
-              <span>Configuração da API do WhatsApp & Templates (/whatsapp-config)</span>
-            </Link>
 
             <button
               type="button"
@@ -1652,6 +1662,8 @@ export default function SettingsTab({ onOpenUpgradeModal }: SettingsTabProps) {
           </button>
         </div>
       </form>
+      </>
+      )}
     </div>
   );
 }

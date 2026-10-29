@@ -3,8 +3,8 @@
 export const ANNUAL_MONTHS_CHARGED = 10;
 export const ANNUAL_PRICE_FACTOR = ANNUAL_MONTHS_CHARGED / 12;
 
-// Plano único de venda: o "Flex" fica oculto nas telas, mas assinantes antigos continuam válidos no servidor.
-export const SHOW_FLEX_PLAN = false;
+// Planos oficiais unificados: Plano Flex (R$ 19,90/mês) e Plano Pró (R$ 39,90/mês) visíveis em todas as telas.
+export const SHOW_FLEX_PLAN = true;
 
 // Módulos escondidos no lançamento (o código continua no projeto; basta trocar para true para reativar).
 export const SHOW_STOCK_MODULE = false; // Estoque do técnico

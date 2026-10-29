@@ -361,52 +361,6 @@ export function ClientServiceLocationsMap({
       });
     });
 
-    // If completely empty, generate 3 sample HVAC service visits for visual richness
-    if (items.length === 0) {
-      const todayStr = new Date().toISOString().split('T')[0];
-      items.push(
-        {
-          id: 'demo-1',
-          orderNumber: 'OS-2026-0001',
-          clientName: 'Dr. Roberto Santos (Clínica São Camilo)',
-          clientPhone: '11988887766',
-          address: 'Av. Paulista, 1200 - Bela Vista, São Paulo - SP',
-          equipment: 'Multi Split Inverter Daikin 36.000 BTU/h',
-          serviceDate: todayStr,
-          status: 'In Progress',
-          lat: -23.5614,
-          lng: -46.6559,
-          notes: 'Preventiva semestral: higienização bactericida e teste de gás.',
-        },
-        {
-          id: 'demo-2',
-          orderNumber: 'OS-2026-0002',
-          clientName: 'Restaurante Sabor & Prosa (Marcos)',
-          clientPhone: '11977776655',
-          address: 'Rua Amauri, 350 - Itaim Bibi, São Paulo - SP',
-          equipment: 'Cassete Inverter Carrier 48.000 BTU/h',
-          serviceDate: todayStr,
-          status: 'Pending',
-          lat: -23.5856,
-          lng: -46.6857,
-          notes: 'Dreno entupido e revisão na placa de comando.',
-        },
-        {
-          id: 'demo-3',
-          orderNumber: 'OS-2026-0003',
-          clientName: 'Escritório Digital Nexus (Camila)',
-          clientPhone: '11966665544',
-          address: 'Rua Pamplona, 700 - Jardim Paulista, São Paulo - SP',
-          equipment: 'Hi-Wall Inverter LG Dual Voice 12.000 BTU/h',
-          serviceDate: todayStr,
-          status: 'Completed',
-          lat: -23.5689,
-          lng: -46.6534,
-          notes: 'Instalação com vácuo < 500 microns e teste de estanqueidade.',
-        }
-      );
-    }
-
     return items;
   }, [serviceOrders, reminders]);
 

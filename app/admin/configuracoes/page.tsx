@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import Link from 'next/link';
+import { usePathname } from 'next/navigation';
 import { ConfigAlert } from '@/components/ConfigAlert';
 import { 
   CreditCard, 
@@ -41,6 +42,9 @@ import { recordAdminAuditAction } from '@/lib/adminAuditService';
 import {
   WhatsAppRenewalSequenceStep,
   DEFAULT_WHATSAPP_RENEWAL_SEQUENCE,
+  MercadoPagoConnectionTestLog,
+  isMaskedMpToken,
+  maskMpAccessToken,
 } from '@/lib/appSettingsConstants';
 
 const MASTER_EMAIL = 'amigorefrigerista@gmail.com';
@@ -61,6 +65,8 @@ const DEFAULT_RENEWAL_TEMPLATES = {
 };
 
 export default function AdminSettingsPage() {
+  const pathname = usePathname();
+  const embedded = Boolean(pathname && pathname !== '/admin/configuracoes');
   const { user, signInWithGoogle, signInWithEmail } = useAuth();
   const [loading, setLoading] = useState(true);
   const hasLoadedSettingsRef = useRef(false);
@@ -68,6 +74,22 @@ export default function AdminSettingsPage() {
     'all' | 'payments' | 'mercadopago' | 'automation' | 'whatsapp' | 'smtp_renewal' | 'whatsapp_renewal' | null
   >(null);
   const [showMpAccessToken, setShowMpAccessToken] = useState(false);
+  const [rawMpAccessToken, setRawMpAccessToken] = useState('');
+  const [mpValidationStage, setMpValidationStage] = useState<
+    'idle' | 'testing_connection' | 'saving_credentials' | 'verified' | 'error'
+  >('idle');
+  const [mpValidationMeta, setMpValidationMeta] = useState<{
+    latencyMs?: number;
+    accountLabel?: string;
+    environment?: 'production' | 'sandbox';
+    verifiedAt?: string;
+  } | null>(null);
+  const [hideMpTokenPermanentlyAfterValidation, setHideMpTokenPermanentlyAfterValidation] =
+    useState(true);
+  const [isMpTokenPermanentlyHidden, setIsMpTokenPermanentlyHidden] = useState(false);
+  const [mpTestLogs, setMpTestLogs] = useState<MercadoPagoConnectionTestLog[]>([]);
+  const [showClearMpLogsModal, setShowClearMpLogsModal] = useState(false);
+  const [isClearingMpLogs, setIsClearingMpLogs] = useState(false);
   const [mpStatusMessage, setMpStatusMessage] = useState<{
     type: 'success' | 'error';
     text: string;
@@ -144,7 +166,7 @@ export default function AdminSettingsPage() {
 
   // Estados de Simulação / Escolha de Plano (Flex ou Pró), Intervalo (Recorrente vs Anual 2 meses grátis) e Método
   const [selectedPreviewPlan, setSelectedPreviewPlan] = useState<'flex' | 'pro'>('pro');
-  const [selectedPreviewInterval, setSelectedPreviewInterval] = useState<'recurring' | 'annual'>('annual');
+  const [selectedPreviewInterval, setSelectedPreviewInterval] = useState<'recurring' | 'annual'>('recurring');
   const [selectedPreviewMethod, setSelectedPreviewMethod] = useState<'credit_card' | 'pix'>('credit_card');
   const [testingCheckout, setTestingCheckout] = useState(false);
   const [checkoutPreviewResult, setCheckoutPreviewResult] = useState<{
@@ -161,16 +183,32 @@ export default function AdminSettingsPage() {
     field: 'mercadopago_access_token' | 'mercadopago_public_key' | 'webhook_secret',
     value: string
   ) => {
+    // Ao alterar o Access Token ou Public Key, exige nova confirmação do teste de conexão antes de exibir sucesso
+    if (field === 'mercadopago_access_token' || field === 'mercadopago_public_key') {
+      setMpValidationStage('idle');
+      setMpStatusMessage(null);
+    }
+    if (field === 'mercadopago_access_token' && !isMaskedMpToken(value)) {
+      setRawMpAccessToken(value);
+    }
     setForm((prev) => {
       const next = { ...prev, [field]: value };
       if (typeof window !== 'undefined') {
         try {
+          const nextRawToken =
+            field === 'mercadopago_access_token' && !isMaskedMpToken(value)
+              ? value
+              : rawMpAccessToken;
           localStorage.setItem(
             'amigo_mp_credentials_backup',
             JSON.stringify({
               mercadopago_access_token: next.mercadopago_access_token,
+              mercadopago_access_token_raw: nextRawToken,
               mercadopago_public_key: next.mercadopago_public_key,
               webhook_secret: next.webhook_secret,
+              verified: false,
+              permanentlyHidden: isMpTokenPermanentlyHidden,
+              hideAfterValidationPref: hideMpTokenPermanentlyAfterValidation,
             })
           );
         } catch {
@@ -181,6 +219,71 @@ export default function AdminSettingsPage() {
     });
   };
 
+  const handleReplacePermanentlyHiddenMpToken = () => {
+    setIsMpTokenPermanentlyHidden(false);
+    setShowMpAccessToken(false);
+    setRawMpAccessToken('');
+    setMpValidationStage('idle');
+    setMpValidationMeta(null);
+    setMpStatusMessage(null);
+    setForm((prev) => {
+      const next = { ...prev, mercadopago_access_token: '' };
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem(
+            'amigo_mp_credentials_backup',
+            JSON.stringify({
+              mercadopago_access_token: '',
+              mercadopago_access_token_raw: '',
+              mercadopago_public_key: next.mercadopago_public_key,
+              webhook_secret: next.webhook_secret,
+              verified: false,
+              permanentlyHidden: false,
+              hideAfterValidationPref: hideMpTokenPermanentlyAfterValidation,
+            })
+          );
+        } catch {
+          // ignore
+        }
+      }
+      return next;
+    });
+  };
+
+  const appendMpTestLog = (
+    entry: Omit<MercadoPagoConnectionTestLog, 'id' | 'timestamp'> & { timestamp?: string }
+  ): MercadoPagoConnectionTestLog[] => {
+    const nowFormatted =
+      entry.timestamp ||
+      new Date().toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+    const fullEntry: MercadoPagoConnectionTestLog = {
+      id: `mp-log-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+      timestamp: nowFormatted,
+      ...entry,
+    };
+
+    let updatedLogs: MercadoPagoConnectionTestLog[] = [];
+    setMpTestLogs((prev) => {
+      updatedLogs = [fullEntry, ...prev].slice(0, 5);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.setItem('amigo_mp_test_logs', JSON.stringify(updatedLogs));
+        } catch {
+          // ignore
+        }
+      }
+      return updatedLogs;
+    });
+    return updatedLogs;
+  };
+
   useEffect(() => {
     if (hasLoadedSettingsRef.current) return;
     hasLoadedSettingsRef.current = true;
@@ -188,15 +291,54 @@ export default function AdminSettingsPage() {
     async function loadSettings() {
       let localMpBackup: {
         mercadopago_access_token?: string;
+        mercadopago_access_token_raw?: string;
         mercadopago_public_key?: string;
         webhook_secret?: string;
+        verified?: boolean;
+        permanentlyHidden?: boolean;
+        hideAfterValidationPref?: boolean;
+        latencyMs?: number;
+        accountLabel?: string;
+        environment?: 'production' | 'sandbox';
+        verifiedAt?: string;
       } = {};
 
       if (typeof window !== 'undefined') {
         try {
+          const rawLogs = localStorage.getItem('amigo_mp_test_logs');
+          if (rawLogs) {
+            const parsedLogs = JSON.parse(rawLogs);
+            if (Array.isArray(parsedLogs)) {
+              setMpTestLogs(parsedLogs.slice(0, 5));
+            }
+          }
           const rawBackup = localStorage.getItem('amigo_mp_credentials_backup');
           if (rawBackup) {
             localMpBackup = JSON.parse(rawBackup) || {};
+            if (typeof localMpBackup.hideAfterValidationPref === 'boolean') {
+              setHideMpTokenPermanentlyAfterValidation(localMpBackup.hideAfterValidationPref);
+            }
+            const backupRawCandidate =
+              localMpBackup.mercadopago_access_token_raw ||
+              (!isMaskedMpToken(localMpBackup.mercadopago_access_token)
+                ? localMpBackup.mercadopago_access_token
+                : '');
+            if (backupRawCandidate) {
+              setRawMpAccessToken(backupRawCandidate);
+            }
+            if (localMpBackup.verified) {
+              setMpValidationStage('verified');
+              setMpValidationMeta({
+                latencyMs: localMpBackup.latencyMs,
+                accountLabel: localMpBackup.accountLabel,
+                environment: localMpBackup.environment,
+                verifiedAt: localMpBackup.verifiedAt,
+              });
+            }
+            if (localMpBackup.permanentlyHidden && localMpBackup.mercadopago_access_token) {
+              setIsMpTokenPermanentlyHidden(true);
+              setShowMpAccessToken(false);
+            }
           }
         } catch {
           // ignore
@@ -231,14 +373,53 @@ export default function AdminSettingsPage() {
           const json = await res.json();
           if (json?.ok && json.settings) {
             const data = json.settings;
+            const resolvedRawToken =
+              data.mercadopago_access_token_raw ||
+              (!isMaskedMpToken(data.mercadopago_access_token)
+                ? data.mercadopago_access_token
+                : '') ||
+              localMpBackup.mercadopago_access_token_raw ||
+              (!isMaskedMpToken(localMpBackup.mercadopago_access_token)
+                ? localMpBackup.mercadopago_access_token
+                : '') ||
+              '';
+            if (resolvedRawToken) {
+              setRawMpAccessToken(resolvedRawToken);
+            }
+            const resolvedToken =
+              resolvedRawToken ||
+              data.mercadopago_access_token ||
+              localMpBackup.mercadopago_access_token ||
+              '';
+            const serverOrLocalLocked = Boolean(
+              (data.mercadopago_token_permanently_masked ||
+                localMpBackup.permanentlyHidden ||
+                isMaskedMpToken(data.mercadopago_access_token)) &&
+                resolvedToken
+            );
+            const serverOrLocalVerified = Boolean(
+              (data.mercadopago_connection_verified || localMpBackup.verified) && resolvedToken
+            );
+
+            if (serverOrLocalVerified) {
+              setMpValidationStage('verified');
+            }
+            if (serverOrLocalLocked) {
+              setIsMpTokenPermanentlyHidden(true);
+              setShowMpAccessToken(false);
+            }
+            if (Array.isArray(data.mercadopago_test_logs) && data.mercadopago_test_logs.length > 0) {
+              setMpTestLogs((prev) =>
+                prev.length > 0 ? prev.slice(0, 5) : data.mercadopago_test_logs.slice(0, 5)
+              );
+            }
+
             setForm((prev) => ({
               ...prev,
               ...data,
-              mercadopago_access_token:
-                data.mercadopago_access_token ||
-                prev.mercadopago_access_token ||
-                localMpBackup.mercadopago_access_token ||
-                '',
+              mercadopago_access_token: serverOrLocalLocked
+                ? maskMpAccessToken(resolvedToken)
+                : resolvedToken || prev.mercadopago_access_token || '',
               mercadopago_public_key:
                 data.mercadopago_public_key ||
                 prev.mercadopago_public_key ||
@@ -404,24 +585,81 @@ export default function AdminSettingsPage() {
 
   const handleTestAndSaveMercadoPago = async (e?: React.MouseEvent | React.FormEvent) => {
     if (e) e.preventDefault();
-    const cleanToken = form.mercadopago_access_token.trim();
+    const formTokenTrimmed = form.mercadopago_access_token.trim();
+    const cleanToken =
+      isMaskedMpToken(formTokenTrimmed) && rawMpAccessToken.trim()
+        ? rawMpAccessToken.trim()
+        : formTokenTrimmed;
     const cleanPublicKey = form.mercadopago_public_key.trim();
     const cleanWebhook = form.webhook_secret.trim();
 
     if (!cleanToken) {
-      const errMsg = 'Por favor, informe o Mercado Pago Access Token (ex: APP_USR-...) antes de testar e salvar.';
+      const errMsg =
+        'Por favor, informe o Mercado Pago Access Token (ex: APP_USR-...) antes de testar e salvar.';
+      setMpValidationStage('error');
       setMpStatusMessage({ type: 'error', text: errMsg });
       setMessageType('error');
       setMessage(errMsg);
+      appendMpTestLog({
+        status: 'error',
+        message: 'Teste abortado: Access Token não informado.',
+        errorDetail: 'ERR_EMPTY_ACCESS_TOKEN: O campo Mercado Pago Access Token estava vazio.',
+      });
+      return;
+    }
+
+    // Pré-validação instantânea no cliente (0ms) antes da chamada de rede
+    if (
+      !isMaskedMpToken(cleanToken) &&
+      ((!cleanToken.startsWith('APP_USR-') && !cleanToken.startsWith('TEST-')) ||
+        cleanToken.length < 20)
+    ) {
+      const formatErr =
+        'Formato inválido: o Access Token do Mercado Pago deve iniciar com APP_USR- ou TEST- e estar completo.';
+      setMpValidationStage('error');
+      setMpStatusMessage({ type: 'error', text: formatErr });
+      setMessageType('error');
+      setMessage(formatErr);
+      appendMpTestLog({
+        status: 'error',
+        maskedToken: maskMpAccessToken(cleanToken),
+        latencyMs: 1,
+        message: 'Falha na pré-validação de formato do Access Token.',
+        errorDetail: `ERR_INVALID_TOKEN_PREFIX: O token informado (${cleanToken.slice(0, 6)}...) não inicia com APP_USR- ou TEST- ou está truncado.`,
+      });
+      return;
+    }
+
+    if (
+      cleanPublicKey &&
+      !cleanPublicKey.startsWith('APP_USR-') &&
+      !cleanPublicKey.startsWith('TEST-')
+    ) {
+      const pubKeyErr =
+        'Formato inválido: a Public Key do Mercado Pago deve iniciar com APP_USR- ou TEST-.';
+      setMpValidationStage('error');
+      setMpStatusMessage({ type: 'error', text: pubKeyErr });
+      setMessageType('error');
+      setMessage(pubKeyErr);
+      appendMpTestLog({
+        status: 'error',
+        maskedToken: maskMpAccessToken(cleanToken),
+        latencyMs: 1,
+        message: 'Falha na validação de formato da Public Key.',
+        errorDetail: `ERR_INVALID_PUBLIC_KEY: A Public Key informada (${cleanPublicKey.slice(0, 6)}...) deve iniciar com APP_USR- ou TEST-.`,
+      });
       return;
     }
 
     setSavingSection('mercadopago');
+    setMpValidationStage('testing_connection');
     setMpStatusMessage(null);
     setMessage('');
 
+    const clientStart = performance.now();
+
     try {
-      // 1. Testa as credenciais do Mercado Pago
+      // 1. Validação assíncrona rápida na API do Mercado Pago
       const testRes = await fetch('/api/admin/payments/test-mercadopago', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -431,17 +669,63 @@ export default function AdminSettingsPage() {
         }),
       });
       const testJson = await testRes.json().catch(() => ({}));
+      const measuredLatency =
+        testJson.latencyMs || Math.max(1, Math.round(performance.now() - clientStart));
 
       if (!testRes.ok || !testJson.ok) {
         const errText = testJson.error || 'Falha ao validar Access Token do Mercado Pago.';
+        setMpValidationStage('error');
         setMpStatusMessage({ type: 'error', text: errText });
         setMessageType('error');
         setMessage(errText);
+        appendMpTestLog({
+          status: 'error',
+          environment: cleanToken.startsWith('TEST-') ? 'sandbox' : 'production',
+          latencyMs: measuredLatency,
+          maskedToken: maskMpAccessToken(cleanToken),
+          message: 'Falha no teste de conexão com a API do Mercado Pago.',
+          errorDetail: `HTTP ${testRes.status}: ${errText}`,
+        });
         setSavingSection(null);
         return;
       }
 
-      // 2. Salva somente a configuração do Mercado Pago no servidor e no backup local
+      // 2. Conexão confirmada! Avança para persistência exclusiva do Mercado Pago
+      setMpValidationStage('saving_credentials');
+
+      const shouldLockPermanently =
+        hideMpTokenPermanentlyAfterValidation || isMpTokenPermanentlyHidden;
+      const maskedTokenValue = testJson.maskedToken || maskMpAccessToken(cleanToken);
+      const envType: 'production' | 'sandbox' =
+        testJson.environment || (cleanToken.startsWith('TEST-') ? 'sandbox' : 'production');
+      const accountName =
+        testJson?.account?.nickname ||
+        testJson?.account?.email ||
+        (envType === 'sandbox' ? 'Sandbox / Teste' : 'Produção MLB');
+
+      const newLogEntry: MercadoPagoConnectionTestLog = {
+        id: `mp-log-${Date.now()}`,
+        timestamp: new Date().toLocaleString('pt-BR', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        }),
+        status: 'success',
+        environment: envType,
+        latencyMs: measuredLatency,
+        accountLabel: accountName,
+        maskedToken: maskedTokenValue,
+        message:
+          testJson.message ||
+          `Conexão confirmada (${envType === 'sandbox' ? 'Sandbox' : 'Produção'}) e credenciais salvas.`,
+        errorDetail: null,
+      };
+
+      const nextLogs = [newLogEntry, ...mpTestLogs].slice(0, 5);
+
       const savedOk = await saveSection(
         'mercadopago',
         {
@@ -449,21 +733,79 @@ export default function AdminSettingsPage() {
           mercadopago_access_token: cleanToken,
           mercadopago_public_key: cleanPublicKey,
           webhook_secret: cleanWebhook,
-        },
+          mercadopago_token_permanently_masked: shouldLockPermanently,
+          mercadopago_connection_verified: true,
+          mercadopago_test_logs: nextLogs,
+        } as any,
         'Credenciais do Mercado Pago'
       );
 
       if (savedOk) {
+        const verifiedTimestamp = new Date().toLocaleTimeString('pt-BR', {
+          hour: '2-digit',
+          minute: '2-digit',
+          second: '2-digit',
+        });
+
+        const tokenForClientState = shouldLockPermanently ? maskedTokenValue : cleanToken;
+        if (!isMaskedMpToken(cleanToken)) {
+          setRawMpAccessToken(cleanToken);
+        }
+
+        setMpTestLogs(nextLogs);
         setForm((prev) => ({
           ...prev,
           payment_provider: 'mercadopago',
-          mercadopago_access_token: cleanToken,
+          mercadopago_access_token: tokenForClientState,
           mercadopago_public_key: cleanPublicKey,
           webhook_secret: cleanWebhook,
         }));
+
+        // Indica o sucesso visualmente APENAS após a confirmação do teste de conexão + salvamento
+        setMpValidationStage('verified');
+        setMpValidationMeta({
+          latencyMs: measuredLatency,
+          accountLabel: accountName,
+          environment: envType,
+          verifiedAt: verifiedTimestamp,
+        });
+
+        if (shouldLockPermanently) {
+          setIsMpTokenPermanentlyHidden(true);
+          setShowMpAccessToken(false);
+        }
+
+        if (typeof window !== 'undefined') {
+          try {
+            localStorage.setItem('amigo_mp_test_logs', JSON.stringify(nextLogs));
+            localStorage.setItem(
+              'amigo_mp_credentials_backup',
+              JSON.stringify({
+                mercadopago_access_token: tokenForClientState,
+                mercadopago_access_token_raw: !isMaskedMpToken(cleanToken)
+                  ? cleanToken
+                  : rawMpAccessToken,
+                mercadopago_public_key: cleanPublicKey,
+                webhook_secret: cleanWebhook,
+                verified: true,
+                permanentlyHidden: shouldLockPermanently,
+                hideAfterValidationPref: hideMpTokenPermanentlyAfterValidation,
+                latencyMs: measuredLatency,
+                accountLabel: accountName,
+                environment: envType,
+                verifiedAt: verifiedTimestamp,
+              })
+            );
+          } catch {
+            // ignore
+          }
+        }
+
         const successText = `${
-          testJson.message || 'Credenciais validadas!'
-        } Configuração do Mercado Pago salva e fixada com sucesso.`;
+          testJson.message || 'Conexão Mercado Pago confirmada!'
+        } Credenciais salvas com sucesso${
+          shouldLockPermanently ? ' e Access Token ocultado permanentemente por segurança.' : '.'
+        }`;
         setMpStatusMessage({ type: 'success', text: successText });
         setMessageType('success');
         setMessage(successText);
@@ -476,18 +818,69 @@ export default function AdminSettingsPage() {
           actionTitle: 'Teste e Salvamento de Credenciais Mercado Pago',
           targetIdentifier: `Mercado Pago (${cleanPublicKey ? 'Access Token + Public Key' : 'Access Token'})`,
           previousValue: 'Credenciais anteriores',
-          newValue: `Token ${cleanToken.slice(0, 12)}... validado e salvo`,
-          details: 'Credenciais do Mercado Pago testadas e salvas exclusivamente no Painel Master.',
+          newValue: `Token ${cleanToken.slice(0, 10)}•••• validado (${measuredLatency}ms) e salvo`,
+          details: shouldLockPermanently
+            ? 'Credenciais do Mercado Pago testadas, salvas e Access Token bloqueado/ocultado permanentemente após a 1ª validação.'
+            : 'Credenciais do Mercado Pago testadas e salvas exclusivamente no Painel Master.',
           severity: 'critical',
         });
+      } else {
+        setMpValidationStage('error');
       }
     } catch (err: any) {
       const fallbackErr = err?.message || 'Erro ao testar e salvar credenciais do Mercado Pago.';
+      setMpValidationStage('error');
       setMpStatusMessage({ type: 'error', text: fallbackErr });
       setMessageType('error');
       setMessage(fallbackErr);
     } finally {
       setSavingSection(null);
+    }
+  };
+
+  const handleConfirmClearMpLogs = async () => {
+    const previousCount = mpTestLogs.length;
+    setIsClearingMpLogs(true);
+    try {
+      setMpTestLogs([]);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem('amigo_mp_test_logs');
+        } catch {
+          // ignore
+        }
+      }
+
+      // Sincroniza a limpeza do armazenamento de logs também no servidor
+      await saveSection(
+        'mercadopago',
+        {
+          mercadopago_test_logs: [],
+        } as any,
+        'Limpeza do histórico de logs do Mercado Pago'
+      );
+
+      recordAdminAuditAction({
+        adminName: user?.displayName || 'Administrador Master',
+        adminEmail: user?.email || MASTER_EMAIL,
+        adminRole: 'Super Admin',
+        category: 'security_config',
+        actionTitle: 'Limpeza de Logs de Conexão Mercado Pago',
+        targetIdentifier: 'Histórico de Eventos Mercado Pago',
+        previousValue: `${previousCount} log(s) armazenado(s)`,
+        newValue: '0 logs (armazenamento limpo)',
+        details:
+          'O administrador confirmou a limpeza dos logs de eventos de conexão do Mercado Pago no armazenamento local e no servidor.',
+        severity: 'warning',
+      });
+
+      const clearMsg = 'Histórico de logs de conexão do Mercado Pago limpo com sucesso!';
+      setMpStatusMessage({ type: 'success', text: clearMsg });
+      setMessageType('success');
+      setMessage(clearMsg);
+      setShowClearMpLogsModal(false);
+    } finally {
+      setIsClearingMpLogs(false);
     }
   };
 
@@ -1109,33 +1502,35 @@ export default function AdminSettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#070e1c] text-slate-100 p-4 sm:p-6 lg:p-10">
-      <div className="w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto space-y-6">
+    <div className={embedded ? "text-slate-100 space-y-6" : "min-h-screen bg-[#070e1c] text-slate-100 p-4 sm:p-6 lg:p-10"}>
+      <div className={embedded ? "w-full space-y-6" : "w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto space-y-6"}>
         <ConfigAlert />
         {/* Cabeçalho */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-6 border-b border-slate-800">
           <div>
-            <div className="flex items-center gap-3 mb-2">
-              <Link 
-                href="/admin-master" 
-                className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition flex items-center gap-1.5 text-xs font-medium"
-              >
-                <ArrowLeft className="w-4 h-4" />
-                <span>Voltar ao Admin Master</span>
-              </Link>
+            {!embedded && (
+              <div className="flex items-center gap-3 mb-2">
+                <Link 
+                  href="/admin" 
+                  className="p-2 rounded-xl bg-slate-900 border border-slate-800 hover:bg-slate-800 text-slate-300 transition flex items-center gap-1.5 text-xs font-medium"
+                >
+                  <ArrowLeft className="w-4 h-4" />
+                  <span>Voltar à Central Unificada Admin</span>
+                </Link>
 
-              <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 font-mono">
-                <CrownIcon />
-                Painel Master
-              </span>
-              <ThemeToggle showLabel />
-            </div>
+                <span className="px-2.5 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1 font-mono">
+                  <CrownIcon />
+                  Painel Master Unificado
+                </span>
+                <ThemeToggle showLabel />
+              </div>
+            )}
 
-            <h1 className="text-2xl sm:text-3xl font-black text-white tracking-tight flex items-center gap-2.5">
-              <span>Painel Master: Configurações do Sistema</span>
+            <h1 className="text-xl sm:text-2xl font-black text-white tracking-tight flex items-center gap-2.5">
+              <span>⚙️ Configurações Master: Planos (R$ 19,90 / R$ 39,90), Gateways & Automações</span>
             </h1>
             <p className="text-slate-400 text-xs sm:text-sm mt-1">
-              Gerencie credenciais de pagamento, preços e automações do app.
+              Central única de credenciais de pagamento (Mercado Pago & Stripe), valores oficiais dos planos (Flex R$ 19,90 e Pró R$ 39,90) e automações do sistema.
             </p>
           </div>
         </div>
@@ -1575,7 +1970,13 @@ export default function AdminSettingsPage() {
             {/* 1.4 Credenciais Mercado Pago (Cartão & PIX) */}
             <div
               id="mercadopago-credentials-section"
-              className="col-span-full p-4 sm:p-5 rounded-2xl bg-slate-950/90 border border-amber-500/35 space-y-4 shadow-lg"
+              className={`col-span-full p-4 sm:p-5 rounded-2xl bg-slate-950/90 border space-y-4 shadow-lg transition-all duration-300 ${
+                mpValidationStage === 'verified'
+                  ? 'border-emerald-500/50 shadow-[0_0_25px_rgba(16,185,129,0.12)]'
+                  : mpValidationStage === 'error'
+                    ? 'border-rose-500/50'
+                    : 'border-amber-500/35'
+              }`}
             >
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800/90 pb-3">
                 <div>
@@ -1584,45 +1985,186 @@ export default function AdminSettingsPage() {
                     <span>Credenciais Mercado Pago (Cartão de Crédito &amp; PIX)</span>
                   </h4>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Informe suas chaves de produção ou teste (`APP_USR-...` / `TEST-...`) e clique no botão abaixo para validar e salvar exclusivamente o Mercado Pago.
+                    Informe suas chaves de produção ou teste (`APP_USR-...` / `TEST-...`). O status de sucesso só é ativado após a confirmação real do teste de conexão.
                   </p>
                 </div>
+
+                {/* Badge indica sucesso APENAS após confirmação do teste de conexão */}
                 <span
-                  className={`px-2.5 py-1 rounded-full text-[10px] font-bold border shrink-0 self-start sm:self-center ${
-                    form.mercadopago_access_token?.trim()
-                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
-                      : 'bg-slate-900 text-slate-400 border-slate-800'
+                  className={`px-3 py-1 rounded-full text-[10px] font-bold border shrink-0 self-start sm:self-center flex items-center gap-1.5 transition-all ${
+                    mpValidationStage === 'verified'
+                      ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/40 shadow-[0_0_12px_rgba(16,185,129,0.2)]'
+                      : mpValidationStage === 'testing_connection' ||
+                          mpValidationStage === 'saving_credentials'
+                        ? 'bg-sky-500/15 text-sky-300 border-sky-500/40'
+                        : mpValidationStage === 'error'
+                          ? 'bg-rose-500/15 text-rose-300 border-rose-500/40'
+                          : form.mercadopago_access_token?.trim()
+                            ? 'bg-amber-500/15 text-amber-300 border-amber-500/40'
+                            : 'bg-slate-900 text-slate-400 border-slate-800'
                   }`}
                 >
-                  {form.mercadopago_access_token?.trim()
-                    ? '✓ Access Token Informado'
-                    : 'Aguardando Credenciais'}
+                  {mpValidationStage === 'verified' ? (
+                    <>
+                      <CheckCircle2 size={12} className="text-emerald-400" />
+                      <span>
+                        Conexão Confirmada &amp; Salva
+                        {mpValidationMeta?.latencyMs ? ` (${mpValidationMeta.latencyMs}ms)` : ''}
+                      </span>
+                    </>
+                  ) : mpValidationStage === 'testing_connection' ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin text-sky-400" />
+                      <span>Validando Conexão na API...</span>
+                    </>
+                  ) : mpValidationStage === 'saving_credentials' ? (
+                    <>
+                      <Loader2 size={12} className="animate-spin text-emerald-400" />
+                      <span>Conexão OK • Salvando...</span>
+                    </>
+                  ) : mpValidationStage === 'error' ? (
+                    <>
+                      <AlertCircle size={12} className="text-rose-400" />
+                      <span>Falha no Teste de Conexão</span>
+                    </>
+                  ) : form.mercadopago_access_token?.trim() ? (
+                    <>
+                      <Clock size={12} className="text-amber-400" />
+                      <span>Pendente: Teste a Conexão para Validar</span>
+                    </>
+                  ) : (
+                    <span>Aguardando Credenciais</span>
+                  )}
                 </span>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 <div>
-                  <label className="text-xs font-semibold text-slate-300 flex items-center justify-between min-h-[48px] sm:min-h-0 mb-1.5">
-                    <span>Mercado Pago Access Token (Privado) *</span>
-                    <button
-                      type="button"
-                      onClick={() => setShowMpAccessToken((v) => !v)}
-                      className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer"
-                    >
-                      {showMpAccessToken ? <EyeOff size={13} /> : <Eye size={13} />}
-                      <span>{showMpAccessToken ? 'Ocultar' : 'Mostrar Token'}</span>
-                    </button>
+                  <label className="text-xs font-semibold text-slate-300 flex items-center justify-between min-h-[48px] sm:min-h-0 mb-1.5 gap-2">
+                    <span className="flex items-center gap-1.5 flex-wrap">
+                      <span>Mercado Pago Access Token (Privado) *</span>
+                      {isMpTokenPermanentlyHidden && (
+                        <span className="px-2 py-0.5 rounded-md bg-emerald-500/15 border border-emerald-500/30 text-[10px] font-bold text-emerald-300 flex items-center gap-1">
+                          <Lock size={10} />
+                          <span>Oculto Permanentemente</span>
+                        </span>
+                      )}
+                    </span>
+
+                    <div className="flex items-center gap-3 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => setShowMpAccessToken((v) => !v)}
+                        className="text-[11px] text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer"
+                        title={
+                          showMpAccessToken
+                            ? 'Ocultar temporariamente o Access Token'
+                            : 'Alternar temporariamente a visibilidade do Access Token'
+                        }
+                      >
+                        {showMpAccessToken ? <EyeOff size={13} /> : <Eye size={13} />}
+                        <span>{showMpAccessToken ? 'Ocultar' : 'Mostrar Token'}</span>
+                      </button>
+
+                      {isMpTokenPermanentlyHidden && (
+                        <button
+                          type="button"
+                          onClick={handleReplacePermanentlyHiddenMpToken}
+                          className="text-[11px] text-slate-400 hover:text-amber-300 font-bold flex items-center gap-1 cursor-pointer border-l border-slate-800 pl-2.5"
+                          title="Limpa o token atual bloqueado para cadastrar um novo"
+                        >
+                          <RotateCcw size={12} />
+                          <span>Substituir Token</span>
+                        </button>
+                      )}
+                    </div>
                   </label>
-                  <input
-                    type={showMpAccessToken ? 'text' : 'password'}
-                    autoComplete="off"
-                    placeholder="APP_USR-..."
-                    value={form.mercadopago_access_token}
-                    onChange={(e) =>
-                      updateMercadoPagoField('mercadopago_access_token', e.target.value)
-                    }
-                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px]"
-                  />
+
+                  {isMpTokenPermanentlyHidden && form.mercadopago_access_token ? (
+                    <div className="relative">
+                      <input
+                        type="text"
+                        readOnly
+                        aria-label="Access Token protegido pela política de segurança permanente"
+                        value={
+                          showMpAccessToken
+                            ? rawMpAccessToken || form.mercadopago_access_token
+                            : maskMpAccessToken(rawMpAccessToken || form.mercadopago_access_token)
+                        }
+                        className={`w-full bg-slate-900/70 rounded-xl pl-3.5 pr-40 py-3 text-sm sm:text-xs font-mono min-h-[50px] transition-colors ${
+                          showMpAccessToken
+                            ? 'border border-amber-500/45 text-amber-200 select-all'
+                            : 'border border-emerald-500/35 text-emerald-300 select-none cursor-not-allowed'
+                        }`}
+                      />
+                      <div className="absolute right-2.5 top-1/2 -translate-y-1/2 flex items-center gap-1.5">
+                        <span
+                          className={`text-[10px] font-bold flex items-center gap-1 bg-slate-950/90 px-2 py-1 rounded-lg border ${
+                            showMpAccessToken
+                              ? 'text-amber-300 border-amber-500/35'
+                              : 'text-emerald-300 border-emerald-500/30'
+                          }`}
+                        >
+                          <ShieldCheck
+                            size={12}
+                            className={showMpAccessToken ? 'text-amber-400' : 'text-emerald-400'}
+                          />
+                          <span>{showMpAccessToken ? 'Visível Temp.' : 'Mascarado'}</span>
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => setShowMpAccessToken((v) => !v)}
+                          aria-label={
+                            showMpAccessToken
+                              ? 'Ocultar Access Token novamente'
+                              : 'Alternar temporariamente a visibilidade do Access Token'
+                          }
+                          title={
+                            showMpAccessToken
+                              ? 'Ocultar novamente o Access Token'
+                              : 'Visualizar temporariamente o Access Token completo'
+                          }
+                          className={`p-1.5 rounded-lg border transition flex items-center justify-center cursor-pointer ${
+                            showMpAccessToken
+                              ? 'bg-amber-500/20 border-amber-500/40 text-amber-300 hover:bg-amber-500/30'
+                              : 'bg-slate-950/90 border-slate-700 text-slate-300 hover:text-amber-300 hover:border-amber-500/40'
+                          }`}
+                        >
+                          {showMpAccessToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="relative">
+                      <input
+                        type={showMpAccessToken ? 'text' : 'password'}
+                        autoComplete="off"
+                        placeholder="APP_USR-..."
+                        value={form.mercadopago_access_token}
+                        onChange={(e) =>
+                          updateMercadoPagoField('mercadopago_access_token', e.target.value)
+                        }
+                        className="w-full bg-slate-900 border border-slate-800 rounded-xl pl-3.5 pr-11 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px]"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowMpAccessToken((v) => !v)}
+                        aria-label={
+                          showMpAccessToken
+                            ? 'Ocultar Access Token'
+                            : 'Mostrar Access Token temporariamente'
+                        }
+                        title={
+                          showMpAccessToken
+                            ? 'Ocultar Access Token'
+                            : 'Mostrar Access Token temporariamente'
+                        }
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 p-1.5 rounded-lg text-slate-400 hover:text-amber-300 hover:bg-slate-800/80 transition flex items-center justify-center cursor-pointer"
+                      >
+                        {showMpAccessToken ? <EyeOff size={15} /> : <Eye size={15} />}
+                      </button>
+                    </div>
+                  )}
                 </div>
 
                 <div>
@@ -1642,29 +2184,167 @@ export default function AdminSettingsPage() {
                 </div>
               </div>
 
-              <div>
-                <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
-                  Segredo do Webhook Mercado Pago (Opcional)
-                </label>
-                <input
-                  type="text"
-                  autoComplete="off"
-                  placeholder="Segredo de validação de eventos do gateway"
-                  value={form.webhook_secret}
-                  onChange={(e) => updateMercadoPagoField('webhook_secret', e.target.value)}
-                  className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px]"
-                />
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-end">
+                <div>
+                  <label className="text-xs font-semibold text-slate-300 flex items-center min-h-[48px] sm:min-h-0 sm:block mb-1.5">
+                    Segredo do Webhook Mercado Pago (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    autoComplete="off"
+                    placeholder="Segredo de validação de eventos do gateway"
+                    value={form.webhook_secret}
+                    onChange={(e) => updateMercadoPagoField('webhook_secret', e.target.value)}
+                    className="w-full bg-slate-900 border border-slate-800 rounded-xl px-3.5 py-3 text-sm sm:text-xs text-white font-mono placeholder-slate-600 focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500/20 min-h-[50px]"
+                  />
+                </div>
+
+                {/* Opção de Segurança: Ocultar Access Token permanentemente após a confirmação do teste de conexão */}
+                <div className="p-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between gap-3 min-h-[50px]">
+                  <label className="flex items-start sm:items-center gap-2.5 cursor-pointer select-none flex-1">
+                    <input
+                      type="checkbox"
+                      checked={hideMpTokenPermanentlyAfterValidation}
+                      disabled={isMpTokenPermanentlyHidden}
+                      onChange={(e) => {
+                        const checked = e.target.checked;
+                        setHideMpTokenPermanentlyAfterValidation(checked);
+                        const shouldMaskNow =
+                          checked &&
+                          mpValidationStage === 'verified' &&
+                          Boolean(form.mercadopago_access_token);
+
+                        if (shouldMaskNow) {
+                          if (!isMaskedMpToken(form.mercadopago_access_token)) {
+                            setRawMpAccessToken(form.mercadopago_access_token);
+                          }
+                          const maskedVal = maskMpAccessToken(
+                            rawMpAccessToken || form.mercadopago_access_token
+                          );
+                          setIsMpTokenPermanentlyHidden(true);
+                          setShowMpAccessToken(false);
+                          setForm((prev) => ({
+                            ...prev,
+                            mercadopago_access_token: maskedVal,
+                          }));
+                        }
+
+                        if (typeof window !== 'undefined') {
+                          try {
+                            const raw = localStorage.getItem('amigo_mp_credentials_backup');
+                            const parsed = raw ? JSON.parse(raw) : {};
+                            localStorage.setItem(
+                              'amigo_mp_credentials_backup',
+                              JSON.stringify({
+                                ...parsed,
+                                mercadopago_access_token: shouldMaskNow
+                                  ? maskMpAccessToken(
+                                      rawMpAccessToken || form.mercadopago_access_token
+                                    )
+                                  : parsed.mercadopago_access_token,
+                                mercadopago_access_token_raw: !isMaskedMpToken(
+                                  form.mercadopago_access_token
+                                )
+                                  ? form.mercadopago_access_token
+                                  : rawMpAccessToken || parsed.mercadopago_access_token_raw,
+                                hideAfterValidationPref: checked,
+                                permanentlyHidden: shouldMaskNow
+                                  ? true
+                                  : parsed.permanentlyHidden,
+                              })
+                            );
+                          } catch {
+                            // ignore
+                          }
+                        }
+                      }}
+                      className="w-4 h-4 rounded text-emerald-500 bg-slate-950 border-slate-700 mt-0.5 sm:mt-0 shrink-0 disabled:opacity-60"
+                    />
+                    <div className="text-[11px] leading-tight">
+                      <span className="font-bold text-slate-200 flex items-center gap-1">
+                        <Lock size={11} className="text-amber-400 shrink-0" />
+                        <span>
+                          Ocultar Access Token permanentemente após confirmação do teste
+                        </span>
+                      </span>
+                      <span className="text-slate-400 block mt-0.5">
+                        {isMpTokenPermanentlyHidden
+                          ? 'Valor mascarado permanentemente após confirmação da conexão.'
+                          : 'Mascara o valor do token automaticamente assim que o teste de conexão é confirmado.'}
+                      </span>
+                    </div>
+                  </label>
+                </div>
               </div>
+
+              {/* Barra visual de progresso assíncrono durante o teste / confirmação */}
+              {(mpValidationStage === 'testing_connection' ||
+                mpValidationStage === 'saving_credentials' ||
+                mpValidationStage === 'verified') && (
+                <div className="p-3 rounded-xl bg-slate-900/95 border border-slate-800/90 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px]">
+                  <div className="flex items-center gap-4 flex-wrap">
+                    <span
+                      className={`flex items-center gap-1.5 font-bold ${
+                        mpValidationStage === 'testing_connection'
+                          ? 'text-sky-300'
+                          : 'text-emerald-400'
+                      }`}
+                    >
+                      {mpValidationStage === 'testing_connection' ? (
+                        <Loader2 size={13} className="animate-spin text-sky-400" />
+                      ) : (
+                        <CheckCircle2 size={13} className="text-emerald-400" />
+                      )}
+                      <span>1. Teste de Conexão API Mercado Pago</span>
+                    </span>
+
+                    <span className="text-slate-600">→</span>
+
+                    <span
+                      className={`flex items-center gap-1.5 font-bold ${
+                        mpValidationStage === 'saving_credentials'
+                          ? 'text-amber-300'
+                          : mpValidationStage === 'verified'
+                            ? 'text-emerald-400'
+                            : 'text-slate-500'
+                      }`}
+                    >
+                      {mpValidationStage === 'saving_credentials' ? (
+                        <Loader2 size={13} className="animate-spin text-amber-400" />
+                      ) : mpValidationStage === 'verified' ? (
+                        <CheckCircle2 size={13} className="text-emerald-400" />
+                      ) : (
+                        <Clock size={13} />
+                      )}
+                      <span>2. Persistência Segura &amp; Ativação</span>
+                    </span>
+                  </div>
+
+                  {mpValidationStage === 'verified' && mpValidationMeta && (
+                    <div className="flex items-center gap-2 text-[10px] font-mono text-emerald-300/90">
+                      <span className="px-2 py-0.5 rounded bg-emerald-500/10 border border-emerald-500/30">
+                        {mpValidationMeta.environment === 'sandbox' ? 'SANDBOX' : 'PRODUÇÃO'}
+                      </span>
+                      {mpValidationMeta.accountLabel && (
+                        <span>Conta: {mpValidationMeta.accountLabel}</span>
+                      )}
+                      {mpValidationMeta.latencyMs && (
+                        <span>• {mpValidationMeta.latencyMs}ms</span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {mpStatusMessage && (
                 <div
                   className={`p-3.5 rounded-xl border flex items-start gap-2.5 text-xs font-semibold ${
-                    mpStatusMessage.type === 'success'
+                    mpStatusMessage.type === 'success' && mpValidationStage === 'verified'
                       ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
                       : 'bg-rose-500/15 border-rose-500/40 text-rose-300'
                   }`}
                 >
-                  {mpStatusMessage.type === 'success' ? (
+                  {mpStatusMessage.type === 'success' && mpValidationStage === 'verified' ? (
                     <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0 mt-0.5" />
                   ) : (
                     <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
@@ -1674,28 +2354,296 @@ export default function AdminSettingsPage() {
               )}
 
               <div className="pt-2 border-t border-slate-800/80 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <span className="text-[11px] text-slate-400">
-                  Salva e ativa exclusivamente as chaves do Mercado Pago sem alterar as demais seções.
-                </span>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] text-slate-400">
+                    Valida a conexão na API do Mercado Pago e salva exclusivamente esta seção após confirmação.
+                  </span>
+                  {mpTestLogs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => setShowClearMpLogsModal(true)}
+                      className="px-2.5 py-1 rounded-lg bg-slate-950/90 hover:bg-rose-950/60 border border-slate-800 hover:border-rose-500/40 text-[11px] font-bold text-slate-300 hover:text-rose-300 transition inline-flex items-center gap-1.5 cursor-pointer"
+                      title="Gerenciar e limpar armazenamento de logs de conexão do Mercado Pago"
+                    >
+                      <Trash2 size={12} className="text-rose-400" />
+                      <span>Limpar Logs ({mpTestLogs.length}/5)</span>
+                    </button>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={handleTestAndSaveMercadoPago}
                   disabled={savingSection !== null}
-                  className="w-full sm:w-auto py-3.5 px-6 rounded-xl bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 font-black text-xs sm:text-sm transition flex items-center justify-center gap-2.5 shadow-[0_0_20px_rgba(245,158,11,0.3)] cursor-pointer disabled:opacity-50 min-h-[50px] touch-manipulation active:scale-98 shrink-0"
+                  className={`w-full sm:w-auto py-3.5 px-6 rounded-xl font-black text-xs sm:text-sm transition flex items-center justify-center gap-2.5 cursor-pointer disabled:opacity-50 min-h-[50px] touch-manipulation active:scale-98 shrink-0 ${
+                    mpValidationStage === 'verified'
+                      ? 'bg-gradient-to-r from-emerald-500 to-emerald-600 hover:from-emerald-400 hover:to-emerald-500 text-slate-950 shadow-[0_0_20px_rgba(16,185,129,0.3)]'
+                      : 'bg-gradient-to-r from-amber-500 to-amber-600 hover:from-amber-400 hover:to-amber-500 text-slate-950 shadow-[0_0_20px_rgba(245,158,11,0.3)]'
+                  }`}
                 >
                   {savingSection === 'mercadopago' ? (
                     <>
                       <Loader2 className="w-4 h-4 animate-spin text-slate-950" />
-                      <span>Testando e Salvando Mercado Pago...</span>
+                      <span>
+                        {mpValidationStage === 'testing_connection'
+                          ? 'Validando Conexão Mercado Pago...'
+                          : 'Conexão Confirmada! Salvando...'}
+                      </span>
+                    </>
+                  ) : mpValidationStage === 'verified' ? (
+                    <>
+                      <CheckCircle2 className="w-4 h-4 text-slate-950" />
+                      <span>Conexão Validada e Salva (Revalidar Mercado Pago)</span>
                     </>
                   ) : (
                     <>
-                      <CheckCircle2 className="w-4 h-4 text-slate-950" />
-                      <span>Testar e Salvar Credenciais Mercado Pago</span>
+                      <ShieldCheck className="w-4 h-4 text-slate-950" />
+                      <span>Testar Conexão e Salvar Credenciais Mercado Pago</span>
                     </>
                   )}
                 </button>
               </div>
+            </div>
+
+            {/* 1.4.1 Histórico de Eventos de Conexão — Mercado Pago (Últimos 5 Logs de Teste) */}
+            <div
+              id="mercadopago-events-history-section"
+              className="col-span-full p-4 sm:p-5 rounded-2xl bg-slate-950/85 border border-slate-800/90 space-y-4 shadow-md"
+            >
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800/80 pb-3">
+                <div className="flex items-start sm:items-center gap-2.5">
+                  <div className="p-2 rounded-xl bg-amber-500/10 border border-amber-500/25 text-amber-400 shrink-0">
+                    <Clock size={16} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-200 flex items-center gap-2 flex-wrap">
+                      <span>Histórico de Eventos Mercado Pago (Últimos 5 Testes de Conexão)</span>
+                      <span className="px-2 py-0.5 rounded-full text-[10px] font-mono font-bold bg-slate-900 border border-slate-700 text-amber-300">
+                        {mpTestLogs.length}/5 logs armazenados
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Registro técnico de diagnóstico com status, data/hora exata, latência e detalhes de possíveis erros para suporte técnico.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start sm:self-center shrink-0">
+                  {mpTestLogs.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const report = mpTestLogs
+                          .map(
+                            (log, idx) =>
+                              `#${idx + 1} [${log.timestamp}] Status: ${log.status.toUpperCase()} | Ambiente: ${
+                                log.environment || 'N/A'
+                              } | Latência: ${log.latencyMs ? `${log.latencyMs}ms` : 'N/A'} | Token: ${
+                                log.maskedToken || 'N/A'
+                              } | Msg: ${log.message}${
+                                log.errorDetail ? ` | Erro: ${log.errorDetail}` : ''
+                              }`
+                          )
+                          .join('\n');
+                        navigator.clipboard.writeText(report);
+                        setMessageType('success');
+                        setMessage('Relatório dos últimos 5 testes do Mercado Pago copiado para suporte!');
+                      }}
+                      className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-700 text-[11px] font-bold text-slate-300 hover:text-white transition flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <FileText size={12} className="text-amber-400" />
+                      <span>Copiar Logs p/ Suporte</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    disabled={mpTestLogs.length === 0 || isClearingMpLogs}
+                    onClick={() => setShowClearMpLogsModal(true)}
+                    className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-rose-950/60 border border-slate-700 hover:border-rose-500/40 text-[11px] font-bold text-slate-300 hover:text-rose-300 transition flex items-center gap-1.5 cursor-pointer disabled:opacity-40 disabled:pointer-events-none"
+                    title="Limpar logs de conexão armazenados com confirmação prévia"
+                  >
+                    <Trash2 size={12} className="text-rose-400" />
+                    <span>Limpar Logs</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Modal de Confirmação Prévia para Limpar Logs de Conexão do Mercado Pago */}
+              {showClearMpLogsModal && (
+                <div
+                  className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-in fade-in duration-150"
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="clear-mp-logs-modal-title"
+                >
+                  <div className="w-full max-w-md rounded-2xl bg-slate-900 border border-rose-500/40 shadow-2xl p-5 sm:p-6 space-y-4">
+                    <div className="flex items-start gap-3.5">
+                      <div className="p-2.5 rounded-xl bg-rose-500/15 border border-rose-500/30 text-rose-400 shrink-0">
+                        <ShieldAlert className="w-5 h-5" />
+                      </div>
+                      <div className="space-y-1">
+                        <h3
+                          id="clear-mp-logs-modal-title"
+                          className="text-sm sm:text-base font-black text-white flex items-center gap-2"
+                        >
+                          Confirmar Limpeza de Logs do Mercado Pago?
+                        </h3>
+                        <p className="text-xs text-slate-300 leading-relaxed">
+                          Você está prestes a remover permanentemente{' '}
+                          <strong className="text-rose-300 font-bold">
+                            {mpTestLogs.length} {mpTestLogs.length === 1 ? 'registro' : 'registros'} de evento
+                          </strong>{' '}
+                          do histórico de testes de conexão do Mercado Pago.
+                        </p>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-slate-950/90 border border-slate-800 space-y-1.5 text-[11px] text-slate-400">
+                      <div className="flex items-center justify-between">
+                        <span className="font-semibold text-slate-300">Armazenamento ocupado:</span>
+                        <span className="font-mono font-bold text-amber-300">
+                          {mpTestLogs.length}/5 slots de diagnóstico
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-400">
+                        • Os logs serão apagados do armazenamento local e sincronizados com o servidor.
+                      </p>
+                      <p className="text-[11px] text-slate-400">
+                        • Suas credenciais salvas (Access Token, Public Key e Webhook) <strong className="text-emerald-300">não serão afetadas</strong>.
+                      </p>
+                    </div>
+
+                    <div className="flex flex-col-reverse sm:flex-row items-stretch sm:items-center justify-end gap-2.5 pt-2 border-t border-slate-800">
+                      <button
+                        type="button"
+                        disabled={isClearingMpLogs}
+                        onClick={() => setShowClearMpLogsModal(false)}
+                        className="px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-bold text-slate-200 transition cursor-pointer disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
+                      <button
+                        type="button"
+                        disabled={isClearingMpLogs}
+                        onClick={handleConfirmClearMpLogs}
+                        className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-rose-600 to-rose-500 hover:from-rose-500 hover:to-rose-400 text-xs font-black text-white shadow-lg shadow-rose-950/50 transition flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                      >
+                        {isClearingMpLogs ? (
+                          <>
+                            <Loader2 size={14} className="animate-spin" />
+                            <span>Limpando Armazenamento...</span>
+                          </>
+                        ) : (
+                          <>
+                            <Trash2 size={14} />
+                            <span>Confirmar e Limpar Logs</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {mpTestLogs.length === 0 ? (
+                <div className="p-4 rounded-xl bg-slate-900/50 border border-dashed border-slate-800 text-center space-y-1">
+                  <p className="text-xs font-semibold text-slate-400">
+                    Nenhum teste de conexão registrado nesta sessão.
+                  </p>
+                  <p className="text-[11px] text-slate-500">
+                    Clique em &ldquo;Testar Conexão e Salvar Credenciais Mercado Pago&rdquo; acima para gerar logs de diagnóstico para o suporte técnico.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-2.5">
+                  {mpTestLogs.slice(0, 5).map((log, index) => (
+                    <div
+                      key={log.id}
+                      className={`p-3.5 rounded-xl border transition flex flex-col gap-2 ${
+                        log.status === 'success'
+                          ? 'bg-emerald-950/15 border-emerald-500/30'
+                          : 'bg-rose-950/20 border-rose-500/35'
+                      }`}
+                    >
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-[10px] font-mono font-bold text-slate-500">
+                            #{index + 1}
+                          </span>
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase tracking-wider flex items-center gap-1 border ${
+                              log.status === 'success'
+                                ? 'bg-emerald-500/15 text-emerald-300 border-emerald-500/30'
+                                : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                            }`}
+                          >
+                            {log.status === 'success' ? (
+                              <>
+                                <CheckCircle2 size={11} className="text-emerald-400" />
+                                <span>Sucesso</span>
+                              </>
+                            ) : (
+                              <>
+                                <AlertCircle size={11} className="text-rose-400" />
+                                <span>Erro de Conexão</span>
+                              </>
+                            )}
+                          </span>
+
+                          {log.environment && (
+                            <span className="px-2 py-0.5 rounded text-[10px] font-mono font-bold bg-slate-900 border border-slate-800 text-slate-300">
+                              {log.environment === 'sandbox' ? 'SANDBOX' : 'PRODUÇÃO'}
+                            </span>
+                          )}
+
+                          {log.latencyMs !== undefined && (
+                            <span className="text-[10px] font-mono text-slate-400">
+                              ⚡ {log.latencyMs}ms
+                            </span>
+                          )}
+
+                          {log.accountLabel && (
+                            <span className="text-[10px] font-semibold text-emerald-300/90">
+                              • Conta: {log.accountLabel}
+                            </span>
+                          )}
+                        </div>
+
+                        <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 shrink-0">
+                          <Clock size={11} className="text-slate-500" />
+                          <span>{log.timestamp}</span>
+                        </div>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                        <span
+                          className={
+                            log.status === 'success' ? 'text-slate-200 font-medium' : 'text-rose-200 font-medium'
+                          }
+                        >
+                          {log.message}
+                        </span>
+                        {log.maskedToken && (
+                          <span className="text-[10px] font-mono text-slate-400 bg-slate-900/90 px-2 py-0.5 rounded border border-slate-800 self-start sm:self-center shrink-0">
+                            Token: {log.maskedToken}
+                          </span>
+                        )}
+                      </div>
+
+                      {log.errorDetail && (
+                        <div className="p-2.5 rounded-lg bg-slate-950/90 border border-rose-500/25 text-[11px] font-mono text-rose-300 flex items-start gap-2">
+                          <AlertCircle size={13} className="text-rose-400 shrink-0 mt-0.5" />
+                          <div className="space-y-0.5 break-all">
+                            <span className="text-[10px] uppercase font-bold text-rose-400 block">
+                              Diagnóstico Técnico do Erro:
+                            </span>
+                            <span>{log.errorDetail}</span>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* 1.5 Credenciais Stripe (Cartão de Crédito Nacional & Internacional) */}

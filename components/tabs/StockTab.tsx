@@ -373,7 +373,12 @@ const CATEGORY_VISUAL_META: Record<
   },
 };
 
-const LOCAL_STOCK_KEY = 'amigo_installer_ideal_stock_v1';
+const LOCAL_STOCK_KEY = 'amigo_installer_real_stock_v1';
+
+const ZEROED_STOCK_CATALOG: InstallerMaterialItem[] = INSTALLER_IDEAL_STOCK_CATALOG.map((item) => ({
+  ...item,
+  quantity: 0,
+}));
 
 interface StockTabProps {
   dbStockItems?: any[];
@@ -394,7 +399,7 @@ export default function StockTab({
   dbStockItems = [],
   onSaveToDb,
 }: StockTabProps) {
-  const [items, setItems] = useState<InstallerMaterialItem[]>(INSTALLER_IDEAL_STOCK_CATALOG);
+  const [items, setItems] = useState<InstallerMaterialItem[]>(ZEROED_STOCK_CATALOG);
   const [selectedCategory, setSelectedCategory] = useState<
     InstallerMaterialItem['category'] | 'all' | 'low_stock' | 'below_min'
   >('all');
@@ -421,11 +426,32 @@ export default function StockTab({
           return;
         }
       }
-      localStorage.setItem(LOCAL_STOCK_KEY, JSON.stringify(INSTALLER_IDEAL_STOCK_CATALOG));
+      if (Array.isArray(dbStockItems) && dbStockItems.length > 0) {
+        const mappedFromDb: InstallerMaterialItem[] = dbStockItems.map((dbItem: any, idx: number) => {
+          const cost = Number(dbItem.unitCost) || 0;
+          return {
+            id: dbItem.id ?? `db-${idx}`,
+            name: String(dbItem.name || 'Material'),
+            category: (dbItem.category as InstallerMaterialItem['category']) || 'insumos',
+            unit: String(dbItem.unit || 'un'),
+            quantity: Number(dbItem.quantity) || 0,
+            minQuantity: Number(dbItem.minQuantity) || 1,
+            idealQuantity: Math.max(Number(dbItem.minQuantity) * 2 || 2, Number(dbItem.quantity) || 2),
+            unitCost: cost,
+            marketPriceMin: Number((cost * 0.9).toFixed(2)),
+            marketPriceMax: Number((cost * 1.15).toFixed(2)),
+            usagePerInstall: 'Estoque registrado pelo técnico',
+            marketNotes: 'Item real sincronizado com o banco de dados.',
+          };
+        });
+        setItems(mappedFromDb);
+        return;
+      }
+      setItems(ZEROED_STOCK_CATALOG);
     } catch {
       // ignore storage errors
     }
-  }, []);
+  }, [dbStockItems.length]);
 
   const persistItems = (updated: InstallerMaterialItem[]) => {
     setItems(updated);

@@ -4345,6 +4345,7 @@ export default function AmigoApp() {
         {activeTab === 'settings' && (
           <SettingsTab
             onOpenUpgradeModal={() => setShowUpgradeModal(true)}
+            onSwitchToAdminHub={() => setActiveTab('suporte-admin')}
           />
         )}
 

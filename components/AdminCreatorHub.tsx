@@ -53,6 +53,8 @@ import { recordAdminAuditAction } from '@/lib/adminAuditService';
 import AdminRevenueForecastModule from '@/components/AdminRevenueForecastModule';
 import AdminAuditLogSection from '@/components/AdminAuditLogSection';
 import { AdminSupportChatView } from '@/components/AdminSupportChatView';
+import AdminSettingsPage from '@/app/admin/configuracoes/page';
+import SettingsTab from '@/components/tabs/SettingsTab';
 
 interface AdminLicenseKeyRecord {
   code: string;
@@ -63,17 +65,20 @@ interface AdminLicenseKeyRecord {
 
 const ADMIN_LICENSES_STORAGE_KEY = 'amigo_creator_generated_licenses_v1';
 
-interface AdminCreatorHubProps {
-  onBack?: () => void;
-}
-
-type HubTab =
+export type HubTab =
   | 'overview'
+  | 'admin_master_settings'
+  | 'company_settings'
   | 'subscriptions'
   | 'leads'
   | 'app_data'
   | 'usage'
   | 'support_audit';
+
+interface AdminCreatorHubProps {
+  onBack?: () => void;
+  initialTab?: HubTab;
+}
 
 interface ManualCommercialLead {
   id: string;
@@ -88,10 +93,14 @@ interface ManualCommercialLead {
 
 const MANUAL_LEADS_STORAGE_KEY = 'amigo_creator_commercial_leads_v1';
 
-export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
+export function AdminCreatorHub({ onBack, initialTab = 'overview' }: AdminCreatorHubProps) {
   const { user, profile, isAdmin, isSupportOrAdmin } = useAuth();
-  const [activeTab, setActiveTab] = useState<HubTab>('overview');
+  const [activeTab, setActiveTab] = useState<HubTab>(initialTab);
   const [appDataSubTab, setAppDataSubTab] = useState<'clients' | 'installations' | 'quotes' | 'stock'>('installations');
+  const [planPrices, setPlanPrices] = useState<{ flexPrice: number; proPrice: number }>({
+    flexPrice: 19.9,
+    proPrice: 39.9,
+  });
 
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isUpdatingUid, setIsUpdatingUid] = useState<string | null>(null);
@@ -134,10 +143,20 @@ export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
   const loadAllAdminData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [overviewRes, metricsRes] = await Promise.all([
+      const [overviewRes, metricsRes, checkoutRes] = await Promise.all([
         getAdminSystemOverviewAction().catch(() => null),
         getAdminMetrics().catch(() => null),
+        fetch('/api/checkout').then((r) => r.json()).catch(() => null),
       ]);
+
+      if (checkoutRes && !checkoutRes.error) {
+        const flexVal = Number(checkoutRes?.plans?.flex?.price || checkoutRes?.flex_plan_price || 19.9);
+        const proVal = Number(checkoutRes?.plans?.pro?.price || checkoutRes?.pro_plan_price || 39.9);
+        setPlanPrices({
+          flexPrice: flexVal > 0 ? flexVal : 19.9,
+          proPrice: proVal > 0 ? proVal : 39.9,
+        });
+      }
 
       // Also fetch Supabase profiles if available so no user is missed
       let supabaseProfiles: any[] = [];
@@ -273,9 +292,11 @@ export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
     const freeLeads = enrichedUsers.filter((u) => u.isFreeOrTrial).length;
     const totalPaid = proSubscribers + flexSubscribers;
 
-    const calculatedMrr = proSubscribers * 99.9 + flexSubscribers * 49.9;
+    const calculatedMrr = Number(
+      (proSubscribers * planPrices.proPrice + flexSubscribers * planPrices.flexPrice).toFixed(2)
+    );
     const mrr = metrics?.mrr && metrics.mrr > calculatedMrr ? metrics.mrr : calculatedMrr;
-    const arr = mrr * 12;
+    const arr = Number((mrr * 12).toFixed(2));
 
     const totalOsRevenue = systemData.installations.reduce(
       (acc, item) => acc + (Number(item.totalCost) || 0),
@@ -318,7 +339,7 @@ export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
       totalAiQueries,
       totalPayments: systemData.processedPayments.length,
     };
-  }, [enrichedUsers, systemData, metrics]);
+  }, [enrichedUsers, systemData, metrics, planPrices.proPrice, planPrices.flexPrice]);
 
   // Top queried HVAC brands in AI Error Diagnosis
   const topBrandsRanking = useMemo(() => {
@@ -652,21 +673,31 @@ export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
               <span>Sincronizar Dados</span>
             </button>
 
-            <Link
-              href="/admin-master"
-              className="px-3.5 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/30 text-xs font-bold flex items-center gap-1.5 transition"
+            <button
+              type="button"
+              onClick={() => setActiveTab('admin_master_settings')}
+              className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'admin_master_settings'
+                  ? 'bg-amber-500 text-slate-950 border-amber-400 shadow-lg shadow-amber-500/25 font-black'
+                  : 'bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border-amber-500/30'
+              }`}
             >
               <Crown size={14} />
-              <span>Admin Master</span>
-            </Link>
+              <span>Admin Master & Pagamentos (R$ {planPrices.flexPrice.toFixed(2).replace('.', ',')} / R$ {planPrices.proPrice.toFixed(2).replace('.', ',')})</span>
+            </button>
 
-            <Link
-              href="/admin/configuracoes"
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold flex items-center gap-1.5 transition"
+            <button
+              type="button"
+              onClick={() => setActiveTab('company_settings')}
+              className={`px-3.5 py-2 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition cursor-pointer ${
+                activeTab === 'company_settings'
+                  ? 'bg-sky-500 text-slate-950 border-sky-400 shadow-lg shadow-sky-500/25 font-black'
+                  : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border-slate-700'
+              }`}
             >
               <Settings size={14} />
-              <span>Gateways & Preços</span>
-            </Link>
+              <span>Ajustes & Empresa</span>
+            </button>
 
             <button
               type="button"
@@ -684,9 +715,19 @@ export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
           {[
             { id: 'overview', label: 'Visão Geral & Receita', icon: BarChart3 },
             {
+              id: 'admin_master_settings',
+              label: `⚙️ Admin Master, Pagamentos & Planos (R$ ${planPrices.flexPrice.toFixed(2).replace('.', ',')} / R$ ${planPrices.proPrice.toFixed(2).replace('.', ',')})`,
+              icon: Crown,
+            },
+            {
+              id: 'company_settings',
+              label: '🏢 Ajustes da Empresa & Checkout',
+              icon: Building2,
+            },
+            {
               id: 'subscriptions',
               label: `Assinaturas & Licenças (${kpis.totalPaid})`,
-              icon: Crown,
+              icon: Key,
             },
             {
               id: 'leads',
@@ -760,8 +801,8 @@ export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
               </div>
               <p className="text-xl sm:text-2xl font-black text-white">{kpis.totalPaid}</p>
               <p className="text-[11px] text-slate-400">
-                <strong className="text-sky-400">{kpis.proSubscribers} PRO</strong> (R$ 99,90) •{' '}
-                <strong className="text-cyan-400">{kpis.flexSubscribers} Flex</strong> (R$ 49,90)
+                <strong className="text-sky-400">{kpis.proSubscribers} PRO</strong> (R$ {planPrices.proPrice.toFixed(2).replace('.', ',')}) •{' '}
+                <strong className="text-cyan-400">{kpis.flexSubscribers} Flex</strong> (R$ {planPrices.flexPrice.toFixed(2).replace('.', ',')})
               </p>
             </div>
 
@@ -1191,9 +1232,13 @@ export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
             {systemData.processedPayments.length === 0 ? (
               <p className="text-xs text-slate-400">
                 Nenhum webhook de pagamento automático registrado ainda. Configure suas chaves do Mercado Pago ou Stripe em{' '}
-                <Link href="/admin/configuracoes" className="text-sky-400 underline">
-                  Configurações de Gateways
-                </Link>{' '}
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('admin_master_settings')}
+                  className="text-sky-400 underline font-bold cursor-pointer"
+                >
+                  Admin Master & Gateways
+                </button>{' '}
                 ou ative assinaturas manualmente acima.
               </p>
             ) : (
@@ -1822,6 +1867,24 @@ export function AdminCreatorHub({ onBack }: AdminCreatorHubProps) {
         <div className="space-y-6">
           <AdminSupportChatView onBack={() => setActiveTab('overview')} />
           <AdminAuditLogSection />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 7. ABA UNIFICADA: ADMIN MASTER, GATEWAYS & PLANOS (R$ 19,90 / 39,90)  */}
+      {/* ===================================================================== */}
+      {activeTab === 'admin_master_settings' && (
+        <div className="space-y-6">
+          <AdminSettingsPage />
+        </div>
+      )}
+
+      {/* ===================================================================== */}
+      {/* 8. ABA UNIFICADA: AJUSTES DA EMPRESA, E-MAIL SMTP & CHECKOUT          */}
+      {/* ===================================================================== */}
+      {activeTab === 'company_settings' && (
+        <div className="space-y-6">
+          <SettingsTab embeddedInAdmin />
         </div>
       )}
     </div>

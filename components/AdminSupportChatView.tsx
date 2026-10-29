@@ -65,11 +65,9 @@ export function AdminSupportChatView({ onBack }: AdminSupportChatViewProps) {
   const [newEmail, setNewEmail] = useState<string>('');
   const [addingPermission, setAddingPermission] = useState<boolean>(false);
 
-  // Estado de Chat
+  // Estado de Chat (apenas canais reais)
   const [chatRooms, setChatRooms] = useState<Array<{ id: string; name: string; lastMsg: string; unread: number }>>([
-    { id: 'geral', name: 'Canal Geral de Suporte', lastMsg: 'Atendimento online ativo', unread: 0 },
-    { id: 'cliente-carlos', name: 'Carlos Eduardo (Daikin VRF)', lastMsg: 'Dúvida sobre superaquecimento', unread: 2 },
-    { id: 'cliente-roberto', name: 'Roberto ClimaFrio (Troca de Celular)', lastMsg: 'Aparelho resetado com sucesso', unread: 0 }
+    { id: 'geral', name: 'Canal Geral de Suporte', lastMsg: 'Canal oficial de atendimento', unread: 0 },
   ]);
   const [activeRoomId, setActiveRoomId] = useState<string>('geral');
   const [messages, setMessages] = useState<SupportChatMessage[]>([]);
@@ -169,9 +167,39 @@ export function AdminSupportChatView({ onBack }: AdminSupportChatViewProps) {
     }
   }, [hasPermission, activeTab]);
 
-  // Carregar Mensagens da Sala Ativa
+  // Carregar Mensagens da Sala Ativa e Salas Reais do Supabase
   const fetchMessages = async (roomId: string) => {
     try {
+      const { data: allRoomsData } = await supabase
+        .from('support_messages')
+        .select('chat_room_id, sender_name, message, created_at')
+        .order('created_at', { ascending: false })
+        .limit(200);
+
+      if (Array.isArray(allRoomsData) && allRoomsData.length > 0) {
+        const roomMap = new Map<string, { id: string; name: string; lastMsg: string; unread: number }>();
+        roomMap.set('geral', { id: 'geral', name: 'Canal Geral de Suporte', lastMsg: 'Canal oficial de atendimento', unread: 0 });
+        for (const row of allRoomsData) {
+          const rId = String(row.chat_room_id || 'geral');
+          if (!roomMap.has(rId)) {
+            roomMap.set(rId, {
+              id: rId,
+              name: row.sender_name ? `${row.sender_name} (${rId})` : rId,
+              lastMsg: String(row.message || ''),
+              unread: 0,
+            });
+          } else if (rId === 'geral' && roomMap.get('geral')?.lastMsg === 'Canal oficial de atendimento') {
+            roomMap.set('geral', {
+              id: 'geral',
+              name: 'Canal Geral de Suporte',
+              lastMsg: String(row.message || 'Canal oficial de atendimento'),
+              unread: 0,
+            });
+          }
+        }
+        setChatRooms(Array.from(roomMap.values()));
+      }
+
       const { data, error } = await supabase
         .from('support_messages')
         .select('*')
@@ -181,28 +209,20 @@ export function AdminSupportChatView({ onBack }: AdminSupportChatViewProps) {
       if (!error && data && data.length > 0) {
         setMessages(data as SupportChatMessage[]);
       } else {
-        // Fallback local
         const stored = localStorage.getItem(`amigo_support_chat_${roomId}`);
         if (stored) {
-          setMessages(JSON.parse(stored));
+          const parsed = JSON.parse(stored);
+          const realOnly = Array.isArray(parsed)
+            ? parsed.filter((m: any) => m?.id !== 'msg-1')
+            : [];
+          setMessages(realOnly);
         } else {
-          const sample: SupportChatMessage[] = [
-            {
-              id: 'msg-1',
-              chat_room_id: roomId,
-              sender_email: 'amigorefrigerista@gmail.com',
-              sender_name: 'Suporte Admin Master',
-              sender_role: 'admin',
-              message: 'Bem-vindo ao Canal Exclusivo de Suporte Admin! Como podemos ajudar hoje?',
-              created_at: new Date(Date.now() - 1000 * 60 * 60).toISOString()
-            }
-          ];
-          setMessages(sample);
-          localStorage.setItem(`amigo_support_chat_${roomId}`, JSON.stringify(sample));
+          setMessages([]);
         }
       }
     } catch (err) {
       console.warn('Erro ao buscar mensagens:', err);
+      setMessages([]);
     }
   };
 

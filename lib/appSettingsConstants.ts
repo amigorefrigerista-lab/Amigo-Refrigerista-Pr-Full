@@ -45,3 +45,31 @@ export const DEFAULT_WHATSAPP_RENEWAL_SEQUENCE: WhatsAppRenewalSequenceStep[] = 
       'Olá *{nome}*, sentimos sua falta no *Amigo Refrigerista Pro*! ❄️\n\nNotamos que sua assinatura do *{plano}* venceu em {data_vencimento}. Seus clientes, histórico de OS e equipamentos seguem salvos na sua conta.\n\nReative seu acesso completo agora por *{valor}*:\n🔓 {link_renovacao}',
   },
 ];
+
+export interface MercadoPagoConnectionTestLog {
+  id: string;
+  timestamp: string;
+  status: 'success' | 'error';
+  environment?: 'production' | 'sandbox';
+  latencyMs?: number;
+  accountLabel?: string;
+  maskedToken?: string;
+  message: string;
+  errorDetail?: string | null;
+}
+
+export function isMaskedMpToken(value: unknown): boolean {
+  return typeof value === 'string' && value.includes('••');
+}
+
+export function maskMpAccessToken(token: string): string {
+  const clean = String(token || '').trim();
+  if (!clean) return '';
+  if (isMaskedMpToken(clean)) return clean;
+  if (clean.length <= 14) {
+    return `${clean.slice(0, 6)}••••••••••••••••`;
+  }
+  return `${clean.slice(0, 10)}••••••••••••••••••••••••${clean.slice(-4)}`;
+}
+
+

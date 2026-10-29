@@ -47,7 +47,7 @@ export function UpgradeModal({
 
   // Estados de Escolha do Plano (Flex ou Pró), Modalidade (Recorrente ou Anual com 5% de desconto) e Método (Cartão ou PIX)
   const [selectedPlan, setSelectedPlan] = useState<'flex' | 'pro'>('pro');
-  const [billingInterval, setBillingInterval] = useState<'recurring' | 'annual'>('annual');
+  const [billingInterval, setBillingInterval] = useState<'recurring' | 'annual'>('recurring');
   const [paymentMethod, setPaymentMethod] = useState<'credit_card' | 'pix'>('credit_card');
   const [installments, setInstallments] = useState<number>(1);
   const [maxInstallments, setMaxInstallments] = useState<number>(12);
