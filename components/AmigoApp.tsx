@@ -1002,13 +1002,13 @@ export default function AmigoApp() {
           await offlineSyncManager.saveWorkOrderOfflineFirst({
             id: 'os-' + Date.now(),
             orderNumber,
-            clientName: remClientName.trim(),
-            clientPhone: remClientPhone.trim(),
-            clientAddress: remClientAddress.trim(),
-            equipment: remEquipment.trim(),
+            cliente_nome: remClientName.trim(),
+            cliente_telefone: remClientPhone.trim(),
+            cliente_endereco: remClientAddress.trim(),
+            equipamento: remEquipment.trim(),
             status: 'agendado',
-            serviceDate: remServiceDate,
-            notes: remNotes.trim(),
+            data_agendamento: remServiceDate,
+            observacoes: remNotes.trim(),
           }, user.uid);
         });
 
@@ -1017,13 +1017,13 @@ export default function AmigoApp() {
         await offlineSyncManager.saveWorkOrderOfflineFirst({
           id: 'os-' + Date.now(),
           orderNumber,
-          clientName: remClientName.trim(),
-          clientPhone: remClientPhone.trim(),
-          clientAddress: remClientAddress.trim(),
-          equipment: remEquipment.trim(),
+          cliente_nome: remClientName.trim(),
+          cliente_telefone: remClientPhone.trim(),
+          cliente_endereco: remClientAddress.trim(),
+          equipamento: remEquipment.trim(),
           status: 'agendado',
-          serviceDate: remServiceDate,
-          notes: remNotes.trim(),
+          data_agendamento: remServiceDate,
+          observacoes: remNotes.trim(),
         }, 'guest');
         toast.success(`Ordem de Serviço #${orderNumber} criada localmente!`);
       }
@@ -2880,41 +2880,49 @@ export default function AmigoApp() {
                         </div>
 
                         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pt-2.5 border-t border-slate-800/80">
-                          <span className="text-xs text-slate-300 font-mono">Tel: {rem.clientPhone}</span>
-                          <a
-                            href={waLink}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => {
-                              setReminders((prev) =>
-                                prev.map((r) => (r.id === rem.id ? { ...r, status: 'sent' } : r))
-                              );
-                              dispatchWhatsAppMaintenanceReminder({
-                                reminder: {
-                                  ...rem,
-                                  technicianName:
-                                    profile?.name || user?.displayName || 'Técnico Especialista',
-                                  companyName: profile?.empresa || 'Amigo Refrigerista Pro',
-                                  reminderDaysBefore: daysBefore,
-                                },
-                                customTemplate: waTemplate,
-                                dispatchNow: true,
-                              })
-                                .then((res) => {
-                                  if (res.apiDispatched && res.message) {
-                                    toast.success(res.message);
-                                  }
+                          <span className="text-xs text-slate-300 font-mono">
+                            Tel: {rem.clientPhone?.trim() || 'Cliente sem telefone'}
+                          </span>
+                          {waLink ? (
+                            <a
+                              href={waLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={() => {
+                                setReminders((prev) =>
+                                  prev.map((r) => (r.id === rem.id ? { ...r, status: 'sent' } : r))
+                                );
+                                dispatchWhatsAppMaintenanceReminder({
+                                  reminder: {
+                                    ...rem,
+                                    technicianName:
+                                      profile?.name || user?.displayName || 'Técnico Especialista',
+                                    companyName: profile?.empresa || 'Amigo Refrigerista Pro',
+                                    reminderDaysBefore: daysBefore,
+                                  },
+                                  customTemplate: waTemplate,
+                                  dispatchNow: true,
                                 })
-                                .catch(() => {});
-                              toast.success(
-                                'Disparando lembrete de manutenção via WhatsApp!'
-                              );
-                            }}
-                            className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95"
-                          >
-                            <MessageSquare size={16} />
-                            <span>Enviar Mensagem no WhatsApp</span>
-                          </a>
+                                  .then((res) => {
+                                    if (res.apiDispatched && res.message) {
+                                      toast.success(res.message);
+                                    }
+                                  })
+                                  .catch(() => {});
+                                toast.success(
+                                  'Disparando lembrete de manutenção via WhatsApp!'
+                                );
+                              }}
+                              className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 shadow-md cursor-pointer active:scale-95"
+                            >
+                              <MessageSquare size={16} />
+                              <span>Enviar Mensagem no WhatsApp</span>
+                            </a>
+                          ) : (
+                            <span className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-slate-900 border border-slate-800 text-amber-400 font-bold text-xs flex items-center justify-center gap-2">
+                              <span>Cliente sem telefone</span>
+                            </span>
+                          )}
                         </div>
                       </div>
                     );

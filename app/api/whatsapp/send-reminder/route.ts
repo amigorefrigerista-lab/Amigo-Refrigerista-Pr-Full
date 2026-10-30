@@ -76,11 +76,20 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const auth = await authenticateRequest(req).catch(() => null);
+    const auth = await authenticateRequest(req);
+    if (!auth.authenticated || !auth.uid) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Não autenticado. Faça login para enviar ou agendar lembretes.',
+        },
+        { status: 401 }
+      );
+    }
+
     const body = await req.json().catch(() => ({}));
     const {
       id,
-      userUid,
       orderNumber,
       clientName,
       clientPhone,
@@ -134,7 +143,8 @@ export async function POST(req: NextRequest) {
         ? explicitAlertDate.trim()
         : calculateReminderAlertDate(nextServiceDate, daysBefore);
 
-    const effectiveUserUid = auth?.uid || userUid || 'public';
+    // Usa SEMPRE o auth.uid autenticado no servidor e nunca userUid enviado pelo cliente
+    const effectiveUserUid = auth.uid;
 
     const origin =
       baseUrl ||
@@ -322,18 +332,33 @@ export async function POST(req: NextRequest) {
 }
 
 export async function GET(req: NextRequest) {
+  const auth = await authenticateRequest(req);
+  if (!auth.authenticated || !auth.uid) {
+    return NextResponse.json(
+      {
+        success: false,
+        error: 'Não autenticado. Faça login para consultar lembretes.',
+      },
+      { status: 401 }
+    );
+  }
+
   const url = new URL(req.url);
   const runDue = url.searchParams.get('dispatchDue') === 'true';
   const todayStr = new Date().toISOString().split('T')[0];
 
-  const queue = global._whatsappReminderQueue || [];
+  const allQueue = global._whatsappReminderQueue || [];
+  const userQueue =
+    auth.role === 'admin'
+      ? allQueue
+      : allQueue.filter((item) => item.userUid === auth.uid);
 
   if (runDue) {
     const appSettings = (global as any)._serverMasterSettings || (await getAppSettings());
     const { apiUrl, apiKey, instanceName } = resolveWhatsAppCredentials(appSettings);
 
     if (apiUrl && apiUrl.startsWith('https://')) {
-      for (const item of queue) {
+      for (const item of userQueue) {
         if (item.status === 'scheduled' && todayStr >= item.alertDate) {
           const endpoint = `${apiUrl}/message/sendText/${encodeURIComponent(instanceName)}`;
           const headers: Record<string, string> = { 'Content-Type': 'application/json' };
@@ -363,6 +388,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     success: true,
     whatsappConfigured: Boolean(process.env.WHATSAPP_API_URL && process.env.WHATSAPP_API_KEY),
-    queue,
+    queue: userQueue,
   });
 }

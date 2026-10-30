@@ -55,13 +55,15 @@ export function formatWhatsAppReminderMessage(
   template?: string,
   baseUrl?: string
 ): string {
-  const serviceDateObj = typeof reminder.serviceDate === 'string' 
-    ? new Date(reminder.serviceDate + 'T12:00:00') 
-    : reminder.serviceDate;
+  const startDateIso =
+    typeof reminder.serviceDate === 'string'
+      ? reminder.serviceDate.slice(0, 10)
+      : reminder.serviceDate.toISOString().split('T')[0];
 
-  const nextServiceDate = new Date(serviceDateObj);
-  nextServiceDate.setMonth(nextServiceDate.getMonth() + (reminder.monthsInterval || 6));
-  const formattedNextDate = nextServiceDate.toLocaleDateString('pt-BR');
+  const nextDateIso =
+    reminder.nextServiceDate ||
+    calculateNextMaintenanceDate(startDateIso, reminder.monthsInterval || 6);
+  const formattedNextDate = new Date(nextDateIso + 'T12:00:00').toLocaleDateString('pt-BR');
 
   const origin = baseUrl || (typeof window !== 'undefined' ? window.location.origin : 'https://amigorefrigerista.pro');
   const osIdentifier = reminder.orderNumber || reminder.id || 'consulta';
@@ -101,20 +103,24 @@ export function calculateReminderAlertDate(targetDueDate: string, daysBefore: nu
 /**
  * Gera o link direto do WhatsApp com mensagem personalizada para o cliente
  * referente ao lembrete de manutenção preventiva com variáveis dinâmicas.
+ * Retorna string vazia se o telefone limpo tiver menos de 10 dígitos.
  */
 export function generateWhatsAppReminderLink(
   reminder: MaintenanceReminder,
   customTemplate?: string,
   baseUrl?: string
 ): string {
-  const message = formatWhatsAppReminderMessage(reminder, customTemplate, baseUrl);
-
   // Sanitiza o número do telefone removendo caracteres especiais
   let cleanPhone = (reminder.clientPhone || '').replace(/\D/g, '');
+  if (cleanPhone.length < 10) {
+    return '';
+  }
+
   if (cleanPhone.length === 10 || cleanPhone.length === 11) {
     cleanPhone = '55' + cleanPhone;
   }
 
+  const message = formatWhatsAppReminderMessage(reminder, customTemplate, baseUrl);
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
 
@@ -139,10 +145,15 @@ export interface ServiceOrder {
   createdAt?: string;
 }
 
-// Função auxiliar para calcular a próxima data
+// Função auxiliar para calcular a próxima data respeitando o último dia do mês de destino
 export function calculateNextMaintenanceDate(startDate: string, months: number): string {
   const date = new Date(startDate + 'T12:00:00');
+  const originalDay = date.getDate();
   date.setMonth(date.getMonth() + months);
+  // Se o dia do mês mudou após somar os meses (ex: 31/08 + 6 meses virou 03/03), volta para o último dia do mês de destino (28/02)
+  if (date.getDate() !== originalDay) {
+    date.setDate(0);
+  }
   return date.toISOString().split('T')[0];
 }
 

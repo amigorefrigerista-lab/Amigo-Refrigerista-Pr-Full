@@ -1,17 +1,18 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import { NextRequest } from 'next/server';
-import { POST as webhookPost } from '@/app/api/webhooks/mercadopago/route';
-import { POST as cancelPost } from '@/app/api/subscription/cancel/route';
-import { signSessionToken } from '@/lib/security';
 
 const TEST_WEBHOOK_SECRET = 'mp-test-webhook-secret-2026-hmac-sha256';
 const TEST_MP_ACCESS_TOKEN = 'APP_USR-1234567890-test-token';
 const TEST_USER_UID = '11111111-2222-3333-4444-555555555555';
 const TEST_USER_EMAIL = 'assinante@amigorefrigerista.com.br';
 
+// 1. Define as variáveis de ambiente ANTES de importar as rotas para que DEFAULT_APP_SETTINGS receba os segredos de teste
 process.env.MERCADOPAGO_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
 process.env.MERCADOPAGO_ACCESS_TOKEN = TEST_MP_ACCESS_TOKEN;
+delete process.env.SQL_HOST;
+delete process.env.SQL_USER;
+delete process.env.SQL_DB_NAME;
 
 function buildSignedWebhookRequest(resourceId: string, eventType = 'payment'): NextRequest {
   const ts = String(Math.floor(Date.now() / 1000));
@@ -44,6 +45,10 @@ function buildSignedWebhookRequest(resourceId: string, eventType = 'payment'): N
 async function runTests() {
   console.log('=== Iniciando Testes Automatizados de Webhook Mercado Pago e Cancelamento ===');
 
+  const { POST: webhookPost } = await import('@/app/api/webhooks/mercadopago/route');
+  const { POST: cancelPost } = await import('@/app/api/subscription/cancel/route');
+  const { signSessionToken } = await import('@/lib/security');
+
   const externalRef = JSON.stringify({
     uid: TEST_USER_UID,
     email: TEST_USER_EMAIL,
@@ -52,13 +57,19 @@ async function runTests() {
     cycleDays: 30,
   });
 
+  const futureExpiresAt = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString();
+
   let mockPaymentResponse: any = {};
   let mockPreapprovalPutCalled = false;
   let mockPreapprovalPutBody: any = null;
 
   const originalFetch = global.fetch;
+  const prevSupabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const prevSupabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
   global.fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const urlStr = typeof input === 'string' ? input : input.toString();
+    const method = (init?.method || 'GET').toUpperCase();
 
     if (urlStr.includes('api.mercadopago.com/v1/payments/')) {
       return new Response(JSON.stringify(mockPaymentResponse), {
@@ -67,10 +78,21 @@ async function runTests() {
       });
     }
 
-    if (
-      urlStr.includes('api.mercadopago.com/preapproval/') &&
-      init?.method?.toUpperCase() === 'PUT'
-    ) {
+    if (urlStr.includes('api.mercadopago.com/preapproval/') && method === 'GET') {
+      return new Response(
+        JSON.stringify({
+          id: 'preapp-999',
+          status: 'authorized',
+          external_reference: externalRef,
+        }),
+        {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        }
+      );
+    }
+
+    if (urlStr.includes('api.mercadopago.com/preapproval/') && method === 'PUT') {
       mockPreapprovalPutCalled = true;
       mockPreapprovalPutBody = init?.body ? JSON.parse(String(init.body)) : null;
       return new Response(JSON.stringify({ id: 'preapp-999', status: 'cancelled' }), {
@@ -79,10 +101,60 @@ async function runTests() {
       });
     }
 
+    // Mocks do Supabase REST para o cenário 5 (consulta e atualização do perfil com active_preapproval_id)
+    if (urlStr.includes('mock-supabase.amigorefrigerista.pro')) {
+      if (urlStr.includes('/rest/v1/rpc/increment_rate_limit_atomic')) {
+        return new Response(
+          JSON.stringify({ allowed: true, remaining: 9, retryAfterSeconds: 0 }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+
+      if (urlStr.includes('/rest/v1/app_settings')) {
+        return new Response(
+          JSON.stringify({
+            id: 1,
+            payment_provider: 'mercadopago',
+            mercadopago_access_token: TEST_MP_ACCESS_TOKEN,
+            webhook_secret: TEST_WEBHOOK_SECRET,
+            pro_plan_price: 39.9,
+            flex_plan_price: 19.9,
+          }),
+          { status: 200, headers: { 'content-type': 'application/json' } }
+        );
+      }
+
+      if (urlStr.includes('/rest/v1/profiles')) {
+        if (method === 'GET') {
+          return new Response(
+            JSON.stringify({
+              id: TEST_USER_UID,
+              email: TEST_USER_EMAIL,
+              plano: 'pro',
+              plan_expires_at: futureExpiresAt,
+              active_preapproval_id: 'preapp-999',
+              subscription_status: 'active',
+              is_admin: false,
+              role: 'user',
+            }),
+            { status: 200, headers: { 'content-type': 'application/json' } }
+          );
+        }
+        return new Response(JSON.stringify([{ id: TEST_USER_UID }]), {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
+    }
+
     return originalFetch(input, init);
   };
 
   try {
+    // Garante que nos cenários 1 a 4 seja usado o armazenamento em memória de idempotência
+    delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+
     // 1. Pagamento Aprovado (Approved)
     const fixedApprovedDate = '2026-10-01T12:00:00.000Z';
     mockPaymentResponse = {
@@ -153,8 +225,10 @@ async function runTests() {
     console.log('✔ [4/5] Reembolso (refunded) do payment_id ativo: assinatura revogada com sucesso');
 
     // 5. Cancelamento de Assinatura Recorrente (/api/subscription/cancel)
-    // Verifica chamada PUT /preapproval/{id} com status: "cancelled" e manutenção do plano até plan_expires_at
-    const futureExpiresAt = new Date(Date.now() + 20 * 24 * 60 * 60 * 1000).toISOString();
+    // Simula o perfil no Supabase retornando active_preapproval_id: 'preapp-999' e verifica GET + PUT /preapproval/{id}
+    process.env.NEXT_PUBLIC_SUPABASE_URL = 'https://mock-supabase.amigorefrigerista.pro';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'mock-service-role-key';
+
     const sessionToken = signSessionToken({
       uid: TEST_USER_UID,
       email: TEST_USER_EMAIL,
@@ -202,6 +276,16 @@ async function runTests() {
     console.log('=== Todos os 5 cenários passaram com 100% de sucesso! ===');
   } finally {
     global.fetch = originalFetch;
+    if (prevSupabaseUrl !== undefined) {
+      process.env.NEXT_PUBLIC_SUPABASE_URL = prevSupabaseUrl;
+    } else {
+      delete process.env.NEXT_PUBLIC_SUPABASE_URL;
+    }
+    if (prevSupabaseServiceKey !== undefined) {
+      process.env.SUPABASE_SERVICE_ROLE_KEY = prevSupabaseServiceKey;
+    } else {
+      delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    }
   }
 }
 

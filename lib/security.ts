@@ -747,13 +747,20 @@ export function checkAndIncrementMonthlyQuota(
   planExpiresAt?: string | Date | null
 ): { allowed: boolean; used: number; limit: number } {
   const effectivePlan = resolveEffectivePlan(plan, planExpiresAt);
+  let effectiveLimit = maxLimitForFree;
   if (
     effectivePlan === 'pro' ||
     effectivePlan === 'pro_paid' ||
     effectivePlan === 'pro_trial' ||
     effectivePlan === 'flex'
   ) {
-    return { allowed: true, used: 0, limit: Infinity };
+    // Planos pagos: OS continuam ilimitadas, mas consultas de IA respeitam o teto mensal (PAID_AI_MONTHLY_CAP / effectiveLimit).
+    if (feature !== 'aiQueries') {
+      return { allowed: true, used: 0, limit: Infinity };
+    }
+    const cap = Number(process.env.PAID_AI_MONTHLY_CAP);
+    const paidCap = Number.isFinite(cap) && cap > 0 ? cap : 150;
+    effectiveLimit = maxLimitForFree !== 3 ? maxLimitForFree : paidCap;
   }
 
   if (!global._monthlyUsageStore) {
@@ -770,16 +777,16 @@ export function checkAndIncrementMonthlyQuota(
       monthKey: currentMonth,
     };
     global._monthlyUsageStore.set(userKey, initial);
-    return { allowed: true, used: 1, limit: maxLimitForFree };
+    return { allowed: true, used: 1, limit: effectiveLimit };
   }
 
   const currentUsed = record[feature];
-  if (currentUsed >= maxLimitForFree) {
-    return { allowed: false, used: currentUsed, limit: maxLimitForFree };
+  if (currentUsed >= effectiveLimit) {
+    return { allowed: false, used: currentUsed, limit: effectiveLimit };
   }
 
   record[feature] += 1;
-  return { allowed: true, used: record[feature], limit: maxLimitForFree };
+  return { allowed: true, used: record[feature], limit: effectiveLimit };
 }
 
 /**
@@ -896,7 +903,7 @@ export function isSafeExternalUrl(
   }
   try {
     const parsed = new URL(rawUrl.trim());
-    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+    if (parsed.protocol !== 'https:') {
       return { safe: false, reason: 'Protocolo não permitido. Use HTTPS.' };
     }
 

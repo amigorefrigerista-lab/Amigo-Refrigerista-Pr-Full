@@ -469,20 +469,25 @@ export default function AdminSettingsPage() {
                 .select('id, pro_plan_price, flex_plan_price')
                 .eq('id', 1)
                 .maybeSingle()
-                .then(({ data: sbRow }) => {
-                  if (sbRow && Math.abs(Number(sbRow.pro_plan_price) - 49.9) < 0.05) {
-                    supabase
-                      .from('app_settings')
-                      .update({
-                        pro_plan_price: 39.9,
-                        flex_plan_price: normalizeFlexPlanPrice(sbRow.flex_plan_price),
-                        updated_at: new Date().toISOString(),
-                      })
-                      .eq('id', 1)
-                      .then(() => {});
-                  }
-                })
-                .catch(() => {});
+                .then(
+                  ({ data: sbRow }) => {
+                    if (sbRow && Math.abs(Number(sbRow.pro_plan_price) - 49.9) < 0.05) {
+                      supabase
+                        .from('app_settings')
+                        .update({
+                          pro_plan_price: 39.9,
+                          flex_plan_price: normalizeFlexPlanPrice(sbRow.flex_plan_price),
+                          updated_at: new Date().toISOString(),
+                        })
+                        .eq('id', 1)
+                        .then(
+                          () => {},
+                          () => {}
+                        );
+                    }
+                  },
+                  () => {}
+                );
             }
             return;
           }
@@ -620,8 +625,10 @@ export default function AdminSettingsPage() {
               flex_plan_price: normalizeFlexPlanPrice(payload.flex_plan_price ?? form.flex_plan_price),
               updated_at: new Date().toISOString(),
             })
-            .then(() => {})
-            .catch(() => {});
+            .then(
+              () => {},
+              () => {}
+            );
         }
         setMessageType('success');
         setMessage(`${successLabel} salvas com sucesso no servidor!`);
@@ -714,9 +721,29 @@ export default function AdminSettingsPage() {
 
     try {
       // 1. Validação assíncrona rápida na API do Mercado Pago
+      const testHeaders: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+        if (sessionToken) {
+          testHeaders['Authorization'] = `Bearer ${sessionToken}`;
+        } else {
+          try {
+            const { data: { session: sbSession } } = await supabase.auth.getSession();
+            if (sbSession?.access_token) {
+              testHeaders['Authorization'] = `Bearer ${sbSession.access_token}`;
+            }
+          } catch {
+            // ignore
+          }
+        }
+        if (user?.id) testHeaders['x-amigo-uid'] = user.id;
+        testHeaders['x-amigo-email'] = user?.email || MASTER_EMAIL;
+      }
+
       const testRes = await fetch('/api/admin/payments/test-mercadopago', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: testHeaders,
+        credentials: 'same-origin',
         body: JSON.stringify({
           accessToken: cleanToken,
           publicKey: cleanPublicKey,
@@ -943,7 +970,7 @@ export default function AdminSettingsPage() {
         newValue: '0 logs (armazenamento limpo)',
         details:
           'O administrador confirmou a limpeza dos logs de eventos de conexão do Mercado Pago no armazenamento local e no servidor.',
-        severity: 'warning',
+        severity: 'medium',
       });
 
       const clearMsg = 'Histórico de logs de conexão do Mercado Pago limpo com sucesso!';

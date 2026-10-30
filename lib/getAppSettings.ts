@@ -16,6 +16,8 @@ export interface AppSettings {
   payment_provider: string;
   mercadopago_access_token: string;
   mercadopago_public_key: string;
+  mercadopago_token_permanently_masked?: boolean;
+  mercadopago_connection_verified?: boolean;
   webhook_secret: string;
   stripe_secret_key?: string;
   stripe_publishable_key?: string;
@@ -62,6 +64,8 @@ export const DEFAULT_APP_SETTINGS: AppSettings = {
   payment_provider: 'mercadopago',
   mercadopago_access_token: process.env.MERCADOPAGO_ACCESS_TOKEN || '',
   mercadopago_public_key: process.env.NEXT_PUBLIC_MERCADOPAGO_PUBLIC_KEY || '',
+  mercadopago_token_permanently_masked: false,
+  mercadopago_connection_verified: false,
   webhook_secret: process.env.MERCADOPAGO_WEBHOOK_SECRET || '',
   stripe_secret_key: process.env.STRIPE_SECRET_KEY || '',
   stripe_publishable_key: process.env.NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY || '',
@@ -131,8 +135,10 @@ export async function getAppSettings(): Promise<AppSettings> {
             .from('app_settings')
             .update({ pro_plan_price: 39.9, flex_plan_price: normalizeFlexPlanPrice(data.flex_plan_price) })
             .eq('id', 1)
-            .then(() => {})
-            .catch(() => {});
+            .then(
+              () => {},
+              () => {}
+            );
         }
         return {
           id: 1,
@@ -146,6 +152,18 @@ export async function getAppSettings(): Promise<AppSettings> {
             data.mercadopago_public_key ||
             mem.mercadopago_public_key ||
             DEFAULT_APP_SETTINGS.mercadopago_public_key,
+          mercadopago_token_permanently_masked:
+            data.mercadopago_token_permanently_masked !== undefined
+              ? Boolean(data.mercadopago_token_permanently_masked)
+              : mem.mercadopago_token_permanently_masked !== undefined
+                ? Boolean(mem.mercadopago_token_permanently_masked)
+                : DEFAULT_APP_SETTINGS.mercadopago_token_permanently_masked,
+          mercadopago_connection_verified:
+            data.mercadopago_connection_verified !== undefined
+              ? Boolean(data.mercadopago_connection_verified)
+              : mem.mercadopago_connection_verified !== undefined
+                ? Boolean(mem.mercadopago_connection_verified)
+                : DEFAULT_APP_SETTINGS.mercadopago_connection_verified,
           webhook_secret:
             data.webhook_secret || mem.webhook_secret || DEFAULT_APP_SETTINGS.webhook_secret,
           stripe_secret_key:

@@ -1,10 +1,35 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getAppSettings } from '@/lib/getAppSettings';
 import { maskMpAccessToken } from '@/lib/appSettingsConstants';
+import {
+  authenticateRequest,
+  checkRateLimitAsync,
+  getClientIp,
+} from '@/lib/security';
 
 export async function POST(req: NextRequest) {
   const startedAt = Date.now();
   try {
+    const clientIp = getClientIp(req);
+    const rate = await checkRateLimitAsync(`admin_test_mp:${clientIp}`, 20, 60_000);
+    if (!rate.allowed) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: 'Muitas tentativas. Aguarde um instante antes de testar novamente.',
+        },
+        { status: 429, headers: { 'Retry-After': String(rate.retryAfterSeconds) } }
+      );
+    }
+
+    const auth = await authenticateRequest(req);
+    if (auth.role !== 'admin') {
+      return NextResponse.json(
+        { ok: false, error: 'Acesso restrito ao Administrador Master.' },
+        { status: 403 }
+      );
+    }
+
     const body = await req.json().catch(() => ({}));
     let accessToken = String(body.accessToken || '').trim();
     const publicKey = String(body.publicKey || '').trim();
@@ -12,7 +37,10 @@ export async function POST(req: NextRequest) {
     // Se o token no painel já estiver permanentemente mascarado (••••), usa o token real salvo no servidor para revalidar a conexão
     if (accessToken.includes('••')) {
       const savedSettings = await getAppSettings();
-      if (savedSettings.mercadopago_access_token && !savedSettings.mercadopago_access_token.includes('••')) {
+      if (
+        savedSettings.mercadopago_access_token &&
+        !savedSettings.mercadopago_access_token.includes('••')
+      ) {
         accessToken = savedSettings.mercadopago_access_token.trim();
       }
     }
@@ -21,7 +49,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: 'Informe o Mercado Pago Access Token (ex: APP_USR-... ou TEST-...) para testar.',
+          error:
+            'Informe o Mercado Pago Access Token (ex: APP_USR-... ou TEST-...) para testar.',
         },
         { status: 400 }
       );
