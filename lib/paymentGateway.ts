@@ -1,4 +1,4 @@
-import { ANNUAL_PRICE_FACTOR } from './pricing';
+import { ANNUAL_PRICE_FACTOR, normalizeProPlanPrice, normalizeFlexPlanPrice } from './pricing';
 import crypto from 'crypto';
 import { AppSettings } from '@/lib/getAppSettings';
 
@@ -60,8 +60,8 @@ export function calculatePlanPricing(
   monthlyPrice?: number
 ): PlanPricingCalculation {
   const isAnnual = billingInterval === 'annual';
-  const defaultPrice = plan === 'flex' ? 19.9 : 39.9;
-  const monthlyBasePrice = Number(monthlyPrice) > 0 ? Number(monthlyPrice) : defaultPrice;
+  const monthlyBasePrice =
+    plan === 'flex' ? normalizeFlexPlanPrice(monthlyPrice) : normalizeProPlanPrice(monthlyPrice);
   const annualOriginalTotal = Math.round(monthlyBasePrice * 12 * 100) / 100;
 
   if (isAnnual) {

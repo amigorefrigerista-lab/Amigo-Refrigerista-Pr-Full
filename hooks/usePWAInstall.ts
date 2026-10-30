@@ -11,9 +11,11 @@ declare global {
   }
 }
 
-export function openPWAInstallModal() {
+export function openPWAInstallModal(platform?: 'android' | 'ios' | 'desktop') {
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(new CustomEvent('open-pwa-install-modal'));
+    window.dispatchEvent(
+      new CustomEvent('open-pwa-install-modal', { detail: { platform } })
+    );
   }
 }
 

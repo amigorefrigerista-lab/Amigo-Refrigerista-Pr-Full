@@ -6,8 +6,9 @@ import {
   WhatsAppRenewalSequenceStep,
   DEFAULT_WHATSAPP_RENEWAL_SEQUENCE,
 } from '@/lib/appSettingsConstants';
+import { normalizeProPlanPrice, normalizeFlexPlanPrice } from '@/lib/pricing';
 
-export { DEFAULT_WHATSAPP_RENEWAL_SEQUENCE };
+export { DEFAULT_WHATSAPP_RENEWAL_SEQUENCE, normalizeProPlanPrice, normalizeFlexPlanPrice };
 export type { WhatsAppRenewalSequenceStep };
 
 export interface AppSettings {
@@ -125,6 +126,14 @@ export async function getAppSettings(): Promise<AppSettings> {
         .single();
 
       if (data && !error) {
+        if (Math.abs(Number(data.pro_plan_price) - 49.9) < 0.05) {
+          serviceSb
+            .from('app_settings')
+            .update({ pro_plan_price: 39.9, flex_plan_price: normalizeFlexPlanPrice(data.flex_plan_price) })
+            .eq('id', 1)
+            .then(() => {})
+            .catch(() => {});
+        }
         return {
           id: 1,
           payment_provider:
@@ -180,16 +189,12 @@ export async function getAppSettings(): Promise<AppSettings> {
               : mem.pix_enabled !== undefined
                 ? Boolean(mem.pix_enabled)
                 : DEFAULT_APP_SETTINGS.pix_enabled,
-          pro_plan_price: data.pro_plan_price
-            ? Number(data.pro_plan_price)
-            : mem.pro_plan_price
-              ? Number(mem.pro_plan_price)
-              : DEFAULT_APP_SETTINGS.pro_plan_price,
-          flex_plan_price: data.flex_plan_price
-            ? Number(data.flex_plan_price)
-            : mem.flex_plan_price
-              ? Number(mem.flex_plan_price)
-              : DEFAULT_APP_SETTINGS.flex_plan_price,
+          pro_plan_price: normalizeProPlanPrice(
+            data.pro_plan_price ?? mem.pro_plan_price ?? DEFAULT_APP_SETTINGS.pro_plan_price
+          ),
+          flex_plan_price: normalizeFlexPlanPrice(
+            data.flex_plan_price ?? mem.flex_plan_price ?? DEFAULT_APP_SETTINGS.flex_plan_price
+          ),
           maintenance_interval_months: data.maintenance_interval_months
             ? Number(data.maintenance_interval_months)
             : mem.maintenance_interval_months
@@ -240,6 +245,12 @@ export async function getAppSettings(): Promise<AppSettings> {
 
         if (rows && rows[0]) {
           const row: any = rows[0];
+          if (Math.abs(Number(row.pro_plan_price) - 49.9) < 0.05) {
+            db.update(appSettingsTable)
+              .set({ pro_plan_price: '39.90', updated_at: new Date() })
+              .where(eq(appSettingsTable.id, 1))
+              .catch(() => {});
+          }
           return {
             id: 1,
             payment_provider:
@@ -254,16 +265,12 @@ export async function getAppSettings(): Promise<AppSettings> {
               DEFAULT_APP_SETTINGS.mercadopago_public_key,
             webhook_secret:
               row.webhook_secret || mem.webhook_secret || DEFAULT_APP_SETTINGS.webhook_secret,
-            pro_plan_price: row.pro_plan_price
-              ? Number(row.pro_plan_price)
-              : mem.pro_plan_price
-                ? Number(mem.pro_plan_price)
-                : DEFAULT_APP_SETTINGS.pro_plan_price,
-            flex_plan_price: row.flex_plan_price
-              ? Number(row.flex_plan_price)
-              : mem.flex_plan_price
-                ? Number(mem.flex_plan_price)
-                : DEFAULT_APP_SETTINGS.flex_plan_price,
+            pro_plan_price: normalizeProPlanPrice(
+              row.pro_plan_price ?? mem.pro_plan_price ?? DEFAULT_APP_SETTINGS.pro_plan_price
+            ),
+            flex_plan_price: normalizeFlexPlanPrice(
+              row.flex_plan_price ?? mem.flex_plan_price ?? DEFAULT_APP_SETTINGS.flex_plan_price
+            ),
             maintenance_interval_months: row.maintenance_interval_months
               ? Number(row.maintenance_interval_months)
               : mem.maintenance_interval_months
@@ -300,5 +307,7 @@ export async function getAppSettings(): Promise<AppSettings> {
   return {
     ...DEFAULT_APP_SETTINGS,
     ...mem,
+    pro_plan_price: normalizeProPlanPrice(mem.pro_plan_price ?? DEFAULT_APP_SETTINGS.pro_plan_price),
+    flex_plan_price: normalizeFlexPlanPrice(mem.flex_plan_price ?? DEFAULT_APP_SETTINGS.flex_plan_price),
   };
 }

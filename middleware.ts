@@ -143,20 +143,7 @@ async function verifyAdminRoleAgainstDatabase(
   return fallbackRole;
 }
 
-function applySecurityHeaders(res: NextResponse, nonce: string): NextResponse {
-  res.headers.set('x-nonce', nonce);
-  res.headers.set('X-Content-Type-Options', 'nosniff');
-  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
-  res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
-  res.headers.set(
-    'Permissions-Policy',
-    'camera=(self), microphone=(), geolocation=(self), payment=(self)'
-  );
-  res.headers.set(
-    'Strict-Transport-Security',
-    'max-age=63072000; includeSubDomains; preload'
-  );
-
+function buildCspHeader(nonce: string): string {
   // CSP com Nonce criptográfico por requisição (sem 'unsafe-inline' em script-src e sem 'unsafe-inline' em style-src em produção)
   const isDev = process.env.NODE_ENV !== 'production';
   const scriptSrc = isDev
@@ -166,7 +153,7 @@ function applySecurityHeaders(res: NextResponse, nonce: string): NextResponse {
     ? "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com"
     : `style-src 'self' 'nonce-${nonce}' https://fonts.googleapis.com`;
 
-  const cspDirectives = [
+  return [
     "default-src 'self'",
     scriptSrc,
     styleSrc,
@@ -180,8 +167,23 @@ function applySecurityHeaders(res: NextResponse, nonce: string): NextResponse {
     "frame-ancestors 'self' https://*.google.com https://localhost.corp.google.com:26001",
     'upgrade-insecure-requests',
   ].join('; ');
+}
 
-  res.headers.set('Content-Security-Policy', cspDirectives);
+function applySecurityHeaders(res: NextResponse, nonce: string, cspHeader?: string): NextResponse {
+  const resolvedCsp = cspHeader || buildCspHeader(nonce);
+  res.headers.set('x-nonce', nonce);
+  res.headers.set('X-Content-Type-Options', 'nosniff');
+  res.headers.set('X-Frame-Options', 'SAMEORIGIN');
+  res.headers.set('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.headers.set(
+    'Permissions-Policy',
+    'camera=(self), microphone=(), geolocation=(self), payment=(self)'
+  );
+  res.headers.set(
+    'Strict-Transport-Security',
+    'max-age=63072000; includeSubDomains; preload'
+  );
+  res.headers.set('Content-Security-Policy', resolvedCsp);
   return res;
 }
 
@@ -296,8 +298,10 @@ export async function middleware(req: NextRequest) {
     }
   }
 
+  const cspHeader = buildCspHeader(nonce);
   const requestHeaders = new Headers(req.headers);
   requestHeaders.set('x-nonce', nonce);
+  requestHeaders.set('Content-Security-Policy', cspHeader);
 
   const response = NextResponse.next({
     request: {
@@ -305,7 +309,7 @@ export async function middleware(req: NextRequest) {
     },
   });
 
-  return applySecurityHeaders(response, nonce);
+  return applySecurityHeaders(response, nonce, cspHeader);
 }
 
 export const config = {

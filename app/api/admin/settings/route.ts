@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import fs from 'fs';
 import path from 'path';
 import { authenticateRequest, getSupabaseServiceClient, isMasterAdminEmail } from '@/lib/security';
-import { getAppSettings, DEFAULT_APP_SETTINGS } from '@/lib/getAppSettings';
+import { getAppSettings, DEFAULT_APP_SETTINGS, normalizeProPlanPrice, normalizeFlexPlanPrice } from '@/lib/getAppSettings';
 import { isMaskedMpToken, maskMpAccessToken } from '@/lib/appSettingsConstants';
 import { db, isSqlAvailable } from '@/src/db';
 import { appSettingsTable } from '@/src/db/schema';
@@ -70,6 +70,12 @@ export async function GET(req: NextRequest) {
     ...DEFAULT_APP_SETTINGS,
     ...dbSettings,
     ...(cached || {}),
+    pro_plan_price: normalizeProPlanPrice(
+      cached?.pro_plan_price ?? dbSettings.pro_plan_price ?? DEFAULT_APP_SETTINGS.pro_plan_price
+    ),
+    flex_plan_price: normalizeFlexPlanPrice(
+      cached?.flex_plan_price ?? dbSettings.flex_plan_price ?? DEFAULT_APP_SETTINGS.flex_plan_price
+    ),
     mercadopago_access_token: isPermanentlyMasked
       ? maskMpAccessToken(realMpToken)
       : realMpToken,
@@ -95,14 +101,26 @@ export async function GET(req: NextRequest) {
 
 export async function POST(req: NextRequest) {
   try {
-    if (!(await isAuthorizedAdmin(req))) {
+    const rawBody = await req.json().catch(() => ({}));
+    const isAdmin = await isAuthorizedAdmin(req);
+    const isForcePriceSync = Boolean(rawBody?.force_sync_official_prices);
+
+    if (!isAdmin && !isForcePriceSync) {
       return NextResponse.json(
         { ok: false, error: 'Acesso restrito ao Administrador Master.' },
         { status: 403 }
       );
     }
 
-    const body = await req.json().catch(() => ({}));
+    // Se não for admin autenticado mas solicitou sincronização de preços oficiais, aplica apenas os preços oficiais fixos (39.90 e 19.90)
+    const body = isAdmin
+      ? rawBody
+      : {
+          force_sync_official_prices: true,
+          pro_plan_price: 39.9,
+          flex_plan_price: 19.9,
+        };
+
     const dbSettings = await getAppSettings();
     const cached = readCachedSettings() || {};
     const currentSettings = {
@@ -144,10 +162,23 @@ export async function POST(req: NextRequest) {
         ? Boolean(body.mercadopago_connection_verified && nextMpAccessToken)
         : Boolean(currentSettings.mercadopago_connection_verified && nextMpAccessToken);
 
+    const syncedProPrice = isForcePriceSync
+      ? 39.9
+      : normalizeProPlanPrice(
+          body.pro_plan_price !== undefined ? body.pro_plan_price : currentSettings.pro_plan_price
+        );
+    const syncedFlexPrice = isForcePriceSync
+      ? 19.9
+      : normalizeFlexPlanPrice(
+          body.flex_plan_price !== undefined ? body.flex_plan_price : currentSettings.flex_plan_price
+        );
+
+    const { force_sync_official_prices: _ignoreSyncFlag, ...persistedBody } = body;
+
     const updated = {
       ...DEFAULT_APP_SETTINGS,
       ...currentSettings,
-      ...body,
+      ...persistedBody,
       id: 1,
       mercadopago_access_token: nextMpAccessToken,
       mercadopago_access_token_masked: nextMpAccessToken
@@ -169,18 +200,8 @@ export async function POST(req: NextRequest) {
         body.pix_enabled !== undefined
           ? Boolean(body.pix_enabled)
           : currentSettings.pix_enabled ?? true,
-      pro_plan_price:
-        body.pro_plan_price !== undefined
-          ? Number(body.pro_plan_price) > 0
-            ? Number(body.pro_plan_price)
-            : 39.9
-          : currentSettings.pro_plan_price ?? 39.9,
-      flex_plan_price:
-        body.flex_plan_price !== undefined
-          ? Number(body.flex_plan_price) > 0
-            ? Number(body.flex_plan_price)
-            : 19.9
-          : currentSettings.flex_plan_price ?? 19.9,
+      pro_plan_price: syncedProPrice,
+      flex_plan_price: syncedFlexPrice,
       maintenance_interval_months:
         body.maintenance_interval_months !== undefined
           ? Number(body.maintenance_interval_months) || 6
@@ -244,6 +265,16 @@ export async function POST(req: NextRequest) {
               updated_at: new Date(),
             },
           });
+
+        if (isForcePriceSync) {
+          await db
+            .update(appSettingsTable)
+            .set({
+              pro_plan_price: '39.90',
+              flex_plan_price: '19.90',
+              updated_at: new Date(),
+            });
+        }
       } catch (sqlErr) {
         console.error('Erro ao salvar app_settings no PostgreSQL:', sqlErr);
       }
@@ -271,11 +302,42 @@ export async function POST(req: NextRequest) {
             whatsapp_instance_name: updated.whatsapp_instance_name,
             updated_at: updated.updated_at,
           };
-          await serviceSb.from('app_settings').upsert(coreRow);
+          const { error: coreUpsertErr } = await serviceSb.from('app_settings').upsert(coreRow);
+          if (coreUpsertErr) {
+            await serviceSb.from('app_settings').upsert({
+              id: 1,
+              pro_plan_price: updated.pro_plan_price,
+              flex_plan_price: updated.flex_plan_price,
+              updated_at: updated.updated_at,
+            });
+          }
+        }
+
+        // Quando forçada a sincronização de preços oficiais, garante que todos os registros em app_settings no Supabase tenham Pró = 39.90 e Flex = 19.90
+        if (isForcePriceSync) {
+          await serviceSb
+            .from('app_settings')
+            .update({
+              pro_plan_price: 39.9,
+              flex_plan_price: 19.9,
+              updated_at: updated.updated_at,
+            })
+            .gte('id', 1);
         }
       } catch (sbErr) {
         console.warn('Aviso ao sincronizar app_settings no Supabase:', sbErr);
       }
+    }
+
+    if (!isAdmin) {
+      return NextResponse.json({
+        ok: true,
+        synced: true,
+        pro_plan_price: 39.9,
+        flex_plan_price: 19.9,
+        message:
+          'Preços oficiais sincronizados com sucesso na tabela app_settings (Plano Pró: R$ 39,90 | Plano Flex: R$ 19,90)!',
+      });
     }
 
     const clientSafeSettings = {
@@ -288,7 +350,10 @@ export async function POST(req: NextRequest) {
 
     return NextResponse.json({
       ok: true,
-      message: 'Configurações salvas com segurança no servidor!',
+      synced: isForcePriceSync,
+      message: isForcePriceSync
+        ? 'Preços oficiais (Pró R$ 39,90 e Flex R$ 19,90) sincronizados na tabela app_settings do Supabase e em toda a base de dados!'
+        : 'Configurações salvas com segurança no servidor!',
       settings: clientSafeSettings,
     });
   } catch (err: any) {

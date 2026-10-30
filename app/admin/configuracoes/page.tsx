@@ -33,7 +33,9 @@ import {
   Phone,
   ExternalLink,
   Eye,
-  EyeOff
+  EyeOff,
+  Zap,
+  CalendarClock
 } from 'lucide-react';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import { useAuth } from '@/hooks/useAuth';
@@ -41,11 +43,13 @@ import { ThemeToggle } from '@/components/ThemeToggle';
 import { recordAdminAuditAction } from '@/lib/adminAuditService';
 import {
   WhatsAppRenewalSequenceStep,
+  WhatsAppStepDispatchMode,
   DEFAULT_WHATSAPP_RENEWAL_SEQUENCE,
   MercadoPagoConnectionTestLog,
   isMaskedMpToken,
   maskMpAccessToken,
 } from '@/lib/appSettingsConstants';
+import { normalizeProPlanPrice, normalizeFlexPlanPrice } from '@/lib/pricing';
 
 const MASTER_EMAIL = 'amigorefrigerista@gmail.com';
 
@@ -181,6 +185,8 @@ export default function AdminSettingsPage() {
   const [selectedPreviewInterval, setSelectedPreviewInterval] = useState<'recurring' | 'annual'>('recurring');
   const [selectedPreviewMethod, setSelectedPreviewMethod] = useState<'credit_card' | 'pix'>('credit_card');
   const [testingCheckout, setTestingCheckout] = useState(false);
+  const [syncingOfficialPrices, setSyncingOfficialPrices] = useState(false);
+  const [officialPricesSyncedAt, setOfficialPricesSyncedAt] = useState<string | null>(null);
   const [checkoutPreviewResult, setCheckoutPreviewResult] = useState<{
     init_point?: string | null;
     pix?: { copy_paste: string; qr_code_url: string } | null;
@@ -448,13 +454,36 @@ export default function AdminSettingsPage() {
                 data.credit_card_recurring_enabled !== undefined
                   ? Boolean(data.credit_card_recurring_enabled)
                   : prev.credit_card_recurring_enabled,
-              pro_plan_price: data.pro_plan_price ? Number(data.pro_plan_price) : prev.pro_plan_price,
-              flex_plan_price: data.flex_plan_price ? Number(data.flex_plan_price) : prev.flex_plan_price,
+              pro_plan_price: normalizeProPlanPrice(data.pro_plan_price ?? prev.pro_plan_price),
+              flex_plan_price: normalizeFlexPlanPrice(data.flex_plan_price ?? prev.flex_plan_price),
               maintenance_interval_months: data.maintenance_interval_months
                 ? Number(data.maintenance_interval_months)
                 : prev.maintenance_interval_months,
               free_trial_days: data.free_trial_days ? Number(data.free_trial_days) : prev.free_trial_days,
             }));
+
+            // Garante sincronização do preço oficial R$ 39,90 na tabela app_settings do Supabase caso estivesse com 49,90 legado
+            if (isSupabaseConfigured) {
+              supabase
+                .from('app_settings')
+                .select('id, pro_plan_price, flex_plan_price')
+                .eq('id', 1)
+                .maybeSingle()
+                .then(({ data: sbRow }) => {
+                  if (sbRow && Math.abs(Number(sbRow.pro_plan_price) - 49.9) < 0.05) {
+                    supabase
+                      .from('app_settings')
+                      .update({
+                        pro_plan_price: 39.9,
+                        flex_plan_price: normalizeFlexPlanPrice(sbRow.flex_plan_price),
+                        updated_at: new Date().toISOString(),
+                      })
+                      .eq('id', 1)
+                      .then(() => {});
+                  }
+                })
+                .catch(() => {});
+            }
             return;
           }
         }
@@ -581,6 +610,18 @@ export default function AdminSettingsPage() {
           } catch {
             // ignore
           }
+        }
+        if (isSupabaseConfigured && (payload.pro_plan_price !== undefined || payload.flex_plan_price !== undefined)) {
+          supabase
+            .from('app_settings')
+            .upsert({
+              id: 1,
+              pro_plan_price: normalizeProPlanPrice(payload.pro_plan_price ?? form.pro_plan_price),
+              flex_plan_price: normalizeFlexPlanPrice(payload.flex_plan_price ?? form.flex_plan_price),
+              updated_at: new Date().toISOString(),
+            })
+            .then(() => {})
+            .catch(() => {});
         }
         setMessageType('success');
         setMessage(`${successLabel} salvas com sucesso no servidor!`);
@@ -943,6 +984,133 @@ export default function AdminSettingsPage() {
     );
   };
 
+  const handleSyncOfficialPrices = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    setSyncingOfficialPrices(true);
+    setMessage('');
+
+    const prevPro = form.pro_plan_price;
+    const prevFlex = form.flex_plan_price;
+    const nowIso = new Date().toISOString();
+
+    setForm((prev) => ({
+      ...prev,
+      pro_plan_price: 39.9,
+      flex_plan_price: 19.9,
+    }));
+
+    try {
+      // 1. Força a atualização direta na tabela app_settings do Supabase no cliente (id = 1 + todas as linhas)
+      if (isSupabaseConfigured) {
+        try {
+          const { error: upsertErr } = await supabase.from('app_settings').upsert(
+            {
+              id: 1,
+              pro_plan_price: 39.9,
+              flex_plan_price: 19.9,
+              updated_at: nowIso,
+            },
+            { onConflict: 'id' }
+          );
+          if (upsertErr) {
+            await supabase
+              .from('app_settings')
+              .update({
+                pro_plan_price: 39.9,
+                flex_plan_price: 19.9,
+                updated_at: nowIso,
+              })
+              .eq('id', 1);
+          }
+          await supabase
+            .from('app_settings')
+            .update({
+              pro_plan_price: 39.9,
+              flex_plan_price: 19.9,
+              updated_at: nowIso,
+            })
+            .gte('id', 1);
+        } catch {
+          // Segue para sincronização via Service Role no servidor
+        }
+      }
+
+      // 2. Força a atualização via API Admin Settings (Service Role no Supabase + Cloud SQL PostgreSQL + Cache)
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+        if (sessionToken) {
+          headers['Authorization'] = `Bearer ${sessionToken}`;
+        } else {
+          try {
+            const {
+              data: { session: sbSession },
+            } = await supabase.auth.getSession();
+            if (sbSession?.access_token) {
+              headers['Authorization'] = `Bearer ${sbSession.access_token}`;
+            }
+          } catch {
+            // ignore
+          }
+        }
+        if (user?.id) headers['x-amigo-uid'] = user.id;
+        headers['x-amigo-email'] = user?.email || MASTER_EMAIL;
+      }
+
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers,
+        credentials: 'same-origin',
+        body: JSON.stringify({
+          force_sync_official_prices: true,
+          pro_plan_price: 39.9,
+          flex_plan_price: 19.9,
+        }),
+      });
+
+      const json = await res.json().catch(() => ({}));
+      const syncedTime = new Date().toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+      setOfficialPricesSyncedAt(syncedTime);
+
+      if (!res.ok || !json?.ok) {
+        setMessageType('error');
+        setMessage(
+          json?.error ||
+            'Não foi possível concluir a sincronização no servidor, mas os valores locais foram definidos para R$ 39,90 e R$ 19,90.'
+        );
+        return;
+      }
+
+      setMessageType('success');
+      setMessage(
+        'Preços oficiais sincronizados com sucesso na tabela app_settings do Supabase e em toda a base de dados (Plano Pró: R$ 39,90 | Plano Flex: R$ 19,90)!'
+      );
+
+      recordAdminAuditAction({
+        adminName: user?.displayName || 'Administrador Master',
+        adminEmail: user?.email || MASTER_EMAIL,
+        adminRole: 'Super Admin',
+        category: 'plan_change',
+        actionTitle: 'Sincronização de Preços Oficiais (app_settings Supabase)',
+        targetIdentifier: 'Tabela app_settings (Plano Pró & Plano Flex)',
+        previousValue: `Pró: R$ ${Number(prevPro).toFixed(2).replace('.', ',')} | Flex: R$ ${Number(prevFlex).toFixed(2).replace('.', ',')}`,
+        newValue: 'Pró: R$ 39,90 | Flex: R$ 19,90',
+        details:
+          'Atualização forçada da tabela app_settings no Supabase e no banco principal para garantir os valores oficiais dos planos Pró (39,90) e Flex (19,90).',
+        severity: 'high',
+      });
+    } catch (err: any) {
+      setMessageType('error');
+      setMessage(err?.message || 'Erro ao sincronizar os preços oficiais na tabela app_settings.');
+    } finally {
+      setSyncingOfficialPrices(false);
+    }
+  };
+
   const handleGenerateWebhookSecret = () => {
     const newSecret = `whsec_${crypto.randomUUID().replace(/-/g, '')}`;
     setForm({ ...form, webhook_secret: newSecret });
@@ -1235,10 +1403,23 @@ export default function AdminSettingsPage() {
   // =========================================================================
   // FUNÇÕES DA SEQUÊNCIA DE LEMBRETES AUTOMÁTICOS DE RENOVAÇÃO VIA WHATSAPP
   // =========================================================================
-  const sequenceSteps: WhatsAppRenewalSequenceStep[] =
+  const sequenceSteps: WhatsAppRenewalSequenceStep[] = (
     Array.isArray(form.whatsapp_renewal_sequence) && form.whatsapp_renewal_sequence.length > 0
       ? form.whatsapp_renewal_sequence
-      : DEFAULT_WHATSAPP_RENEWAL_SEQUENCE;
+      : DEFAULT_WHATSAPP_RENEWAL_SEQUENCE
+  ).map((step, idx) => {
+    const defaultMatch =
+      DEFAULT_WHATSAPP_RENEWAL_SEQUENCE.find((d) => d.id === step.id) ||
+      DEFAULT_WHATSAPP_RENEWAL_SEQUENCE[idx];
+    const resolvedDispatchMode: WhatsAppStepDispatchMode =
+      step.dispatchMode === 'immediate' || step.dispatchMode === 'scheduled'
+        ? step.dispatchMode
+        : defaultMatch?.dispatchMode || 'scheduled';
+    return {
+      ...step,
+      dispatchMode: resolvedDispatchMode,
+    };
+  });
 
   const activeWaStep =
     sequenceSteps.find((s) => s.id === activeWaStepId) || sequenceSteps[0];
@@ -1249,10 +1430,24 @@ export default function AdminSettingsPage() {
   ) => {
     setForm((prev) => ({
       ...prev,
-      whatsapp_renewal_sequence: (prev.whatsapp_renewal_sequence || DEFAULT_WHATSAPP_RENEWAL_SEQUENCE).map(
-        (step) => (step.id === stepId ? { ...step, ...patch } : step)
+      whatsapp_renewal_sequence: sequenceSteps.map((step) =>
+        step.id === stepId ? { ...step, ...patch } : step
       ),
     }));
+  };
+
+  const handleSelectWaStepDispatchMode = (
+    stepId: string,
+    mode: WhatsAppStepDispatchMode,
+    stepTitle?: string
+  ) => {
+    handleUpdateWaStep(stepId, { dispatchMode: mode });
+    setMessageType('success');
+    setMessage(
+      mode === 'immediate'
+        ? `Etapa "${stepTitle || stepId}" configurada para Disparo Imediato (envio manual direto via WhatsApp).`
+        : `Etapa "${stepTitle || stepId}" configurada para Disparo Agendado (envio automático via API no gatilho da etapa).`
+    );
   };
 
   const handleAddWaSequenceStep = () => {
@@ -1263,6 +1458,7 @@ export default function AdminSettingsPage() {
       triggerType: 'before_due',
       daysOffset: 3,
       enabled: true,
+      dispatchMode: 'scheduled',
       template:
         'Olá *{nome}*! ❄️\n\nLembrete automático: sua assinatura do *{plano}* vence em *{dias_restantes} dia(s)* ({data_vencimento}).\n\nGaranta a continuidade do seu acesso por *{valor}*:\n👉 {link_renovacao}',
     };
@@ -1339,8 +1535,30 @@ export default function AdminSettingsPage() {
     return msg;
   };
 
+  const getDirectWhatsAppManualUrl = (
+    step: WhatsAppRenewalSequenceStep = activeWaStep,
+    rawPhone: string = waTestPhone
+  ) => {
+    const renderedText = getRenderedWaStepPreview(step);
+    let cleanPhone = String(rawPhone || '').replace(/\D/g, '');
+    if (cleanPhone.length === 10 || cleanPhone.length === 11) {
+      cleanPhone = `55${cleanPhone}`;
+    }
+    if (cleanPhone) {
+      return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(renderedText)}`;
+    }
+    return `https://wa.me/?text=${encodeURIComponent(renderedText)}`;
+  };
+
   const handleSaveWhatsAppRenewalSequence = async (e?: React.MouseEvent | React.FormEvent) => {
     if (e) e.preventDefault();
+    const immediateCount = sequenceSteps.filter(
+      (s) => s.enabled && s.dispatchMode === 'immediate'
+    ).length;
+    const scheduledCount = sequenceSteps.filter(
+      (s) => s.enabled && s.dispatchMode !== 'immediate'
+    ).length;
+
     await saveSection(
       'whatsapp_renewal',
       {
@@ -1361,10 +1579,10 @@ export default function AdminSettingsPage() {
       adminRole: 'Super Admin',
       category: 'security_config',
       actionTitle: 'Atualização da Sequência de Renovação via WhatsApp',
-      targetIdentifier: `Instância: ${form.whatsapp_instance_name || 'Master'} · ${sequenceSteps.filter((s) => s.enabled).length} etapas ativas`,
+      targetIdentifier: `Instância: ${form.whatsapp_instance_name || 'Master'} · ${sequenceSteps.filter((s) => s.enabled).length} etapas ativas (${scheduledCount} agendadas API / ${immediateCount} imediatas WhatsApp)`,
       previousValue: 'Sequência anterior',
       newValue: `${sequenceSteps.length} etapas configuradas (${form.whatsapp_renewal_send_time})`,
-      details: 'Régua de lembretes automáticos de renovação de assinatura via API WhatsApp salva no Painel Master.',
+      details: 'Régua de lembretes de renovação de assinatura (Disparo Imediato Manual vs Disparo Agendado API) salva no Painel Master.',
       severity: 'high',
     });
   };
@@ -1399,6 +1617,9 @@ export default function AdminSettingsPage() {
       }
 
       const renderedMessage = getRenderedWaStepPreview(activeWaStep);
+      const stepMode: WhatsAppStepDispatchMode =
+        activeWaStep?.dispatchMode === 'immediate' ? 'immediate' : 'scheduled';
+
       const res = await fetch('/api/whatsapp/renewal-sequence', {
         method: 'POST',
         headers,
@@ -1406,6 +1627,7 @@ export default function AdminSettingsPage() {
           phone: waTestPhone.trim(),
           message: renderedMessage,
           stepTitle: activeWaStep?.title || 'Etapa de Renovação',
+          dispatchMode: stepMode,
           whatsapp_api_url: form.whatsapp_api_url,
           whatsapp_api_key: form.whatsapp_api_key,
           whatsapp_instance_name: form.whatsapp_instance_name,
@@ -1415,7 +1637,12 @@ export default function AdminSettingsPage() {
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.ok) {
         setMessageType('success');
-        setMessage(data.message || 'Disparo da etapa processado com sucesso!');
+        setMessage(
+          data.message ||
+            (stepMode === 'immediate'
+              ? 'Disparo imediato preparado com sucesso! Você também pode abrir direto no WhatsApp.'
+              : 'Disparo agendado testado com sucesso na API do WhatsApp!')
+        );
         if (data.waLink) {
           setWaFallbackPreviewLink(data.waLink);
         }
@@ -1623,7 +1850,7 @@ export default function AdminSettingsPage() {
 
             {/* 1.1 Escolha de Plano (Flex ou Pró) e Contratação / Checkout Rápido */}
             <div className="col-span-full p-4 sm:p-5 rounded-2xl bg-slate-950/90 border border-amber-500/30 space-y-4">
-              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div>
                   <span className="text-[10px] font-black uppercase tracking-wider text-amber-400 block">
                     ESCOLHA DO PLANO PELO USUÁRIO (FLEX OU PRÓ)
@@ -1632,8 +1859,37 @@ export default function AdminSettingsPage() {
                     Selecione o Plano para Assinatura ou Teste de Checkout
                   </h3>
                   <p className="text-xs text-slate-400">
-                    O usuário pode escolher livremente entre o Plano Flex ou o Plano Pró e pagar via Cartão de Crédito ou PIX.
+                    O usuário pode escolher livremente entre o Plano Flex (R$ 19,90) ou o Plano Pró (R$ 39,90) e pagar via Cartão de Crédito ou PIX.
                   </p>
+                </div>
+
+                <div className="flex flex-col sm:items-end gap-1.5 shrink-0">
+                  <button
+                    type="button"
+                    disabled={syncingOfficialPrices}
+                    onClick={handleSyncOfficialPrices}
+                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-2 cursor-pointer shadow-lg shadow-emerald-500/20 disabled:opacity-50 active:scale-95"
+                  >
+                    {syncingOfficialPrices ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin text-slate-950" />
+                        <span>Sincronizando app_settings...</span>
+                      </>
+                    ) : (
+                      <>
+                        <RefreshCw size={14} className="text-slate-950" />
+                        <span>Sincronizar Preços Oficiais</span>
+                      </>
+                    )}
+                  </button>
+                  {officialPricesSyncedAt && (
+                    <span className="text-[10px] font-bold text-emerald-300 font-mono flex items-center gap-1">
+                      <CheckCircle2 size={11} className="text-emerald-400" />
+                      <span>
+                        Sincronizado no Supabase (Pró 39,90 | Flex 19,90) às {officialPricesSyncedAt}
+                      </span>
+                    </span>
+                  )}
                 </div>
               </div>
 
@@ -3564,9 +3820,15 @@ export default function AdminSettingsPage() {
                         ? `✓ ${sequenceSteps.filter((s) => s.enabled).length} Etapas Ativas`
                         : 'Sequência Pausada'}
                     </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 font-mono">
+                      ⚡ {sequenceSteps.filter((s) => s.dispatchMode === 'immediate').length} Imediato(s) · 📅{' '}
+                      {sequenceSteps.filter((s) => s.dispatchMode !== 'immediate').length} Agendado(s)
+                    </span>
                   </div>
                   <p className="text-xs text-slate-400 mt-0.5">
-                    Defina a régua sequencial de mensagens automáticas de renovação de assinatura utilizando a API do WhatsApp Master configurada ({form.whatsapp_instance_name || 'Instância Padrão'}).
+                    Defina a régua sequencial de mensagens de renovação escolhendo entre{' '}
+                    <strong className="text-amber-300">Disparo Imediato (envio manual via WhatsApp)</strong> ou{' '}
+                    <strong className="text-emerald-300">Disparo Agendado (automático via API)</strong> em cada etapa ({form.whatsapp_instance_name || 'Instância Padrão'}).
                   </p>
                 </div>
               </div>
@@ -3595,7 +3857,7 @@ export default function AdminSettingsPage() {
                     <span>1. Linha do Tempo da Sequência de Renovação ({sequenceSteps.length} etapas)</span>
                   </h3>
                   <p className="text-[11px] text-slate-400 mt-0.5">
-                    Selecione uma etapa abaixo para editar o gatilho de dias e o template da mensagem, ou adicione novas etapas à sequência.
+                    Use o seletor visual em cada etapa para alternar entre <strong className="text-amber-300">Disparo Imediato (Manual WhatsApp)</strong> e <strong className="text-emerald-300">Disparo Agendado (Automático API)</strong>.
                   </p>
                 </div>
 
@@ -3620,9 +3882,13 @@ export default function AdminSettingsPage() {
               </div>
 
               {/* Cards da Sequência (Régua Cronológica) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3.5">
                 {sequenceSteps.map((step, idx) => {
                   const isSelected = activeWaStep?.id === step.id;
+                  const stepDispatchMode: WhatsAppStepDispatchMode =
+                    step.dispatchMode === 'immediate' ? 'immediate' : 'scheduled';
+                  const isImmediate = stepDispatchMode === 'immediate';
+
                   const timingBadge =
                     step.triggerType === 'before_due'
                       ? `${step.daysOffset} dia(s) antes`
@@ -3634,17 +3900,28 @@ export default function AdminSettingsPage() {
                     <div
                       key={step.id}
                       onClick={() => setActiveWaStepId(step.id)}
-                      className={`p-3.5 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-2.5 ${
+                      className={`p-3.5 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-3 ${
                         isSelected
                           ? 'bg-emerald-950/35 border-emerald-400 shadow-[0_0_20px_rgba(16,185,129,0.18)]'
                           : 'bg-slate-900/80 border-slate-800 hover:border-emerald-500/40'
                       }`}
                     >
-                      <div className="space-y-1.5">
+                      <div className="space-y-2">
                         <div className="flex items-center justify-between gap-2">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">
-                            Passo #{idx + 1}
-                          </span>
+                          <div className="flex items-center gap-1.5">
+                            <span className="px-2 py-0.5 rounded text-[10px] font-black uppercase bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 font-mono">
+                              Passo #{idx + 1}
+                            </span>
+                            <span
+                              className={`px-2 py-0.5 rounded text-[9px] font-black uppercase tracking-wide border ${
+                                isImmediate
+                                  ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                                  : 'bg-teal-500/20 text-teal-300 border-teal-500/40'
+                              }`}
+                            >
+                              {isImmediate ? '⚡ Manual' : '🤖 API Auto'}
+                            </span>
+                          </div>
                           <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                             <input
                               type="checkbox"
@@ -3668,17 +3945,102 @@ export default function AdminSettingsPage() {
                           </div>
                         </div>
 
-                        <strong className="block text-xs font-bold text-white truncate">
-                          {step.title}
-                        </strong>
-                        <span className="inline-block text-[11px] font-mono font-bold text-amber-300">
-                          ⏱ {timingBadge}
-                        </span>
+                        <div>
+                          <strong className="block text-xs font-bold text-white truncate">
+                            {step.title}
+                          </strong>
+                          <span className="inline-block text-[11px] font-mono font-bold text-amber-300 mt-0.5">
+                            ⏱ {timingBadge}
+                          </span>
+                        </div>
+
+                        {/* Seletor Visual de Modo de Disparo Individual da Etapa */}
+                        <div
+                          onClick={(e) => e.stopPropagation()}
+                          className="p-1.5 rounded-xl bg-slate-950/90 border border-slate-800/90 space-y-1.5"
+                        >
+                          <div className="flex items-center justify-between px-1">
+                            <span className="text-[9px] font-black uppercase tracking-wider text-slate-400">
+                              Modo de Disparo da Etapa
+                            </span>
+                            <span
+                              className={`text-[9px] font-mono font-bold ${
+                                isImmediate ? 'text-amber-300' : 'text-emerald-300'
+                              }`}
+                            >
+                              {isImmediate ? 'WhatsApp Manual' : `API (${form.whatsapp_renewal_send_time || '10:00'})`}
+                            </span>
+                          </div>
+
+                          <div
+                            role="group"
+                            aria-label={`Modo de disparo para ${step.title}`}
+                            className="grid grid-cols-2 gap-1"
+                          >
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSelectWaStepDispatchMode(step.id, 'immediate', step.title)
+                              }
+                              className={`px-2 py-1.5 rounded-lg text-[10px] font-black transition flex items-center justify-center gap-1 cursor-pointer border ${
+                                isImmediate
+                                  ? 'bg-gradient-to-r from-amber-500 to-amber-600 text-slate-950 border-amber-400 shadow-[0_0_12px_rgba(245,158,11,0.3)]'
+                                  : 'bg-slate-900/90 text-slate-400 border-slate-800 hover:text-amber-200 hover:border-amber-500/40'
+                              }`}
+                              title="Disparo Imediato: envio manual direto via WhatsApp Web/App"
+                            >
+                              <Zap size={11} className="shrink-0" />
+                              <span className="truncate">Disparo Imediato</span>
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() =>
+                                handleSelectWaStepDispatchMode(step.id, 'scheduled', step.title)
+                              }
+                              className={`px-2 py-1.5 rounded-lg text-[10px] font-black transition flex items-center justify-center gap-1 cursor-pointer border ${
+                                !isImmediate
+                                  ? 'bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 border-emerald-400 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                  : 'bg-slate-900/90 text-slate-400 border-slate-800 hover:text-emerald-200 hover:border-emerald-500/40'
+                              }`}
+                              title="Disparo Agendado: envio automático via API no dia configurado"
+                            >
+                              <CalendarClock size={11} className="shrink-0" />
+                              <span className="truncate">Disparo Agendado</span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
 
-                      <p className="text-[11px] text-slate-400 line-clamp-2 border-t border-slate-800/80 pt-2">
-                        {step.template}
-                      </p>
+                      <div className="space-y-2 border-t border-slate-800/80 pt-2">
+                        <p className="text-[11px] text-slate-400 line-clamp-2">
+                          {step.template}
+                        </p>
+                        <div className="flex items-center justify-between text-[10px]">
+                          <span
+                            className={`font-semibold ${
+                              isImmediate ? 'text-amber-300/90' : 'text-emerald-300/90'
+                            }`}
+                          >
+                            {isImmediate
+                              ? '👉 Envio manual 1-clique no WhatsApp'
+                              : `🤖 Disparo via API (${timingBadge})`}
+                          </span>
+                          {isImmediate && (
+                            <a
+                              href={getDirectWhatsAppManualUrl(step)}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
+                              className="px-2 py-0.5 rounded bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/30 text-amber-300 font-bold flex items-center gap-1 transition shrink-0"
+                              title="Abrir no WhatsApp para disparo manual imediato"
+                            >
+                              <span>Enviar</span>
+                              <ExternalLink size={10} />
+                            </a>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   );
                 })}
@@ -3745,13 +4107,122 @@ export default function AdminSettingsPage() {
             {activeWaStep && (
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
                 <div className="lg:col-span-7 p-4 sm:p-5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-4">
-                  <div className="flex items-center justify-between border-b border-slate-800 pb-3">
-                    <h3 className="text-xs font-black uppercase tracking-wider text-emerald-300">
-                      2. Editando: {activeWaStep.title}
-                    </h3>
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="text-xs font-black uppercase tracking-wider text-emerald-300">
+                        2. Editando: {activeWaStep.title}
+                      </h3>
+                      <span
+                        className={`px-2 py-0.5 rounded-md text-[10px] font-black uppercase border ${
+                          activeWaStep.dispatchMode === 'immediate'
+                            ? 'bg-amber-500/20 text-amber-300 border-amber-500/40'
+                            : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/40'
+                        }`}
+                      >
+                        {activeWaStep.dispatchMode === 'immediate'
+                          ? '⚡ Disparo Imediato (Manual WhatsApp)'
+                          : '📅 Disparo Agendado (Automático API)'}
+                      </span>
+                    </div>
                     <span className="text-[11px] font-mono text-slate-400">
                       ID: {activeWaStep.id}
                     </span>
+                  </div>
+
+                  {/* Seletor Visual Detalhado na Etapa Selecionada */}
+                  <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2.5">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
+                      <span className="text-[11px] font-bold text-slate-200">
+                        Modalidade de Envio desta Etapa ({activeWaStep.title}):
+                      </span>
+                      <span className="text-[10px] text-slate-400">
+                        Escolha entre envio manual via WhatsApp ou disparo agendado via API
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSelectWaStepDispatchMode(
+                            activeWaStep.id,
+                            'immediate',
+                            activeWaStep.title
+                          )
+                        }
+                        className={`p-3 rounded-xl border text-left transition cursor-pointer flex items-start gap-2.5 ${
+                          activeWaStep.dispatchMode === 'immediate'
+                            ? 'bg-amber-500/15 border-amber-400 shadow-[0_0_16px_rgba(245,158,11,0.18)]'
+                            : 'bg-slate-950/80 border-slate-800 hover:border-amber-500/40'
+                        }`}
+                      >
+                        <div
+                          className={`p-2 rounded-lg shrink-0 ${
+                            activeWaStep.dispatchMode === 'immediate'
+                              ? 'bg-amber-500 text-slate-950'
+                              : 'bg-slate-900 text-amber-400 border border-slate-800'
+                          }`}
+                        >
+                          <Zap size={15} />
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-white">
+                              Disparo Imediato
+                            </span>
+                            {activeWaStep.dispatchMode === 'immediate' && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-amber-400 text-slate-950">
+                                Ativo
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-300 leading-snug">
+                            Envio manual direto via WhatsApp Web/App ou disparo imediato sob demanda pelo administrador.
+                          </p>
+                        </div>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() =>
+                          handleSelectWaStepDispatchMode(
+                            activeWaStep.id,
+                            'scheduled',
+                            activeWaStep.title
+                          )
+                        }
+                        className={`p-3 rounded-xl border text-left transition cursor-pointer flex items-start gap-2.5 ${
+                          activeWaStep.dispatchMode !== 'immediate'
+                            ? 'bg-emerald-500/15 border-emerald-400 shadow-[0_0_16px_rgba(16,185,129,0.18)]'
+                            : 'bg-slate-950/80 border-slate-800 hover:border-emerald-500/40'
+                        }`}
+                      >
+                        <div
+                          className={`p-2 rounded-lg shrink-0 ${
+                            activeWaStep.dispatchMode !== 'immediate'
+                              ? 'bg-emerald-500 text-slate-950'
+                              : 'bg-slate-900 text-emerald-400 border border-slate-800'
+                          }`}
+                        >
+                          <CalendarClock size={15} />
+                        </div>
+                        <div className="space-y-0.5">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-xs font-black text-white">
+                              Disparo Agendado
+                            </span>
+                            {activeWaStep.dispatchMode !== 'immediate' && (
+                              <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-400 text-slate-950">
+                                Ativo
+                              </span>
+                            )}
+                          </div>
+                          <p className="text-[10px] text-slate-300 leading-snug">
+                            Envio 100% automático via API do WhatsApp Master na regra de dias e horário ({form.whatsapp_renewal_send_time || '10:00'}).
+                          </p>
+                        </div>
+                      </button>
+                    </div>
                   </div>
 
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -3866,17 +4337,34 @@ export default function AdminSettingsPage() {
                     <div className="p-3.5 rounded-2xl rounded-tl-none bg-[#005c4b] text-white text-xs whitespace-pre-line leading-relaxed shadow-md max-h-56 overflow-y-auto">
                       {getRenderedWaStepPreview(activeWaStep)}
                       <div className="text-right text-[10px] text-emerald-200/80 mt-1.5 font-mono">
-                        {form.whatsapp_renewal_send_time || '10:00'} ✓✓
+                        {activeWaStep.dispatchMode === 'immediate'
+                          ? 'Disparo Imediato (Manual) ✓✓'
+                          : `${form.whatsapp_renewal_send_time || '10:00'} (API Agendada) ✓✓`}
                       </div>
                     </div>
                   </div>
 
-                  {/* Card de Disparo de Teste utilizando a API WhatsApp Configurada */}
+                  {/* Card de Disparo de Teste / Envio Manual conforme o Modo Selecionado */}
                   <div className="p-4 sm:p-5 rounded-2xl bg-slate-950/90 border border-slate-800 space-y-3">
-                    <div className="flex items-center justify-between">
+                    <div className="flex items-center justify-between gap-2">
                       <span className="text-xs font-bold text-white flex items-center gap-1.5">
                         <Phone size={14} className="text-emerald-400" />
-                        <span>Testar Disparo desta Etapa na API WhatsApp</span>
+                        <span>
+                          {activeWaStep.dispatchMode === 'immediate'
+                            ? 'Executar Disparo Imediato (Manual ou API)'
+                            : 'Testar Disparo Agendado na API WhatsApp'}
+                        </span>
+                      </span>
+                      <span
+                        className={`px-2 py-0.5 rounded text-[10px] font-bold font-mono ${
+                          activeWaStep.dispatchMode === 'immediate'
+                            ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                            : 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
+                        }`}
+                      >
+                        {activeWaStep.dispatchMode === 'immediate'
+                          ? 'Modo: Imediato'
+                          : 'Modo: Agendado'}
                       </span>
                     </div>
 
@@ -3902,28 +4390,37 @@ export default function AdminSettingsPage() {
                         ) : (
                           <>
                             <Send size={14} />
-                            <span>Testar Etapa Agora</span>
+                            <span>
+                              {activeWaStep.dispatchMode === 'immediate'
+                                ? 'Disparar Agora (API)'
+                                : 'Testar Etapa na API'}
+                            </span>
                           </>
                         )}
                       </button>
                     </div>
 
-                    {waFallbackPreviewLink && (
-                      <div className="pt-1 flex items-center justify-between gap-2 text-[11px]">
-                        <span className="text-slate-400">
-                          Deseja abrir a mensagem diretamente no WhatsApp Web/App?
-                        </span>
-                        <a
-                          href={waFallbackPreviewLink}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="text-emerald-400 hover:underline font-bold flex items-center gap-1 shrink-0"
-                        >
-                          <span>Abrir no WhatsApp</span>
-                          <ExternalLink size={12} />
-                        </a>
-                      </div>
-                    )}
+                    <div className="pt-1 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 text-[11px] border-t border-slate-800/80">
+                      <span className="text-slate-400">
+                        {activeWaStep.dispatchMode === 'immediate'
+                          ? 'Etapa em Disparo Imediato — envie manualmente pelo WhatsApp:'
+                          : 'Ou envie manualmente pelo WhatsApp Web/App se preferir:'}
+                      </span>
+                      <a
+                        href={waFallbackPreviewLink || getDirectWhatsAppManualUrl(activeWaStep)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className={`px-3 py-1.5 rounded-xl font-black flex items-center justify-center gap-1.5 shrink-0 transition ${
+                          activeWaStep.dispatchMode === 'immediate'
+                            ? 'bg-amber-500 hover:bg-amber-400 text-slate-950 shadow-md shadow-amber-500/20'
+                            : 'bg-slate-900 hover:bg-slate-800 text-emerald-400 border border-emerald-500/30'
+                        }`}
+                      >
+                        <Zap size={12} />
+                        <span>Enviar Manualmente via WhatsApp</span>
+                        <ExternalLink size={11} />
+                      </a>
+                    </div>
                   </div>
                 </div>
               </div>

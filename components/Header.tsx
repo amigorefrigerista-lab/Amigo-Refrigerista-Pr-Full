@@ -75,11 +75,11 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenUpgradeModal
           <button
             type="button"
             onClick={() => void install()}
-            className="px-2.5 py-1.5 rounded-lg bg-sky-500 hover:bg-sky-400 text-slate-950 font-bold text-xs transition flex items-center gap-1 cursor-pointer"
-            title="Instalar App"
+            className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-gradient-to-r from-sky-500 to-cyan-400 hover:from-sky-400 hover:to-cyan-300 text-slate-950 font-black text-xs transition flex items-center gap-1.5 shadow-sm cursor-pointer"
+            title="Instalar Aplicativo no Android ou iPhone (iOS)"
           >
-            <Download size={14} />
-            <span className="hidden sm:inline">Instalar</span>
+            <Download size={14} strokeWidth={2.5} />
+            <span className="inline">Instalar App</span>
           </button>
         )}
 

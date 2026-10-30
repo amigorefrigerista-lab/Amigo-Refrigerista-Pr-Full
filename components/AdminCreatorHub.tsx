@@ -42,6 +42,7 @@ import {
 import { toast } from 'sonner';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
+import { normalizeProPlanPrice, normalizeFlexPlanPrice } from '@/lib/pricing';
 import {
   getAdminSystemOverviewAction,
   updateAdminUserSubscriptionAction,
@@ -150,11 +151,11 @@ export function AdminCreatorHub({ onBack, initialTab = 'overview' }: AdminCreato
       ]);
 
       if (checkoutRes && !checkoutRes.error) {
-        const flexVal = Number(checkoutRes?.plans?.flex?.price || checkoutRes?.flex_plan_price || 19.9);
-        const proVal = Number(checkoutRes?.plans?.pro?.price || checkoutRes?.pro_plan_price || 39.9);
+        const flexVal = normalizeFlexPlanPrice(checkoutRes?.plans?.flex?.price ?? checkoutRes?.flex_plan_price);
+        const proVal = normalizeProPlanPrice(checkoutRes?.plans?.pro?.price ?? checkoutRes?.pro_plan_price);
         setPlanPrices({
-          flexPrice: flexVal > 0 ? flexVal : 19.9,
-          proPrice: proVal > 0 ? proVal : 39.9,
+          flexPrice: flexVal,
+          proPrice: proVal,
         });
       }
 

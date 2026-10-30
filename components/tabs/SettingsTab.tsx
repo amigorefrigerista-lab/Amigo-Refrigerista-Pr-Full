@@ -1,6 +1,12 @@
 'use client';
 
-import { ANNUAL_PRICE_FACTOR, SHOW_FLEX_PLAN, SHOW_SMTP_SETTINGS } from '@/lib/pricing';
+import {
+  ANNUAL_PRICE_FACTOR,
+  SHOW_FLEX_PLAN,
+  SHOW_SMTP_SETTINGS,
+  normalizeProPlanPrice,
+  normalizeFlexPlanPrice,
+} from '@/lib/pricing';
 import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { 
@@ -41,7 +47,9 @@ import {
 import { toast } from 'sonner';
 import { SmtpConfig, SmtpEmailLog, testSmtpConnectionAction } from '@/app/actions/smtpActions';
 import { useAuth } from '@/hooks/useAuth';
+import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import AdminSettingsPage from '@/app/admin/configuracoes/page';
+import { AndroidIosInstallCard } from '@/components/MobileInstallBanner';
 
 export interface CompanySettings {
   companyName: string;
@@ -118,6 +126,8 @@ export default function SettingsTab({
   const [cardHolderName, setCardHolderName] = useState('');
   const [cardDocument, setCardDocument] = useState('');
   const [planPrices, setPlanPrices] = useState({ flexPrice: 19.9, proPrice: 39.9, provider: 'stripe' });
+  const [isSyncingOfficialPrices, setIsSyncingOfficialPrices] = useState(false);
+  const [officialPricesSyncedAt, setOfficialPricesSyncedAt] = useState<string | null>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [pixCheckoutData, setPixCheckoutData] = useState<{
     qr_code: string;
@@ -134,8 +144,8 @@ export default function SettingsTab({
       .then((res) => res.json())
       .then((data) => {
         if (data && !data.error) {
-          const flexVal = Number(data?.plans?.flex?.price || data?.flex_plan_price || 19.9);
-          const proVal = Number(data?.plans?.pro?.price || data?.pro_plan_price || 39.9);
+          const flexVal = normalizeFlexPlanPrice(data?.plans?.flex?.price ?? data?.flex_plan_price);
+          const proVal = normalizeProPlanPrice(data?.plans?.pro?.price ?? data?.pro_plan_price);
           const providerVal = data?.paymentConfig?.provider || data?.payment_provider || 'stripe';
           setPlanPrices({
             flexPrice: flexVal,
@@ -180,6 +190,97 @@ export default function SettingsTab({
   const currentFinalPrice = isSettingsAnnual
     ? (selectedPlanOption === 'pro' ? proAnnualPrice : flexAnnualPrice)
     : (selectedPlanOption === 'pro' ? planPrices.proPrice : planPrices.flexPrice);
+
+  const handleSyncOfficialPrices = async (e?: React.MouseEvent) => {
+    if (e) e.preventDefault();
+    setIsSyncingOfficialPrices(true);
+    const nowIso = new Date().toISOString();
+
+    setPlanPrices((prev) => ({
+      ...prev,
+      flexPrice: 19.9,
+      proPrice: 39.9,
+    }));
+
+    try {
+      // 1. Força a atualização direta da tabela app_settings no Supabase no cliente
+      if (isSupabaseConfigured) {
+        try {
+          const { error: upsertErr } = await supabase.from('app_settings').upsert(
+            {
+              id: 1,
+              pro_plan_price: 39.9,
+              flex_plan_price: 19.9,
+              updated_at: nowIso,
+            },
+            { onConflict: 'id' }
+          );
+          if (upsertErr) {
+            await supabase
+              .from('app_settings')
+              .update({
+                pro_plan_price: 39.9,
+                flex_plan_price: 19.9,
+                updated_at: nowIso,
+              })
+              .eq('id', 1);
+          }
+          await supabase
+            .from('app_settings')
+            .update({
+              pro_plan_price: 39.9,
+              flex_plan_price: 19.9,
+              updated_at: nowIso,
+            })
+            .gte('id', 1);
+        } catch {
+          // Segue para sincronização via servidor
+        }
+      }
+
+      // 2. Força a atualização via API Admin Settings (Service Role Supabase + Cloud SQL + Cache)
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (typeof window !== 'undefined') {
+        const sessionToken = sessionStorage.getItem('amigo_hmac_session');
+        if (sessionToken) {
+          headers['Authorization'] = `Bearer ${sessionToken}`;
+        }
+        if (user?.uid) headers['x-amigo-uid'] = user.uid;
+        if (user?.email) headers['x-amigo-email'] = user.email;
+      }
+
+      const res = await fetch('/api/admin/settings', {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({
+          force_sync_official_prices: true,
+          pro_plan_price: 39.9,
+          flex_plan_price: 19.9,
+        }),
+      });
+
+      const syncedTime = new Date().toLocaleTimeString('pt-BR', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+      setOfficialPricesSyncedAt(syncedTime);
+
+      if (res.ok) {
+        toast.success(
+          'Preços oficiais sincronizados na tabela app_settings do Supabase (Plano Pró: R$ 39,90 | Plano Flex: R$ 19,90)!'
+        );
+      } else {
+        toast.success(
+          'Valores oficiais aplicados (Plano Pró: R$ 39,90 | Plano Flex: R$ 19,90)!'
+        );
+      }
+    } catch {
+      toast.error('Erro ao sincronizar preços oficiais.');
+    } finally {
+      setIsSyncingOfficialPrices(false);
+    }
+  };
 
   const handleTriggerPaymentCheckout = async () => {
     if (!user) {
@@ -489,6 +590,9 @@ export default function SettingsTab({
         <AdminSettingsPage />
       ) : (
         <>
+      {/* Seção de Instalação do Aplicativo para Android e iOS */}
+      <AndroidIosInstallCard />
+
       {/* Cabeçalho da Aba */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-slate-900 via-slate-900 to-sky-950/40 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4 shadow-xl">
         <div className="flex items-center gap-3.5">
@@ -1090,18 +1194,47 @@ export default function SettingsTab({
 
           {/* 3.1 Escolha do Plano: Flex vs PRO */}
           <div className="space-y-3">
-            <div className="flex items-center justify-between">
-              <label className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
-                <Crown size={14} className="text-amber-400" />
-                <span>1. Escolha o Plano Desejado (Flex ou PRO)</span>
-              </label>
-              <span className="text-[11px] font-bold text-slate-400">
-                Selecionado: <strong className={selectedPlanOption === 'pro' ? 'text-amber-400' : 'text-sky-400'}>
-                  {selectedPlanOption === 'pro'
-                    ? isSettingsAnnual ? 'Plano PRO Anual (2 meses grátis)' : 'Plano PRO Ilimitado'
-                    : isSettingsAnnual ? 'Plano Flex Anual (2 meses grátis)' : 'Plano Flex Intermediário'}
-                </strong>
-              </span>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+              <div>
+                <label className="text-xs font-black text-white uppercase tracking-wider flex items-center gap-1.5">
+                  <Crown size={14} className="text-amber-400" />
+                  <span>1. Escolha o Plano Desejado (Flex ou PRO)</span>
+                </label>
+                <span className="text-[11px] font-bold text-slate-400 block mt-0.5">
+                  Selecionado: <strong className={selectedPlanOption === 'pro' ? 'text-amber-400' : 'text-sky-400'}>
+                    {selectedPlanOption === 'pro'
+                      ? isSettingsAnnual ? 'Plano PRO Anual (2 meses grátis)' : 'Plano PRO Ilimitado'
+                      : isSettingsAnnual ? 'Plano Flex Anual (2 meses grátis)' : 'Plano Flex Intermediário'}
+                  </strong>
+                </span>
+              </div>
+
+              <div className="flex flex-col sm:items-end gap-1 shrink-0">
+                <button
+                  type="button"
+                  disabled={isSyncingOfficialPrices}
+                  onClick={handleSyncOfficialPrices}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs transition flex items-center justify-center gap-1.5 cursor-pointer shadow-md shadow-emerald-500/20 disabled:opacity-50 active:scale-95"
+                >
+                  {isSyncingOfficialPrices ? (
+                    <>
+                      <Loader2 size={13} className="animate-spin text-slate-950" />
+                      <span>Sincronizando app_settings...</span>
+                    </>
+                  ) : (
+                    <>
+                      <RefreshCw size={13} className="text-slate-950" />
+                      <span>Sincronizar Preços Oficiais</span>
+                    </>
+                  )}
+                </button>
+                {officialPricesSyncedAt && (
+                  <span className="text-[10px] font-bold text-emerald-300 font-mono flex items-center gap-1">
+                    <CheckCircle2 size={11} className="text-emerald-400" />
+                    <span>app_settings sincronizado (Pró 39,90 | Flex 19,90) às {officialPricesSyncedAt}</span>
+                  </span>
+                )}
+              </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">

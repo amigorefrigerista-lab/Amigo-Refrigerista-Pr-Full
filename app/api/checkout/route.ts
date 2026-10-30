@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAppSettings } from '@/lib/getAppSettings';
+import { getAppSettings, normalizeProPlanPrice, normalizeFlexPlanPrice } from '@/lib/getAppSettings';
 import {
   resolveStripeCredentials,
   createStripeCheckoutSession,
@@ -26,8 +26,8 @@ export async function GET() {
         settings.mercadopago_access_token.trim().startsWith('APP_USR')
     );
 
-    const flexMonthly = Number(settings.flex_plan_price) > 0 ? Number(settings.flex_plan_price) : 19.9;
-    const proMonthly = Number(settings.pro_plan_price) > 0 ? Number(settings.pro_plan_price) : 39.9;
+    const flexMonthly = normalizeFlexPlanPrice(settings.flex_plan_price);
+    const proMonthly = normalizeProPlanPrice(settings.pro_plan_price);
 
     const flexAnnualPricing = calculatePlanPricing('flex', 'annual', flexMonthly);
     const proAnnualPricing = calculatePlanPricing('pro', 'annual', proMonthly);
@@ -161,8 +161,8 @@ export async function POST(req: NextRequest) {
     const settings = await getAppSettings();
 
     const accessToken = settings.mercadopago_access_token;
-    const proMonthlyPrice = Number(settings.pro_plan_price) > 0 ? Number(settings.pro_plan_price) : 39.9;
-    const flexMonthlyPrice = Number(settings.flex_plan_price) > 0 ? Number(settings.flex_plan_price) : 19.9;
+    const proMonthlyPrice = normalizeProPlanPrice(settings.pro_plan_price);
+    const flexMonthlyPrice = normalizeFlexPlanPrice(settings.flex_plan_price);
     const monthlyBasePrice = normalizedPlan === 'flex' ? flexMonthlyPrice : proMonthlyPrice;
 
     // LÓGICA NO CHECKOUT: Calcula e aplica o desconto de 5% no valor total quando 'anual' é selecionado

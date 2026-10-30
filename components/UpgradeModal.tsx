@@ -1,7 +1,12 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { ANNUAL_PRICE_FACTOR, SHOW_FLEX_PLAN } from '@/lib/pricing';
+import {
+  ANNUAL_PRICE_FACTOR,
+  SHOW_FLEX_PLAN,
+  normalizeProPlanPrice,
+  normalizeFlexPlanPrice,
+} from '@/lib/pricing';
 import { 
   Zap, 
   CheckCircle2, 
@@ -73,8 +78,8 @@ export function UpgradeModal({
       .then((res) => res.json())
       .then((data) => {
         if (data?.ok) {
-          if (data.plans?.flex?.price) setFlexPrice(Number(data.plans.flex.price));
-          if (data.plans?.pro?.price) setProPrice(Number(data.plans.pro.price));
+          if (data.plans?.flex?.price) setFlexPrice(normalizeFlexPlanPrice(data.plans.flex.price));
+          if (data.plans?.pro?.price) setProPrice(normalizeProPlanPrice(data.plans.pro.price));
           if (data.paymentConfig) {
             const ccEnabled = data.paymentConfig.creditCardEnabled ?? true;
             const ccRecurring = data.paymentConfig.creditCardRecurringEnabled ?? true;

@@ -1,18 +1,26 @@
-// Service Worker — Amigo Refrigerista Pro
+// Service Worker — Amigo Refrigerista Pro (Android & iOS PWA Ready)
 // Estratégia Offline-First com atualização imediata de código:
 //  - Navegação (HTML) e bundles JS/CSS: network-first (sempre busca a versão mais recente quando online e usa cache apenas se offline)
 //  - /api/* e domínios externos (Supabase, Gemini, Mercado Pago): sempre rede
-const CACHE_VERSION = 'v6';
+const CACHE_VERSION = 'v7';
 const STATIC_CACHE = `amigo-static-${CACHE_VERSION}`;
 const PAGES_CACHE = `amigo-pages-${CACHE_VERSION}`;
 const OFFLINE_URL = '/offline.html';
+
+const PRECACHE_ASSETS = [
+  OFFLINE_URL,
+  '/manifest.json',
+  '/apple-touch-icon.png',
+  '/icon-192.png',
+  '/icon-512.png',
+];
 
 self.addEventListener('install', (event) => {
   self.skipWaiting();
   event.waitUntil(
     caches
       .open(STATIC_CACHE)
-      .then((cache) => cache.addAll([OFFLINE_URL, '/icon-192.png', '/icon-512.png']))
+      .then((cache) => cache.addAll(PRECACHE_ASSETS))
   );
 });
 
@@ -44,6 +52,7 @@ self.addEventListener('fetch', (event) => {
   if (
     req.mode === 'navigate' ||
     url.pathname.startsWith('/_next/static/') ||
+    url.pathname === '/manifest.json' ||
     /\.(?:png|jpg|jpeg|svg|webp|ico|woff2?)$/.test(url.pathname)
   ) {
     event.respondWith(

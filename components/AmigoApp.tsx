@@ -220,7 +220,7 @@ export default function AmigoApp() {
     return () => { isCancelled = true; };
   }, [user, authLoading, profile?.name, profile?.email]);
 
-  // Processa links automáticos recebidos via WhatsApp de falha de pagamento (?tab=settings&action=update_payment)
+  // Processa links automáticos recebidos via WhatsApp de falha de pagamento ou atalhos PWA (?tab=settings&action=update_payment, ?action=new_os, ?tab=calc, ?tab=errors)
   useEffect(() => {
     if (typeof window === 'undefined') return;
     try {
@@ -228,8 +228,12 @@ export default function AmigoApp() {
       const tabParam = searchParams.get('tab');
       const actionParam = searchParams.get('action');
 
-      if (tabParam === 'settings') {
-        setActiveTab('settings');
+      if (tabParam && ['settings', 'calc', 'errors', 'precos', 'dash', 'estoque'].includes(tabParam)) {
+        setActiveTab(tabParam);
+      }
+
+      if (actionParam === 'new_os') {
+        setShowOSModal(true);
       }
 
       if (actionParam === 'update_payment') {
@@ -1236,6 +1240,9 @@ export default function AmigoApp() {
         <div className="fixed top-4 right-4 z-50">
           <ThemeToggle showLabel />
         </div>
+        <div className="w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 pt-10 sm:pt-4">
+          <MobileInstallBanner compact />
+        </div>
         <div className="w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto px-4 sm:px-6 lg:px-10 xl:px-12 flex-1 flex items-center">
         <div className="w-full grid grid-cols-1 lg:grid-cols-12 gap-8 xl:gap-12 items-stretch">
           {/* Painel Lateral Desktop — Preenche o espaço em telas largas com recursos e indicadores da plataforma */}
@@ -1662,6 +1669,9 @@ export default function AmigoApp() {
       />
 
       <main className="w-full max-w-[1680px] 2xl:max-w-[1840px] mx-auto px-3 sm:px-6 lg:px-10 xl:px-12 py-4 sm:py-6 space-y-5 sm:space-y-6">
+        {/* Banner e Modal Interativo de Instalação Android & iOS */}
+        <MobileInstallBanner />
+
         {/* Alerta de Perfil Incompleto no Banco */}
         {isProfileIncomplete && (
           <div className="p-4 rounded-2xl bg-amber-500/15 border border-amber-500/40 text-amber-300 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-lg shadow-amber-500/10 animate-pulse">

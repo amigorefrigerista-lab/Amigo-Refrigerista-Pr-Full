@@ -68,6 +68,11 @@ CREATE TABLE IF NOT EXISTS public.app_settings (
   updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Atualiza eventual valor legado de R$ 49,90 para o valor oficial unificado de R$ 39,90
+UPDATE public.app_settings
+SET pro_plan_price = 39.90, flex_plan_price = 19.90, updated_at = NOW()
+WHERE id = 1 AND pro_plan_price = 49.90;
+
 -- Habilita RLS estrito em app_settings: bloqueia chave anon e usuários comuns; somente Admin Master ou service_role
 ALTER TABLE public.app_settings ENABLE ROW LEVEL SECURITY;
 

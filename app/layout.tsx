@@ -3,10 +3,14 @@ import { headers } from "next/headers";
 import "./globals.css";
 import { SupabaseAuthProvider } from "@/contexts/SupabaseAuthContext";
 import { ThemeProvider } from "@/contexts/ThemeContext";
+import { CspScriptProvider } from "@/components/CspScriptProvider";
+
+export const dynamic = "force-dynamic";
 
 export const metadata: Metadata = {
   title: "Amigo Refrigerista Full",
   description: "Ferramenta de administração para técnicos de Refrigeração e Climatização.",
+  applicationName: "Amigo Refrigerista Full",
   openGraph: {
     title: "Amigo Refrigerista Full",
     description: "Ferramenta de administração para técnicos de Refrigeração e Climatização.",
@@ -14,8 +18,11 @@ export const metadata: Metadata = {
   },
   appleWebApp: {
     capable: true,
-    statusBarStyle: 'default',
+    statusBarStyle: 'black-translucent',
     title: 'AmigoRefri',
+  },
+  formatDetection: {
+    telephone: false,
   },
   icons: {
     icon: [
@@ -23,6 +30,7 @@ export const metadata: Metadata = {
       { url: '/icon-512.png', type: 'image/png', sizes: '512x512' },
     ],
     apple: [{ url: '/apple-touch-icon.png', sizes: '180x180', type: 'image/png' }],
+    shortcut: ['/icon-192.png'],
   },
   manifest: '/manifest.json',
 };
@@ -42,50 +50,31 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const headerList = await headers();
-  const nonce = headerList.get("x-nonce") || undefined;
+  const nonce = headerList.get("x-nonce") || "";
 
   return (
     <html lang="pt-BR" className="dark" suppressHydrationWarning>
-      <head>
-        <script
-          dangerouslySetInnerHTML={{
-            __html: `
-              (function() {
-                window.addEventListener('beforeinstallprompt', function(e) {
-                  e.preventDefault();
-                  window.__amigoDeferredPrompt = e;
-                  window.dispatchEvent(new CustomEvent('amigo-pwa-ready'));
-                });
-                window.addEventListener('appinstalled', function() {
-                  window.__amigoDeferredPrompt = null;
-                  window.dispatchEvent(new CustomEvent('amigo-pwa-installed'));
-                });
-                if ('caches' in window) {
-                  caches.keys().then(function(keys) {
-                    keys.forEach(function(k) {
-                      if (k.indexOf('v6') === -1) caches.delete(k);
-                    });
-                  }).catch(function() {});
-                }
-                if ('serviceWorker' in navigator) {
-                  window.addEventListener('load', function() {
-                    navigator.serviceWorker.register('/sw.js').then(function(reg) {
-                      reg.update();
-                    }).catch(function() {});
-                  });
-                }
-              })();
-            `,
-          }}
-        />
+      <head suppressHydrationWarning>
+        <meta name="mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-capable" content="yes" />
+        <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+        <meta name="apple-mobile-web-app-title" content="AmigoRefri" />
+        <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+        <link rel="manifest" href="/manifest.json" />
       </head>
-      <body className="bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-slate-100 min-h-screen overflow-x-hidden transition-colors duration-200">
-        <ThemeProvider>
-          <SupabaseAuthProvider>
-            {children}
-          </SupabaseAuthProvider>
-        </ThemeProvider>
+      <body
+        suppressHydrationWarning
+        className="bg-slate-50 dark:bg-[#070e1c] text-slate-900 dark:text-slate-100 min-h-screen overflow-x-hidden transition-colors duration-200"
+      >
+        <CspScriptProvider nonce={nonce}>
+          <ThemeProvider>
+            <SupabaseAuthProvider>
+              {children}
+            </SupabaseAuthProvider>
+          </ThemeProvider>
+        </CspScriptProvider>
       </body>
     </html>
   );
 }
+
