@@ -48,6 +48,29 @@ export const TEMPLATE_VARIABLES = [
 ];
 
 /**
+ * Normaliza a data de serviço para YYYY-MM-DD, caindo para a data de hoje se vier vazia ou inválida
+ */
+function normalizeServiceDateIso(serviceDate?: Date | string | null): string {
+  const todayIso = new Date().toISOString().split('T')[0];
+  if (!serviceDate) return todayIso;
+
+  if (serviceDate instanceof Date) {
+    return Number.isNaN(serviceDate.getTime())
+      ? todayIso
+      : serviceDate.toISOString().split('T')[0];
+  }
+
+  const trimmed = String(serviceDate).trim().slice(0, 10);
+  if (!trimmed) return todayIso;
+
+  const parsed = new Date(trimmed + 'T12:00:00');
+  if (Number.isNaN(parsed.getTime())) {
+    return todayIso;
+  }
+  return trimmed;
+}
+
+/**
  * Formata o texto final da mensagem substituindo todas as variáveis dinâmicas
  */
 export function formatWhatsAppReminderMessage(
@@ -55,10 +78,7 @@ export function formatWhatsAppReminderMessage(
   template?: string,
   baseUrl?: string
 ): string {
-  const startDateIso =
-    typeof reminder.serviceDate === 'string'
-      ? reminder.serviceDate.slice(0, 10)
-      : reminder.serviceDate.toISOString().split('T')[0];
+  const startDateIso = normalizeServiceDateIso(reminder.serviceDate);
 
   const nextDateIso =
     reminder.nextServiceDate ||
@@ -95,7 +115,8 @@ export function formatWhatsAppReminderMessage(
  * (data de vencimento menos a quantidade de dias de antecedência configurada)
  */
 export function calculateReminderAlertDate(targetDueDate: string, daysBefore: number): string {
-  const date = new Date(targetDueDate + 'T12:00:00');
+  const safeTarget = normalizeServiceDateIso(targetDueDate);
+  const date = new Date(safeTarget + 'T12:00:00');
   date.setDate(date.getDate() - (daysBefore || 0));
   return date.toISOString().split('T')[0];
 }
@@ -147,7 +168,8 @@ export interface ServiceOrder {
 
 // Função auxiliar para calcular a próxima data respeitando o último dia do mês de destino
 export function calculateNextMaintenanceDate(startDate: string, months: number): string {
-  const date = new Date(startDate + 'T12:00:00');
+  const safeStartDate = normalizeServiceDateIso(startDate);
+  const date = new Date(safeStartDate + 'T12:00:00');
   const originalDay = date.getDate();
   date.setMonth(date.getMonth() + months);
   // Se o dia do mês mudou após somar os meses (ex: 31/08 + 6 meses virou 03/03), volta para o último dia do mês de destino (28/02)
@@ -176,10 +198,7 @@ export async function dispatchWhatsAppMaintenanceReminder(params: {
   nextServiceDate: string;
 }> {
   const { reminder, customTemplate, dispatchNow = false } = params;
-  const serviceDateStr =
-    typeof reminder.serviceDate === 'string'
-      ? reminder.serviceDate
-      : new Date(reminder.serviceDate).toISOString().split('T')[0];
+  const serviceDateStr = normalizeServiceDateIso(reminder.serviceDate);
   const nextServiceDate =
     reminder.nextServiceDate ||
     calculateNextMaintenanceDate(serviceDateStr, reminder.monthsInterval || 6);

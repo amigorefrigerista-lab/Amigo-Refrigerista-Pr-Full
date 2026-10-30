@@ -1,7 +1,18 @@
-import { integer, pgTable, serial, text, timestamp, uniqueIndex } from 'drizzle-orm/pg-core';
+import {
+  boolean,
+  integer,
+  pgSchema,
+  serial,
+  text,
+  timestamp,
+  uniqueIndex,
+} from 'drizzle-orm/pg-core';
 
-// Tabela de Usuários / Técnicos
-export const users = pgTable('users', {
+// Schema dedicado "app" no Postgres do Supabase (funciona inclusive com o Pooler em modo Transaction na porta 6543)
+export const appSchema = pgSchema('app');
+
+// Tabela de Usuários / Técnicos (app.users)
+export const users = appSchema.table('users', {
   id: serial('id').primaryKey(),
   uid: text('uid').notNull().unique('users_uid_key'), // Supabase Auth UID
   email: text('email').notNull(),
@@ -16,8 +27,8 @@ export const users = pgTable('users', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Tabela de Clientes
-export const clients = pgTable('clients', {
+// Tabela de Clientes (app.clients)
+export const clients = appSchema.table('clients', {
   id: serial('id').primaryKey(),
   userUid: text('user_uid').notNull(),
   name: text('name').notNull(),
@@ -29,8 +40,8 @@ export const clients = pgTable('clients', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Tabela de Orçamentos Frigoríficos
-export const quotes = pgTable('quotes', {
+// Tabela de Orçamentos Frigoríficos (app.quotes)
+export const quotes = appSchema.table('quotes', {
   id: serial('id').primaryKey(),
   userUid: text('user_uid').notNull(),
   clientName: text('client_name').notNull(),
@@ -45,8 +56,8 @@ export const quotes = pgTable('quotes', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Tabela de Ordens de Serviço / Instalações & Manutenções
-export const installations = pgTable('installations', {
+// Tabela de Ordens de Serviço / Instalações & Manutenções (app.installations)
+export const installations = appSchema.table('installations', {
   id: serial('id').primaryKey(),
   userUid: text('user_uid').notNull(),
   clientName: text('client_name').notNull(),
@@ -67,8 +78,8 @@ export const installations = pgTable('installations', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Tabela de Histórico de Diagnósticos de Erros HVAC
-export const errorDiagnoses = pgTable('error_diagnoses', {
+// Tabela de Histórico de Diagnósticos de Erros HVAC (app.error_diagnoses)
+export const errorDiagnoses = appSchema.table('error_diagnoses', {
   id: serial('id').primaryKey(),
   userUid: text('user_uid').notNull(),
   brand: text('brand').notNull(),
@@ -78,8 +89,8 @@ export const errorDiagnoses = pgTable('error_diagnoses', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Tabela de Estoque de Materiais & Ferramentas
-export const materialsStock = pgTable('materials_stock', {
+// Tabela de Estoque de Materiais & Ferramentas (app.materials_stock)
+export const materialsStock = appSchema.table('materials_stock', {
   id: serial('id').primaryKey(),
   userUid: text('user_uid').notNull(),
   name: text('name').notNull(),
@@ -91,16 +102,16 @@ export const materialsStock = pgTable('materials_stock', {
   createdAt: timestamp('created_at').defaultNow(),
 });
 
-// Tabela de Rate Limiting Persistente no Banco de Dados
-export const rateLimits = pgTable('rate_limits', {
+// Tabela de Rate Limiting Persistente no Banco de Dados (app.rate_limits)
+export const rateLimits = appSchema.table('rate_limits', {
   key: text('key').primaryKey(),
   count: integer('count').notNull().default(1),
   resetAt: timestamp('reset_at').notNull(),
   updatedAt: timestamp('updated_at').defaultNow(),
 });
 
-// Tabela de Controle de Cota Mensal Persistente no Banco de Dados
-export const monthlyQuotas = pgTable(
+// Tabela de Controle de Cota Mensal Persistente no Banco de Dados (app.monthly_quotas)
+export const monthlyQuotas = appSchema.table(
   'monthly_quotas',
   {
     id: serial('id').primaryKey(),
@@ -118,8 +129,8 @@ export const monthlyQuotas = pgTable(
   })
 );
 
-// Tabela de Pagamentos Processados (Idempotência de Webhook + Vínculo de Revogação por payment_id)
-export const processedPayments = pgTable('processed_payments', {
+// Tabela de Pagamentos Processados (app.processed_payments)
+export const processedPayments = appSchema.table('processed_payments', {
   paymentId: text('payment_id').primaryKey(),
   userUid: text('user_uid').notNull(),
   userEmail: text('user_email'),
@@ -131,8 +142,8 @@ export const processedPayments = pgTable('processed_payments', {
   processedAt: timestamp('processed_at').defaultNow(),
 });
 
-// Tabela de Confirmações de Clientes recebidas via Webhook do WhatsApp
-export const whatsappConfirmations = pgTable('whatsapp_confirmations', {
+// Tabela de Confirmações de Clientes recebidas via Webhook do WhatsApp (app.whatsapp_confirmations)
+export const whatsappConfirmations = appSchema.table('whatsapp_confirmations', {
   id: serial('id').primaryKey(),
   senderPhone: text('sender_phone').notNull(),
   messageText: text('message_text').notNull(),
@@ -141,8 +152,8 @@ export const whatsappConfirmations = pgTable('whatsapp_confirmations', {
   processedAt: timestamp('processed_at').defaultNow(),
 });
 
-// Tabela de Resgates de Licenças por Usuário (impede resgate duplicado e condição de corrida)
-export const licenseRedemptions = pgTable('license_redemptions', {
+// Tabela de Resgates de Licenças por Usuário (app.license_redemptions)
+export const licenseRedemptions = appSchema.table('license_redemptions', {
   id: serial('id').primaryKey(),
   licenseCode: text('license_code').notNull(),
   userUid: text('user_uid').notNull(),
@@ -150,12 +161,14 @@ export const licenseRedemptions = pgTable('license_redemptions', {
   expiresAt: timestamp('expires_at').notNull(),
 });
 
-// Tabela de Configurações Globais do Sistema Master
-export const appSettingsTable = pgTable('app_settings', {
+// Tabela de Configurações Globais do Sistema Master (app.app_settings)
+export const appSettingsTable = appSchema.table('app_settings', {
   id: integer('id').primaryKey().default(1),
   payment_provider: text('payment_provider').default('mercadopago'),
   mercadopago_access_token: text('mercadopago_access_token').default(''),
   mercadopago_public_key: text('mercadopago_public_key').default(''),
+  mercadopago_token_permanently_masked: boolean('mercadopago_token_permanently_masked').default(false),
+  mercadopago_connection_verified: boolean('mercadopago_connection_verified').default(false),
   webhook_secret: text('webhook_secret').default(''),
   pro_plan_price: text('pro_plan_price').default('39.90'),
   flex_plan_price: text('flex_plan_price').default('19.90'),
@@ -169,5 +182,3 @@ export const appSettingsTable = pgTable('app_settings', {
   stripe_webhook_url: text('stripe_webhook_url').default(''),
   updated_at: timestamp('updated_at').defaultNow(),
 });
-
-

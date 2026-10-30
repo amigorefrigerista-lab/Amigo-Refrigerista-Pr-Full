@@ -9,11 +9,11 @@
 4. **Limite de requisições** do `/api/db`: 120/min por usuário logado e 600/min por IP (antes 60/min por IP, que punia técnicos em 4G/5G).
 5. **IA em plano pago**: teto de uso justo de 150 consultas/mês (variável `PAID_AI_MONTHLY_CAP`).
 6. **Offline**: `public/sw.js` agora guarda arquivos estáticos e a última versão das telas; `public/offline.html` como aviso. Dados da API nunca entram no cache.
-7. **Produto/preço**: plano único (Flex escondido, assinantes antigos continuam válidos). Anual = 10 meses pagos, 12 usados ("2 meses grátis"),
+7. **Produto/preço**: Plano Flex (R$ 19,90/mês) e Plano Pró (R$ 39,90/mês) ativos e visíveis (`SHOW_FLEX_PLAN = true`). Anual = 10 meses pagos, 12 usados ("2 meses grátis"),
    regra única em `lib/pricing.ts` usada por servidor e telas.
 8. **Escondidos por flag** (`lib/pricing.ts`): Estoque e SMTP por usuário. Para reativar, troque a flag para `true`.
-9. **Limpeza**: removidos `.gmp_cache`, `firebase.json`, `server.ts` (o `start` agora usa `server.js`), 6 abas duplicadas não usadas,
-   `lib/ptData.ts`, `PlanCarousel`, `AppHeader`, `PWAInstallButton`, `InstallPrompt`, `src/db/users.ts`, `lib/firestoreErrors.ts`.
+9. **Limpeza**: removidos `.gmp_cache`, `firebase.json`, `server.ts` (o `start` agora usa `server.js`), 6 abas duplicadas não usadas (`PtTableTab`, `CalcTab`, `DashTab`, `ClientsTab`, `FinanceTab`, `ErrorsTab`),
+   `lib/ptData.ts`, `PlanCarousel`, `AppHeader`, `PWAInstallButton`, `InstallPrompt`, `CheckoutConsent`, `IaDisclaimer`, `FooterLegal`, `VipWelcomeBanner`, `src/db/users.ts`, `lib/firestoreErrors.ts`, `scripts/patch-next.js`.
 
 ## Banco de dados unificado (Supabase)
 - O app agora usa **um só Postgres: o do Supabase**. O Cloud SQL deixa de ser necessário (pode desligar e parar de pagar).

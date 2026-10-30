@@ -10,6 +10,7 @@ const TEST_USER_EMAIL = 'assinante@amigorefrigerista.com.br';
 // 1. Define as variáveis de ambiente ANTES de importar as rotas para que DEFAULT_APP_SETTINGS receba os segredos de teste
 process.env.MERCADOPAGO_WEBHOOK_SECRET = TEST_WEBHOOK_SECRET;
 process.env.MERCADOPAGO_ACCESS_TOKEN = TEST_MP_ACCESS_TOKEN;
+delete process.env.DATABASE_URL;
 delete process.env.SQL_HOST;
 delete process.env.SQL_USER;
 delete process.env.SQL_DB_NAME;
