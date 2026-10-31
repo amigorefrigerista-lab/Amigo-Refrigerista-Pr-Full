@@ -25,6 +25,7 @@ import {
   CalendarCheck,
   BadgePercent
 } from 'lucide-react';
+import { PlanComparisonCards } from '@/components/PlanComparisonCards';
 import { useAuth } from '@/hooks/useAuth';
 import { supabase } from '@/lib/supabase';
 import { redeemFreeLicenseInFirestore } from '@/lib/licenseService';
@@ -260,7 +261,7 @@ export function UpgradeModal({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/80 backdrop-blur-md flex items-center justify-center p-4 animate-in fade-in duration-200">
-      <div className="max-w-xl w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-5 sm:p-7 space-y-5 shadow-[0_20px_50px_rgba(0,0,0,0.6)] relative overflow-hidden max-h-[92vh] overflow-y-auto">
+      <div className="max-w-5xl w-full bg-slate-900 border border-amber-500/30 rounded-3xl p-5 sm:p-7 space-y-5 shadow-[0_20px_50px_rgba(0,0,0,0.6)] relative overflow-hidden max-h-[92vh] overflow-y-auto">
         {/* Glow de Fundo */}
         <div className="absolute top-0 right-0 w-64 h-64 bg-amber-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20" />
 
@@ -297,7 +298,7 @@ export function UpgradeModal({
           {description}
         </p>
 
-        {/* ESCOLHA DA MODALIDADE: PLANO RECORRENTE OU PLANO ANUAL (5% DE DESCONTO) */}
+        {/* ESCOLHA DA MODALIDADE: PLANO RECORRENTE OU PLANO ANUAL (2 MESES GRÁTIS) */}
         <div className="space-y-2 relative z-10">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-black uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
@@ -349,161 +350,28 @@ export function UpgradeModal({
           </div>
         </div>
 
-        {/* PASSO 1: ESCOLHA DO PLANO (FLEX OU PRÓ) */}
+        {/* PASSO 1: COMPARE OS PLANOS (GRÁTIS, FLEX E PRÓ) E ESCOLHA O SEU */}
         <div className="space-y-2.5 relative z-10">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
             <span className="text-[11px] font-black uppercase tracking-wider text-amber-300">
-              1. Escolha o seu Plano (Flex ou Pró):
+              1. Compare as funções dos Planos (Grátis, Flex e Pró) e selecione o seu:
             </span>
             <span className="text-[10px] font-mono text-slate-400">
-              {isAnnual ? 'Acesso total por 12 meses (365 dias)' : 'Cobrança mensal renovável'}
+              {isAnnual ? 'Acesso total por 12 meses (365 dias)' : 'Cobrança mensal renovável sem fidelidade'}
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {/* Opção Plano Flex */}
-            {SHOW_FLEX_PLAN && (
-
-            <div
-              onClick={() => setSelectedPlan('flex')}
-              className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-3 ${
-                selectedPlan === 'flex'
-                  ? 'bg-cyan-950/50 border-cyan-400 shadow-[0_0_20px_rgba(6,182,212,0.2)]'
-                  : 'bg-slate-950/80 border-slate-800 hover:border-cyan-500/40'
-              }`}
-            >
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-cyan-500/20 text-cyan-300 border border-cyan-500/30">
-                    <Zap size={11} />
-                    Plano Flex VIP
-                  </span>
-                  <input
-                    type="radio"
-                    name="upgrade_plan_choice"
-                    checked={selectedPlan === 'flex'}
-                    onChange={() => setSelectedPlan('flex')}
-                    className="w-4 h-4 text-cyan-400 bg-slate-900 border-slate-700"
-                  />
-                </div>
-                {isAnnual ? (
-                  <div className="pt-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-black text-cyan-400 font-mono">
-                        R$ {flexAnnualPrice.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="text-xs text-slate-400">/ ano</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[11px] text-slate-500 line-through">
-                        R$ {flexAnnualOriginal.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        2 meses grátis (Economize R$ {flexAnnualSavings.toFixed(2).replace('.', ',')})
-                      </span>
-                    </div>
-                    <p className="text-[10px] font-bold text-cyan-300 mt-1">
-                      Equivale a apenas R$ {flexAnnualMonthlyEquiv.toFixed(2).replace('.', ',')}/mês
-                    </p>
-                  </div>
-                ) : (
-                  <div className="pt-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-black text-cyan-400 font-mono">
-                        R$ {flexMonthly.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="text-xs text-slate-400">/ mês</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Plano recorrente mensal sem fidelidade
-                    </p>
-                  </div>
-                )}
-                <p className="text-[11px] text-slate-300 leading-snug">
-                  Ideal para ferramentas essenciais, cálculo de Superaquecimento/Sub-resfriamento e gestão de OS.
-                </p>
-              </div>
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-bold">
-                <span className={selectedPlan === 'flex' ? 'text-cyan-300' : 'text-slate-400'}>
-                  {selectedPlan === 'flex' ? '✓ Plano Flex Selecionado' : 'Selecionar Plano Flex'}
-                </span>
-                {isAnnual && (
-                  <span className="text-emerald-400 font-mono">12 meses liberados</span>
-                )}
-              </div>
-            </div>
-            )}
-
-            {/* Opção Plano Pró */}
-            <div
-              onClick={() => setSelectedPlan('pro')}
-              className={`p-4 rounded-2xl border transition cursor-pointer flex flex-col justify-between gap-3 ${
-                selectedPlan === 'pro'
-                  ? 'bg-amber-950/50 border-amber-400 shadow-[0_0_20px_rgba(245,158,11,0.25)]'
-                  : 'bg-slate-950/80 border-slate-800 hover:border-amber-500/40'
-              }`}
-            >
-              <div className="space-y-1.5">
-                <div className="flex items-center justify-between">
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    <Crown size={11} />
-                    Plano Pró (Completo)
-                  </span>
-                  <input
-                    type="radio"
-                    name="upgrade_plan_choice"
-                    checked={selectedPlan === 'pro'}
-                    onChange={() => setSelectedPlan('pro')}
-                    className="w-4 h-4 text-amber-400 bg-slate-900 border-slate-700"
-                  />
-                </div>
-                {isAnnual ? (
-                  <div className="pt-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-black text-amber-400 font-mono">
-                        R$ {proAnnualPrice.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="text-xs text-slate-400">/ ano</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[11px] text-slate-500 line-through">
-                        R$ {proAnnualOriginal.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        2 meses grátis (Economize R$ {proAnnualSavings.toFixed(2).replace('.', ',')})
-                      </span>
-                    </div>
-                    <p className="text-[10px] font-bold text-amber-300 mt-1">
-                      Equivale a apenas R$ {proAnnualMonthlyEquiv.toFixed(2).replace('.', ',')}/mês
-                    </p>
-                  </div>
-                ) : (
-                  <div className="pt-1">
-                    <div className="flex items-baseline gap-1">
-                      <span className="text-2xl font-black text-amber-400 font-mono">
-                        R$ {proMonthly.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="text-xs text-slate-400">/ mês</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Plano recorrente mensal sem fidelidade
-                    </p>
-                  </div>
-                )}
-                <p className="text-[11px] text-slate-300 leading-snug">
-                  IA ilimitada para todas as marcas, PMOC, Leitor OCR de Placas, QR Code e Automação WhatsApp.
-                </p>
-              </div>
-              <div className="pt-2 border-t border-slate-800/80 flex items-center justify-between text-[10px] font-bold">
-                <span className={selectedPlan === 'pro' ? 'text-amber-300' : 'text-slate-400'}>
-                  {selectedPlan === 'pro' ? '✓ Plano Pró Selecionado' : 'Selecionar Plano Pró'}
-                </span>
-                {isAnnual && (
-                  <span className="text-emerald-400 font-mono">12 meses liberados</span>
-                )}
-              </div>
-            </div>
-          </div>
+          <PlanComparisonCards
+            selectedPlan={selectedPlan}
+            onSelectPlan={(plan) => {
+              setSelectedPlan(plan);
+              setPixResult(null);
+            }}
+            isAnnual={isAnnual}
+            flexMonthlyPrice={flexMonthly}
+            proMonthlyPrice={proMonthly}
+            currentPlan={currentPlan}
+          />
         </div>
 
         {/* PASSO 2: OPÇÃO DE PAGAMENTO NO CARTÃO DE CRÉDITO OU PIX */}

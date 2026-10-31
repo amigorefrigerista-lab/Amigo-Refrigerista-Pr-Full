@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Snowflake, Bell, Settings, LogOut, Download, ShieldCheck } from 'lucide-react';
+import { Snowflake, Bell, Settings, LogOut, Download, ShieldCheck, Crown } from 'lucide-react';
 import { useAuth } from '@/hooks/useAuth';
 import { usePWAInstall } from '@/hooks/usePWAInstall';
 import { toast } from 'sonner';
@@ -68,6 +68,18 @@ export function Header({ onOpenNotifications, onOpenSettings, onOpenUpgradeModal
           >
             <ShieldCheck size={15} />
             <span className="hidden sm:inline">Painel Criador</span>
+          </button>
+        )}
+
+        {onOpenUpgradeModal && (
+          <button
+            type="button"
+            onClick={onOpenUpgradeModal}
+            className="px-2.5 sm:px-3 py-1.5 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-600 dark:text-amber-300 font-black text-xs transition flex items-center gap-1.5 cursor-pointer"
+            title="Comparar Planos (Grátis, Flex e Pró)"
+          >
+            <Crown size={14} className="text-amber-500 dark:text-amber-400 shrink-0" />
+            <span>Planos</span>
           </button>
         )}
 

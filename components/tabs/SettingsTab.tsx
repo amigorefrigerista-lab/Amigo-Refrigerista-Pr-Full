@@ -50,6 +50,7 @@ import { useAuth } from '@/hooks/useAuth';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase';
 import AdminSettingsPage from '@/app/admin/configuracoes/page';
 import { AndroidIosInstallCard } from '@/components/MobileInstallBanner';
+import { PlanComparisonCards } from '@/components/PlanComparisonCards';
 
 export interface CompanySettings {
   companyName: string;
@@ -1237,138 +1238,17 @@ export default function SettingsTab({
               </div>
             </div>
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {/* Card Plano Flex */}
-              {SHOW_FLEX_PLAN && (
-
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedPlanOption('flex');
-                  setPixCheckoutData(null);
-                }}
-                className={`p-4 rounded-2xl border text-left transition cursor-pointer relative overflow-hidden ${
-                  selectedPlanOption === 'flex'
-                    ? 'bg-sky-500/15 border-sky-500 ring-2 ring-sky-500/25 shadow-lg shadow-sky-500/10'
-                    : 'bg-slate-950/90 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-sky-500/20 text-sky-300 border border-sky-500/30">
-                    <Zap size={11} /> PLANO FLEX
-                  </span>
-                  {selectedPlanOption === 'flex' && (
-                    <span className="px-2 py-0.5 rounded bg-sky-500 text-slate-950 text-[9px] font-black uppercase">
-                      SELECIONADO
-                    </span>
-                  )}
-                </div>
-
-                {isSettingsAnnual ? (
-                  <div>
-                    <div className="flex items-baseline gap-1 mt-1">
-                      <span className="text-xs text-slate-400 font-bold">R$</span>
-                      <span className="text-2xl font-black text-white font-mono">
-                        {flexAnnualPrice.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-semibold">/ano</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[11px] text-slate-500 line-through">
-                        R$ {flexAnnualOriginal.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        2 meses grátis (Poupa R$ {flexAnnualSavings.toFixed(2).replace('.', ',')})
-                      </span>
-                    </div>
-                    <p className="text-[10px] font-bold text-sky-300 mt-1">
-                      Equivale a R$ {flexAnnualMonthlyEquiv.toFixed(2).replace('.', ',')}/mês
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex items-baseline gap-1 mt-1">
-                      <span className="text-xs text-slate-400 font-bold">R$</span>
-                      <span className="text-2xl font-black text-white font-mono">
-                        {planPrices.flexPrice.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-semibold">/mês</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Cobrança mensal recorrente sem fidelidade
-                    </p>
-                  </div>
-                )}
-
-                <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                  Ideal para técnicos em expansão: até 25 clientes, 30 Ordens de Serviço/mês, Superaquecimento e Orçamentos PDF.
-                </p>
-              </button>
-              )}
-
-              {/* Card Plano PRO */}
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedPlanOption('pro');
-                  setPixCheckoutData(null);
-                }}
-                className={`p-4 rounded-2xl border text-left transition cursor-pointer relative overflow-hidden ${
-                  selectedPlanOption === 'pro'
-                    ? 'bg-amber-500/15 border-amber-500 ring-2 ring-amber-500/25 shadow-lg shadow-amber-500/10'
-                    : 'bg-slate-950/90 border-slate-800 hover:border-slate-700'
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-black uppercase bg-amber-500/20 text-amber-300 border border-amber-500/30">
-                    <Crown size={11} /> PLANO PRO
-                  </span>
-                  <span className="px-2 py-0.5 rounded bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 text-[9px] font-black uppercase">
-                    {isSettingsAnnual ? '12 MESES VIP' : 'MAIS COMPLETO'}
-                  </span>
-                </div>
-
-                {isSettingsAnnual ? (
-                  <div>
-                    <div className="flex items-baseline gap-1 mt-1">
-                      <span className="text-xs text-slate-400 font-bold">R$</span>
-                      <span className="text-2xl font-black text-white font-mono">
-                        {proAnnualPrice.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-semibold">/ano</span>
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-0.5">
-                      <span className="text-[11px] text-slate-500 line-through">
-                        R$ {proAnnualOriginal.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="px-1.5 py-0.2 rounded text-[9px] font-black uppercase bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                        2 meses grátis (Poupa R$ {proAnnualSavings.toFixed(2).replace('.', ',')})
-                      </span>
-                    </div>
-                    <p className="text-[10px] font-bold text-amber-300 mt-1">
-                      Equivale a R$ {proAnnualMonthlyEquiv.toFixed(2).replace('.', ',')}/mês
-                    </p>
-                  </div>
-                ) : (
-                  <div>
-                    <div className="flex items-baseline gap-1 mt-1">
-                      <span className="text-xs text-slate-400 font-bold">R$</span>
-                      <span className="text-2xl font-black text-white font-mono">
-                        {planPrices.proPrice.toFixed(2).replace('.', ',')}
-                      </span>
-                      <span className="text-[11px] text-slate-400 font-semibold">/mês</span>
-                    </div>
-                    <p className="text-[10px] text-slate-400 mt-0.5">
-                      Cobrança mensal recorrente sem fidelidade
-                    </p>
-                  </div>
-                )}
-
-                <p className="text-[11px] text-slate-400 mt-2 leading-relaxed">
-                  Acesso 100% ilimitado: Clientes e OS sem limites, IA Diagnóstico, Leitor OCR de Placas, PMOC e Lembretes WhatsApp.
-                </p>
-              </button>
-            </div>
+            <PlanComparisonCards
+              selectedPlan={selectedPlanOption}
+              onSelectPlan={(plan) => {
+                setSelectedPlanOption(plan);
+                setPixCheckoutData(null);
+              }}
+              isAnnual={isSettingsAnnual}
+              flexMonthlyPrice={planPrices.flexPrice}
+              proMonthlyPrice={planPrices.proPrice}
+              currentPlan={profile?.subscription?.plan || 'free'}
+            />
           </div>
 
           {/* 3.2 Configuração para Pagamento no Cartão de Crédito e Escolha de Método */}
