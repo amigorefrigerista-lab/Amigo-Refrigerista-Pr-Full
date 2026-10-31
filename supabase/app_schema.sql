@@ -180,6 +180,10 @@ create table if not exists app.app_settings (
   whatsapp_api_url text default '',
   whatsapp_api_key text default '',
   whatsapp_instance_name text default '',
+  whatsapp_renewal_sequence_enabled boolean default true,
+  whatsapp_renewal_send_time text default '10:00',
+  whatsapp_renewal_target_plans text default 'all',
+  whatsapp_renewal_sequence text default '[]',
   stripe_connect_client_id text default '',
   stripe_connect_secret_key text default '',
   stripe_webhook_url text default '',
@@ -190,6 +194,14 @@ alter table app.app_settings
   add column if not exists mercadopago_token_permanently_masked boolean default false;
 alter table app.app_settings
   add column if not exists mercadopago_connection_verified boolean default false;
+alter table app.app_settings
+  add column if not exists whatsapp_renewal_sequence_enabled boolean default true;
+alter table app.app_settings
+  add column if not exists whatsapp_renewal_send_time text default '10:00';
+alter table app.app_settings
+  add column if not exists whatsapp_renewal_target_plans text default 'all';
+alter table app.app_settings
+  add column if not exists whatsapp_renewal_sequence text default '[]';
 
 -- ==============================================================================
 -- ATIVAR ROW LEVEL SECURITY (RLS) E REVOGAR ACESSO DE ANON / AUTHENTICATED

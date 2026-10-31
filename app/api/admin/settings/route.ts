@@ -3,7 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { authenticateRequest, getSupabaseServiceClient, isMasterAdminEmail } from '@/lib/security';
 import { getAppSettings, DEFAULT_APP_SETTINGS, normalizeProPlanPrice, normalizeFlexPlanPrice } from '@/lib/getAppSettings';
-import { isMaskedMpToken, maskMpAccessToken } from '@/lib/appSettingsConstants';
+import { isMaskedMpToken, maskMpAccessToken, normalizeWhatsAppRenewalSequence } from '@/lib/appSettingsConstants';
 import { db, isSqlAvailable } from '@/src/db';
 import { appSettingsTable } from '@/src/db/schema';
 
@@ -91,6 +91,11 @@ export async function GET(req: NextRequest) {
       cached?.webhook_secret ||
       dbSettings.webhook_secret ||
       DEFAULT_APP_SETTINGS.webhook_secret,
+    whatsapp_renewal_sequence: normalizeWhatsAppRenewalSequence(
+      cached?.whatsapp_renewal_sequence ??
+        dbSettings.whatsapp_renewal_sequence ??
+        DEFAULT_APP_SETTINGS.whatsapp_renewal_sequence
+    ),
   };
 
   return NextResponse.json({
@@ -210,12 +215,24 @@ export async function POST(req: NextRequest) {
         body.free_trial_days !== undefined
           ? Number(body.free_trial_days) || 0
           : currentSettings.free_trial_days ?? 7,
+      whatsapp_renewal_sequence: normalizeWhatsAppRenewalSequence(
+        body.whatsapp_renewal_sequence !== undefined
+          ? body.whatsapp_renewal_sequence
+          : currentSettings.whatsapp_renewal_sequence
+      ),
       updated_at: new Date().toISOString(),
     };
 
     writeCachedSettings(updated);
 
-    // 1. Grava no PostgreSQL Cloud SQL
+    // 1. Grava no PostgreSQL (app.app_settings) incluindo whatsapp_renewal_sequence com dispatchMode de cada etapa
+    const serializedWaSequence = JSON.stringify(
+      normalizeWhatsAppRenewalSequence(updated.whatsapp_renewal_sequence).map((step) => ({
+        ...step,
+        dispatchMode: step.dispatchMode === 'immediate' ? 'immediate' : 'scheduled',
+      }))
+    );
+
     if (isSqlAvailable()) {
       try {
         const sqlAccessToken =
@@ -228,26 +245,11 @@ export async function POST(req: NextRequest) {
           updated.webhook_secret ||
           (updated.payment_provider === 'stripe' ? updated.stripe_webhook_secret : '');
 
-        await db
-          .insert(appSettingsTable)
-          .values({
-            id: 1,
-            payment_provider: updated.payment_provider,
-            mercadopago_access_token: sqlAccessToken,
-            mercadopago_public_key: sqlPublicKey,
-            webhook_secret: sqlWebhookSecret,
-            pro_plan_price: String(updated.pro_plan_price),
-            flex_plan_price: String(updated.flex_plan_price),
-            maintenance_interval_months: updated.maintenance_interval_months,
-            free_trial_days: updated.free_trial_days,
-            whatsapp_api_url: updated.whatsapp_api_url,
-            whatsapp_api_key: updated.whatsapp_api_key,
-            whatsapp_instance_name: updated.whatsapp_instance_name,
-            updated_at: new Date(),
-          })
-          .onConflictDoUpdate({
-            target: appSettingsTable.id,
-            set: {
+        try {
+          await db
+            .insert(appSettingsTable)
+            .values({
+              id: 1,
               payment_provider: updated.payment_provider,
               mercadopago_access_token: sqlAccessToken,
               mercadopago_public_key: sqlPublicKey,
@@ -259,12 +261,76 @@ export async function POST(req: NextRequest) {
               whatsapp_api_url: updated.whatsapp_api_url,
               whatsapp_api_key: updated.whatsapp_api_key,
               whatsapp_instance_name: updated.whatsapp_instance_name,
-              stripe_connect_client_id: updated.stripe_connect_client_id,
-              stripe_connect_secret_key: updated.stripe_connect_secret_key,
-              stripe_webhook_url: updated.stripe_webhook_url,
+              whatsapp_renewal_sequence_enabled: Boolean(updated.whatsapp_renewal_sequence_enabled),
+              whatsapp_renewal_send_time: String(updated.whatsapp_renewal_send_time || '10:00'),
+              whatsapp_renewal_target_plans: String(updated.whatsapp_renewal_target_plans || 'all'),
+              whatsapp_renewal_sequence: serializedWaSequence,
               updated_at: new Date(),
-            },
-          });
+            })
+            .onConflictDoUpdate({
+              target: appSettingsTable.id,
+              set: {
+                payment_provider: updated.payment_provider,
+                mercadopago_access_token: sqlAccessToken,
+                mercadopago_public_key: sqlPublicKey,
+                webhook_secret: sqlWebhookSecret,
+                pro_plan_price: String(updated.pro_plan_price),
+                flex_plan_price: String(updated.flex_plan_price),
+                maintenance_interval_months: updated.maintenance_interval_months,
+                free_trial_days: updated.free_trial_days,
+                whatsapp_api_url: updated.whatsapp_api_url,
+                whatsapp_api_key: updated.whatsapp_api_key,
+                whatsapp_instance_name: updated.whatsapp_instance_name,
+                whatsapp_renewal_sequence_enabled: Boolean(updated.whatsapp_renewal_sequence_enabled),
+                whatsapp_renewal_send_time: String(updated.whatsapp_renewal_send_time || '10:00'),
+                whatsapp_renewal_target_plans: String(updated.whatsapp_renewal_target_plans || 'all'),
+                whatsapp_renewal_sequence: serializedWaSequence,
+                stripe_connect_client_id: updated.stripe_connect_client_id,
+                stripe_connect_secret_key: updated.stripe_connect_secret_key,
+                stripe_webhook_url: updated.stripe_webhook_url,
+                updated_at: new Date(),
+              },
+            });
+        } catch {
+          // Fallback caso as novas colunas ainda não tenham sido adicionadas no schema do banco
+          await db
+            .insert(appSettingsTable)
+            .values({
+              id: 1,
+              payment_provider: updated.payment_provider,
+              mercadopago_access_token: sqlAccessToken,
+              mercadopago_public_key: sqlPublicKey,
+              webhook_secret: sqlWebhookSecret,
+              pro_plan_price: String(updated.pro_plan_price),
+              flex_plan_price: String(updated.flex_plan_price),
+              maintenance_interval_months: updated.maintenance_interval_months,
+              free_trial_days: updated.free_trial_days,
+              whatsapp_api_url: updated.whatsapp_api_url,
+              whatsapp_api_key: updated.whatsapp_api_key,
+              whatsapp_instance_name: updated.whatsapp_instance_name,
+              updated_at: new Date(),
+            })
+            .onConflictDoUpdate({
+              target: appSettingsTable.id,
+              set: {
+                payment_provider: updated.payment_provider,
+                mercadopago_access_token: sqlAccessToken,
+                mercadopago_public_key: sqlPublicKey,
+                webhook_secret: sqlWebhookSecret,
+                pro_plan_price: String(updated.pro_plan_price),
+                flex_plan_price: String(updated.flex_plan_price),
+                maintenance_interval_months: updated.maintenance_interval_months,
+                free_trial_days: updated.free_trial_days,
+                whatsapp_api_url: updated.whatsapp_api_url,
+                whatsapp_api_key: updated.whatsapp_api_key,
+                whatsapp_instance_name: updated.whatsapp_instance_name,
+                stripe_connect_client_id: updated.stripe_connect_client_id,
+                stripe_connect_secret_key: updated.stripe_connect_secret_key,
+                stripe_webhook_url: updated.stripe_webhook_url,
+                updated_at: new Date(),
+              },
+            });
+        }
 
         if (isForcePriceSync) {
           await db
@@ -280,14 +346,16 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 2. Grava no Supabase se configurado (com fallback seguro para as colunas nativas de app_settings)
+    // 2. Grava no Supabase se configurado (incluindo whatsapp_renewal_sequence e dispatchMode de cada etapa)
     const serviceSb = getSupabaseServiceClient();
     if (serviceSb) {
       try {
-        const { error: fullUpsertErr } = await serviceSb.from('app_settings').upsert(updated);
+        const { error: fullUpsertErr } = await serviceSb.from('app_settings').upsert({
+          ...updated,
+          whatsapp_renewal_sequence: updated.whatsapp_renewal_sequence,
+        });
         if (fullUpsertErr) {
-          // Caso a tabela app_settings no Supabase não possua colunas estendidas, salva as colunas principais garantindo Mercado Pago e WhatsApp
-          const coreRow = {
+          const sequenceRow = {
             id: 1,
             payment_provider: updated.payment_provider,
             mercadopago_access_token: updated.mercadopago_access_token,
@@ -300,16 +368,38 @@ export async function POST(req: NextRequest) {
             whatsapp_api_url: updated.whatsapp_api_url,
             whatsapp_api_key: updated.whatsapp_api_key,
             whatsapp_instance_name: updated.whatsapp_instance_name,
+            whatsapp_renewal_sequence_enabled: updated.whatsapp_renewal_sequence_enabled,
+            whatsapp_renewal_send_time: updated.whatsapp_renewal_send_time,
+            whatsapp_renewal_target_plans: updated.whatsapp_renewal_target_plans,
+            whatsapp_renewal_sequence: serializedWaSequence,
             updated_at: updated.updated_at,
           };
-          const { error: coreUpsertErr } = await serviceSb.from('app_settings').upsert(coreRow);
-          if (coreUpsertErr) {
-            await serviceSb.from('app_settings').upsert({
+          const { error: seqUpsertErr } = await serviceSb.from('app_settings').upsert(sequenceRow);
+          if (seqUpsertErr) {
+            const coreRow = {
               id: 1,
+              payment_provider: updated.payment_provider,
+              mercadopago_access_token: updated.mercadopago_access_token,
+              mercadopago_public_key: updated.mercadopago_public_key,
+              webhook_secret: updated.webhook_secret,
               pro_plan_price: updated.pro_plan_price,
               flex_plan_price: updated.flex_plan_price,
+              maintenance_interval_months: updated.maintenance_interval_months,
+              free_trial_days: updated.free_trial_days,
+              whatsapp_api_url: updated.whatsapp_api_url,
+              whatsapp_api_key: updated.whatsapp_api_key,
+              whatsapp_instance_name: updated.whatsapp_instance_name,
               updated_at: updated.updated_at,
-            });
+            };
+            const { error: coreUpsertErr } = await serviceSb.from('app_settings').upsert(coreRow);
+            if (coreUpsertErr) {
+              await serviceSb.from('app_settings').upsert({
+                id: 1,
+                pro_plan_price: updated.pro_plan_price,
+                flex_plan_price: updated.flex_plan_price,
+                updated_at: updated.updated_at,
+              });
+            }
           }
         }
 

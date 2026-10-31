@@ -5,10 +5,11 @@ import { eq } from 'drizzle-orm';
 import {
   WhatsAppRenewalSequenceStep,
   DEFAULT_WHATSAPP_RENEWAL_SEQUENCE,
+  normalizeWhatsAppRenewalSequence,
 } from '@/lib/appSettingsConstants';
 import { normalizeProPlanPrice, normalizeFlexPlanPrice } from '@/lib/pricing';
 
-export { DEFAULT_WHATSAPP_RENEWAL_SEQUENCE, normalizeProPlanPrice, normalizeFlexPlanPrice };
+export { DEFAULT_WHATSAPP_RENEWAL_SEQUENCE, normalizeWhatsAppRenewalSequence, normalizeProPlanPrice, normalizeFlexPlanPrice };
 export type { WhatsAppRenewalSequenceStep };
 
 export interface AppSettings {
@@ -236,33 +237,79 @@ export async function getAppSettings(): Promise<AppSettings> {
           smtp_user: data?.smtp_user || mem.smtp_user || DEFAULT_APP_SETTINGS.smtp_user,
           smtp_pass: data?.smtp_pass || mem.smtp_pass || DEFAULT_APP_SETTINGS.smtp_pass,
           smtp_from: data?.smtp_from || mem.smtp_from || DEFAULT_APP_SETTINGS.smtp_from,
+          whatsapp_renewal_sequence_enabled:
+            data?.whatsapp_renewal_sequence_enabled !== undefined
+              ? Boolean(data.whatsapp_renewal_sequence_enabled)
+              : mem.whatsapp_renewal_sequence_enabled !== undefined
+                ? Boolean(mem.whatsapp_renewal_sequence_enabled)
+                : DEFAULT_APP_SETTINGS.whatsapp_renewal_sequence_enabled,
+          whatsapp_renewal_send_time:
+            data?.whatsapp_renewal_send_time ||
+            mem.whatsapp_renewal_send_time ||
+            DEFAULT_APP_SETTINGS.whatsapp_renewal_send_time,
+          whatsapp_renewal_target_plans:
+            data?.whatsapp_renewal_target_plans ||
+            mem.whatsapp_renewal_target_plans ||
+            DEFAULT_APP_SETTINGS.whatsapp_renewal_target_plans,
+          whatsapp_renewal_sequence: normalizeWhatsAppRenewalSequence(
+            data?.whatsapp_renewal_sequence ??
+              mem.whatsapp_renewal_sequence ??
+              DEFAULT_APP_SETTINGS.whatsapp_renewal_sequence
+          ),
         };
       }
     }
-    // 2. Fallback via PostgreSQL Cloud SQL
+    // 2. Fallback via PostgreSQL
     if (isSqlAvailable()) {
       try {
-        const rows = await db
-          .select({
-            id: appSettingsTable.id,
-            payment_provider: appSettingsTable.payment_provider,
-            mercadopago_access_token: appSettingsTable.mercadopago_access_token,
-            mercadopago_public_key: appSettingsTable.mercadopago_public_key,
-            webhook_secret: appSettingsTable.webhook_secret,
-            pro_plan_price: appSettingsTable.pro_plan_price,
-            flex_plan_price: appSettingsTable.flex_plan_price,
-            maintenance_interval_months: appSettingsTable.maintenance_interval_months,
-            free_trial_days: appSettingsTable.free_trial_days,
-            whatsapp_api_url: appSettingsTable.whatsapp_api_url,
-            whatsapp_api_key: appSettingsTable.whatsapp_api_key,
-            whatsapp_instance_name: appSettingsTable.whatsapp_instance_name,
-          })
-          .from(appSettingsTable)
-          .where(eq(appSettingsTable.id, 1))
-          .limit(1);
+        let row: any = null;
+        try {
+          const rows = await db
+            .select({
+              id: appSettingsTable.id,
+              payment_provider: appSettingsTable.payment_provider,
+              mercadopago_access_token: appSettingsTable.mercadopago_access_token,
+              mercadopago_public_key: appSettingsTable.mercadopago_public_key,
+              webhook_secret: appSettingsTable.webhook_secret,
+              pro_plan_price: appSettingsTable.pro_plan_price,
+              flex_plan_price: appSettingsTable.flex_plan_price,
+              maintenance_interval_months: appSettingsTable.maintenance_interval_months,
+              free_trial_days: appSettingsTable.free_trial_days,
+              whatsapp_api_url: appSettingsTable.whatsapp_api_url,
+              whatsapp_api_key: appSettingsTable.whatsapp_api_key,
+              whatsapp_instance_name: appSettingsTable.whatsapp_instance_name,
+              whatsapp_renewal_sequence_enabled: appSettingsTable.whatsapp_renewal_sequence_enabled,
+              whatsapp_renewal_send_time: appSettingsTable.whatsapp_renewal_send_time,
+              whatsapp_renewal_target_plans: appSettingsTable.whatsapp_renewal_target_plans,
+              whatsapp_renewal_sequence: appSettingsTable.whatsapp_renewal_sequence,
+            })
+            .from(appSettingsTable)
+            .where(eq(appSettingsTable.id, 1))
+            .limit(1);
+          if (rows && rows[0]) row = rows[0];
+        } catch {
+          const fallbackRows = await db
+            .select({
+              id: appSettingsTable.id,
+              payment_provider: appSettingsTable.payment_provider,
+              mercadopago_access_token: appSettingsTable.mercadopago_access_token,
+              mercadopago_public_key: appSettingsTable.mercadopago_public_key,
+              webhook_secret: appSettingsTable.webhook_secret,
+              pro_plan_price: appSettingsTable.pro_plan_price,
+              flex_plan_price: appSettingsTable.flex_plan_price,
+              maintenance_interval_months: appSettingsTable.maintenance_interval_months,
+              free_trial_days: appSettingsTable.free_trial_days,
+              whatsapp_api_url: appSettingsTable.whatsapp_api_url,
+              whatsapp_api_key: appSettingsTable.whatsapp_api_key,
+              whatsapp_instance_name: appSettingsTable.whatsapp_instance_name,
+            })
+            .from(appSettingsTable)
+            .where(eq(appSettingsTable.id, 1))
+            .limit(1);
+          if (fallbackRows && fallbackRows[0]) row = fallbackRows[0];
+        }
 
-        if (rows && rows[0]) {
-          const row: any = rows[0];
+        if (row) {
           if (Math.abs(Number(row.pro_plan_price) - 49.9) < 0.05) {
             db.update(appSettingsTable)
               .set({ pro_plan_price: '39.90', updated_at: new Date() })
@@ -312,6 +359,26 @@ export async function getAppSettings(): Promise<AppSettings> {
             smtp_user: mem.smtp_user || DEFAULT_APP_SETTINGS.smtp_user,
             smtp_pass: mem.smtp_pass || DEFAULT_APP_SETTINGS.smtp_pass,
             smtp_from: mem.smtp_from || DEFAULT_APP_SETTINGS.smtp_from,
+            whatsapp_renewal_sequence_enabled:
+              row.whatsapp_renewal_sequence_enabled !== undefined &&
+              row.whatsapp_renewal_sequence_enabled !== null
+                ? Boolean(row.whatsapp_renewal_sequence_enabled)
+                : mem.whatsapp_renewal_sequence_enabled !== undefined
+                  ? Boolean(mem.whatsapp_renewal_sequence_enabled)
+                  : DEFAULT_APP_SETTINGS.whatsapp_renewal_sequence_enabled,
+            whatsapp_renewal_send_time:
+              row.whatsapp_renewal_send_time ||
+              mem.whatsapp_renewal_send_time ||
+              DEFAULT_APP_SETTINGS.whatsapp_renewal_send_time,
+            whatsapp_renewal_target_plans:
+              row.whatsapp_renewal_target_plans ||
+              mem.whatsapp_renewal_target_plans ||
+              DEFAULT_APP_SETTINGS.whatsapp_renewal_target_plans,
+            whatsapp_renewal_sequence: normalizeWhatsAppRenewalSequence(
+              row.whatsapp_renewal_sequence && row.whatsapp_renewal_sequence !== '[]'
+                ? row.whatsapp_renewal_sequence
+                : mem.whatsapp_renewal_sequence ?? DEFAULT_APP_SETTINGS.whatsapp_renewal_sequence
+            ),
           };
         }
       } catch (sqlErr) {
@@ -327,5 +394,8 @@ export async function getAppSettings(): Promise<AppSettings> {
     ...mem,
     pro_plan_price: normalizeProPlanPrice(mem.pro_plan_price ?? DEFAULT_APP_SETTINGS.pro_plan_price),
     flex_plan_price: normalizeFlexPlanPrice(mem.flex_plan_price ?? DEFAULT_APP_SETTINGS.flex_plan_price),
+    whatsapp_renewal_sequence: normalizeWhatsAppRenewalSequence(
+      mem.whatsapp_renewal_sequence ?? DEFAULT_APP_SETTINGS.whatsapp_renewal_sequence
+    ),
   };
 }

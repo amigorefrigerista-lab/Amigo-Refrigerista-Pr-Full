@@ -55,6 +55,11 @@ export async function POST(req: NextRequest) {
 
     const messageText = String(body.message || '').trim();
     const stepTitle = String(body.stepTitle || 'Etapa de Renovação').trim();
+    const dispatchMode: 'immediate' | 'scheduled' =
+      body.dispatchMode === 'immediate' ? 'immediate' : 'scheduled';
+    const scheduledTime = String(
+      body.scheduledTime || settings?.whatsapp_renewal_send_time || '10:00'
+    ).trim();
 
     if (!cleanPhone || !messageText) {
       return NextResponse.json(
@@ -65,12 +70,23 @@ export async function POST(req: NextRequest) {
 
     const waFallbackUrl = `https://wa.me/${cleanPhone}?text=${encodeURIComponent(messageText)}`;
 
+    if (dispatchMode === 'immediate') {
+      return NextResponse.json({
+        ok: true,
+        dispatchMode: 'immediate',
+        dispatchedViaApi: false,
+        waLink: waFallbackUrl,
+        message: `Modo Disparo Imediato (Manual via WhatsApp) selecionado para "${stepTitle}". Link direto wa.me pronto para envio a +${cleanPhone}!`,
+      });
+    }
+
     if (!apiUrl || !apiUrl.startsWith('https://')) {
       return NextResponse.json({
         ok: true,
+        dispatchMode: 'scheduled',
         dispatchedViaApi: false,
         waLink: waFallbackUrl,
-        message: `Template "${stepTitle}" pronto! Configure a URL HTTPS da API do WhatsApp Master para envio 100% silencioso em segundo plano ou use o link direto gerado.`,
+        message: `Etapa "${stepTitle}" configurada em Disparo Agendado (${scheduledTime}). Configure a URL HTTPS da API do WhatsApp Master para envio automático em segundo plano ou use o link direto gerado.`,
       });
     }
 

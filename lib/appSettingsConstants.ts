@@ -6,7 +6,7 @@ export interface WhatsAppRenewalSequenceStep {
   triggerType: 'before_due' | 'on_due' | 'after_due';
   daysOffset: number;
   enabled: boolean;
-  dispatchMode?: WhatsAppStepDispatchMode;
+  dispatchMode: WhatsAppStepDispatchMode;
   template: string;
 }
 
@@ -52,6 +52,56 @@ export const DEFAULT_WHATSAPP_RENEWAL_SEQUENCE: WhatsAppRenewalSequenceStep[] = 
       'Olá *{nome}*, sentimos sua falta no *Amigo Refrigerista Pro*! ❄️\n\nNotamos que sua assinatura do *{plano}* venceu em {data_vencimento}. Seus clientes, histórico de OS e equipamentos seguem salvos na sua conta.\n\nReative seu acesso completo agora por *{valor}*:\n🔓 {link_renovacao}',
   },
 ];
+
+export function normalizeWhatsAppRenewalSequence(
+  rawSequence: unknown
+): WhatsAppRenewalSequenceStep[] {
+  let parsedSequence: unknown = rawSequence;
+  if (typeof rawSequence === 'string' && rawSequence.trim()) {
+    try {
+      parsedSequence = JSON.parse(rawSequence);
+    } catch {
+      parsedSequence = null;
+    }
+  }
+
+  const source =
+    Array.isArray(parsedSequence) && parsedSequence.length > 0
+      ? parsedSequence
+      : DEFAULT_WHATSAPP_RENEWAL_SEQUENCE;
+
+  return source.map((item: any, idx: number) => {
+    const fallback =
+      DEFAULT_WHATSAPP_RENEWAL_SEQUENCE.find((d) => d.id === item?.id) ||
+      DEFAULT_WHATSAPP_RENEWAL_SEQUENCE[idx] ||
+      DEFAULT_WHATSAPP_RENEWAL_SEQUENCE[0];
+
+    const resolvedDispatchMode: WhatsAppStepDispatchMode =
+      item?.dispatchMode === 'immediate' || item?.dispatchMode === 'scheduled'
+        ? item.dispatchMode
+        : fallback.dispatchMode;
+
+    const resolvedTriggerType: 'before_due' | 'on_due' | 'after_due' =
+      item?.triggerType === 'before_due' ||
+      item?.triggerType === 'on_due' ||
+      item?.triggerType === 'after_due'
+        ? item.triggerType
+        : fallback.triggerType;
+
+    return {
+      id: String(item?.id || fallback.id || `wa-step-${idx + 1}`),
+      title: String(item?.title || fallback.title),
+      triggerType: resolvedTriggerType,
+      daysOffset:
+        resolvedTriggerType === 'on_due'
+          ? 0
+          : Math.max(0, Number(item?.daysOffset ?? fallback.daysOffset ?? 0)),
+      enabled: item?.enabled !== undefined ? Boolean(item.enabled) : fallback.enabled,
+      dispatchMode: resolvedDispatchMode,
+      template: String(item?.template || fallback.template),
+    };
+  });
+}
 
 export interface MercadoPagoConnectionTestLog {
   id: string;
